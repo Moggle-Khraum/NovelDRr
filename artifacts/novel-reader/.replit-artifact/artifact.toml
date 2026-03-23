@@ -1,0 +1,27 @@
+kind = "mobile"
+previewPath = "/"
+title = "Novel DR"
+version = "1.0.0"
+id = "artifacts/novel-reader"
+router = "expo-domain"
+
+[[integratedSkills]]
+name = "expo"
+version = "1.0.0"
+
+[[services]]
+ensurePreviewReachable = "/status"
+name = "expo"
+paths = [ "/" ]
+localPort = 24974
+
+[services.development]
+run = "pnpm --filter @workspace/novel-reader run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/novel-reader", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/novel-reader", "run", "serve" ]
+
+[services.env]
+PORT = "24974"
+BASE_PATH = "/"
