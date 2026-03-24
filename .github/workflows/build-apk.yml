@@ -23,6 +23,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
+      - name: Verify axios and cheerio are installed
+        working-directory: artifacts/novel-reader
+        run: |
+          echo "Checking if axios is installed..."
+          pnpm list axios || echo "ERROR: axios not found!"
+          echo "Checking if cheerio is installed..."
+          pnpm list cheerio || echo "ERROR: cheerio not found!"
+          echo "If missing, check your package.json and pnpm-lock.yaml"
+
       - name: Setup Expo and EAS
         uses: expo/expo-github-action@v8
         with:
@@ -36,3 +45,10 @@ jobs:
       - name: Build Android APK
         working-directory: artifacts/novel-reader
         run: eas build --platform android --profile preview --non-interactive
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: novel-reader-apk
+          path: artifacts/novel-reader/*.apk
+          if-no-files-found: error
