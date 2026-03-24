@@ -1,13 +1,13 @@
 {
   "cli": {
-    "version": ">= 16.0.0"
+    "version": ">= 16.0.0",
+    "appVersionSource": "local"
   },
   "build": {
     "preview": {
       "android": {
         "buildType": "apk"
-      },
-      "config": "custom-android.yml"
+      }
     },
     "production": {
       "android": {
