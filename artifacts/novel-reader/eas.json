@@ -5,9 +5,9 @@
   "build": {
     "preview": {
       "android": {
-        "buildType": "apk",
-        "config": "custom-android.yml"
-      }
+        "buildType": "apk"
+      },
+      "config": "custom-android.yml"
     },
     "production": {
       "android": {
