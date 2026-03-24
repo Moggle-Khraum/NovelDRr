@@ -2,8 +2,8 @@ build:
   name: Custom Android APK build
   steps:
     - eas/checkout
-    - eas/install_node_modules:
-        inputs:
-          frozen_lockfile: false
+    - run:
+        name: Install dependencies
+        command: pnpm install --no-frozen-lockfile
     - eas/prebuild
     - eas/run_gradle
