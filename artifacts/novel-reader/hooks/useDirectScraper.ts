@@ -1,4 +1,5 @@
 import axios from 'axios';
+// Correct import for react-native-html-parser
 import { DOMParser } from 'react-native-html-parser';
 
 export interface NovelMeta {
@@ -56,6 +57,7 @@ const extractTitleFromUrl = (url: string): string => {
 const makeAbsoluteUrl = (relativeUrl: string, baseUrl: string): string => {
   if (!relativeUrl) return baseUrl;
   if (relativeUrl.startsWith('http')) return relativeUrl;
+  if (relativeUrl.startsWith('//')) return `https:${relativeUrl}`;
   try {
     return new URL(relativeUrl, baseUrl).href;
   } catch {
@@ -63,33 +65,20 @@ const makeAbsoluteUrl = (relativeUrl: string, baseUrl: string): string => {
   }
 };
 
-// Helper to get text content from element
-const getText = (element: any): string => {
+// Safe text extraction helper
+const getTextContent = (element: any): string => {
   if (!element) return '';
-  return element.textContent?.trim() || '';
+  if (typeof element.textContent === 'string') return element.textContent.trim();
+  if (typeof element.text === 'string') return element.text.trim();
+  return '';
 };
 
-// Helper to get attribute value
-const getAttr = (element: any, attr: string): string => {
+// Safe attribute extraction helper
+const getAttribute = (element: any, attr: string): string => {
   if (!element) return '';
-  return element.getAttribute(attr) || '';
-};
-
-// Helper to find first element matching selector
-const findElement = (doc: any, selector: string): any => {
-  if (!doc) return null;
-  return doc.querySelector(selector);
-};
-
-// Helper to find all elements matching selector
-const findElements = (doc: any, selector: string): any[] => {
-  if (!doc) return [];
-  const elements: any[] = [];
-  const results = doc.querySelectorAll(selector);
-  for (let i = 0; i < results.length; i++) {
-    elements.push(results[i]);
-  }
-  return elements;
+  if (element.getAttribute) return element.getAttribute(attr) || '';
+  if (element.attributes && element.attributes[attr]) return element.attributes[attr];
+  return '';
 };
 
 export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
@@ -114,149 +103,166 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
     // Extract title
     let title = extractTitleFromUrl(url);
     
-    if (isReadNovelFull || isNovelFull) {
-      const titleElem = findElement(doc, 'h3.title, h1.title, .book-title');
-      if (titleElem) title = getText(titleElem);
-    } else if (isFreeWebNovel) {
-      const titleElem = findElement(doc, 'h1.novel-title, h1.title');
-      if (titleElem) title = getText(titleElem);
+    try {
+      if (isReadNovelFull || isNovelFull) {
+        const titleElem = doc.querySelector('h3.title, h1.title, .book-title');
+        if (titleElem) title = getTextContent(titleElem);
+      } else if (isFreeWebNovel) {
+        const titleElem = doc.querySelector('h1.novel-title, h1.title');
+        if (titleElem) title = getTextContent(titleElem);
+      }
+    } catch (e) {
+      console.log('Title extraction failed, using URL title');
     }
     
     // Extract author
     let author = 'Unknown Author';
     
-    if (isReadNovelFull) {
-      const authorSpan = findElement(doc, 'span[itemprop="author"]');
-      if (authorSpan) {
-        const authorMeta = findElement(authorSpan, 'meta[itemprop="name"]');
-        if (authorMeta) author = getAttr(authorMeta, 'content') || 'Unknown';
-      }
-    } else if (isNovelFull) {
-      const infoDiv = findElement(doc, 'div.info');
-      if (infoDiv) {
-        const authorH3 = findElement(infoDiv, 'h3');
-        if (authorH3 && getText(authorH3).includes('Author:')) {
-          const authorLink = authorH3.nextSibling;
-          if (authorLink && authorLink.querySelector) {
-            const link = findElement(authorLink, 'a');
-            if (link) author = getText(link);
+    try {
+      if (isReadNovelFull) {
+        const authorSpan = doc.querySelector('span[itemprop="author"]');
+        if (authorSpan) {
+          const authorMeta = authorSpan.querySelector('meta[itemprop="name"]');
+          if (authorMeta) author = getAttribute(authorMeta, 'content') || 'Unknown';
+        }
+      } else if (isNovelFull) {
+        const infoDiv = doc.querySelector('div.info');
+        if (infoDiv) {
+          const allH3 = infoDiv.querySelectorAll('h3');
+          for (let i = 0; i < allH3.length; i++) {
+            const h3 = allH3[i];
+            const text = getTextContent(h3);
+            if (text.includes('Author:')) {
+              const nextElement = h3.nextElementSibling;
+              if (nextElement) {
+                const authorLink = nextElement.querySelector('a');
+                if (authorLink) author = getTextContent(authorLink);
+              }
+              break;
+            }
           }
         }
+      } else if (isFreeWebNovel) {
+        const authorLink = doc.querySelector('div.item div.right a.a1');
+        if (authorLink) author = getTextContent(authorLink);
       }
-    } else if (isFreeWebNovel) {
-      const authorItem = findElement(doc, 'div.item');
-      if (authorItem) {
-        const authorLink = findElement(authorItem, 'div.right a.a1');
-        if (authorLink) author = getText(authorLink);
-      }
+    } catch (e) {
+      console.log('Author extraction failed');
     }
     
     // Extract synopsis
     let synopsis = 'No summary available.';
     
-    if (isReadNovelFull) {
-      const descDiv = findElement(doc, 'div[itemprop="description"]');
-      if (descDiv) {
-        const paragraphs = findElements(descDiv, 'p');
-        if (paragraphs.length > 0) {
-          const texts = paragraphs.map((p: any) => getText(p));
-          synopsis = texts.filter((t: string) => t.length > 0).join('\n\n');
-        } else {
-          synopsis = getText(descDiv);
+    try {
+      if (isReadNovelFull) {
+        const descDiv = doc.querySelector('div[itemprop="description"]');
+        if (descDiv) {
+          const paragraphs = descDiv.querySelectorAll('p');
+          if (paragraphs && paragraphs.length > 0) {
+            const texts: string[] = [];
+            for (let i = 0; i < paragraphs.length; i++) {
+              const text = getTextContent(paragraphs[i]);
+              if (text) texts.push(text);
+            }
+            synopsis = texts.join('\n\n');
+          } else {
+            synopsis = getTextContent(descDiv);
+          }
         }
-      }
-    } else if (isNovelFull) {
-      const descDiv = findElement(doc, 'div.desc-text');
-      if (descDiv) {
-        const paragraphs = findElements(descDiv, 'p');
-        if (paragraphs.length > 0) {
-          const texts = paragraphs.map((p: any) => getText(p));
-          synopsis = texts.filter((t: string) => t.length > 0).join('\n\n');
-        } else {
-          synopsis = getText(descDiv);
+      } else if (isNovelFull) {
+        const descDiv = doc.querySelector('div.desc-text');
+        if (descDiv) {
+          const paragraphs = descDiv.querySelectorAll('p');
+          if (paragraphs && paragraphs.length > 0) {
+            const texts: string[] = [];
+            for (let i = 0; i < paragraphs.length; i++) {
+              const text = getTextContent(paragraphs[i]);
+              if (text) texts.push(text);
+            }
+            synopsis = texts.join('\n\n');
+          } else {
+            synopsis = getTextContent(descDiv);
+          }
         }
-      }
-    } else if (isFreeWebNovel) {
-      const descDiv = findElement(doc, 'div.m-desc');
-      if (descDiv) {
-        const inner = findElement(descDiv, 'div.inner');
-        if (inner) {
-          const paragraphs = findElements(inner, 'p');
-          if (paragraphs.length > 0) {
-            const texts = paragraphs.map((p: any) => getText(p));
-            synopsis = texts.filter((t: string) => t.length > 0).join('\n\n');
+      } else if (isFreeWebNovel) {
+        const descDiv = doc.querySelector('div.m-desc');
+        if (descDiv) {
+          const inner = descDiv.querySelector('div.inner');
+          if (inner) {
+            const paragraphs = inner.querySelectorAll('p');
+            if (paragraphs && paragraphs.length > 0) {
+              const texts: string[] = [];
+              for (let i = 0; i < paragraphs.length; i++) {
+                const text = getTextContent(paragraphs[i]);
+                if (text) texts.push(text);
+              }
+              synopsis = texts.join('\n\n');
+            }
           }
         }
       }
+    } catch (e) {
+      console.log('Synopsis extraction failed');
     }
     
     // Extract cover URL
     let coverUrl = '';
     
-    if (isFreeWebNovel) {
-      const picDiv = findElement(doc, 'div.pic');
-      if (picDiv) {
-        const imgTag = findElement(picDiv, 'img');
-        if (imgTag) {
-          const src = getAttr(imgTag, 'src');
+    try {
+      if (isFreeWebNovel) {
+        const img = doc.querySelector('div.pic img');
+        if (img) {
+          const src = getAttribute(img, 'src');
           if (src) coverUrl = makeAbsoluteUrl(src, url);
         }
       }
-    }
-    
-    if (!coverUrl && (isReadNovelFull || isNovelFull)) {
-      const coverDiv = findElement(doc, 'div.book');
-      if (coverDiv) {
-        const imgTag = findElement(coverDiv, 'img');
-        if (imgTag) {
-          const src = getAttr(imgTag, 'src');
+      
+      if (!coverUrl && (isReadNovelFull || isNovelFull)) {
+        const img = doc.querySelector('div.book img');
+        if (img) {
+          const src = getAttribute(img, 'src');
           if (src) coverUrl = makeAbsoluteUrl(src, url);
         }
       }
+    } catch (e) {
+      console.log('Cover extraction failed');
     }
     
     // Extract first chapter URL
     let firstChapterUrl: string | null = null;
     
-    if (isFreeWebNovel) {
-      const ul = findElement(doc, 'ul.ul-list5');
-      if (ul) {
-        const firstLi = findElement(ul, 'li:first-child');
-        if (firstLi) {
-          const firstA = findElement(firstLi, 'a');
-          if (firstA) {
-            const href = getAttr(firstA, 'href');
+    try {
+      if (isFreeWebNovel) {
+        const firstLink = doc.querySelector('ul.ul-list5 li:first-child a');
+        if (firstLink) {
+          const href = getAttribute(firstLink, 'href');
+          if (href) firstChapterUrl = makeAbsoluteUrl(href, url);
+        }
+      } else {
+        const chapterContainer = doc.querySelector('#tab-chapters, #list-chapter');
+        if (chapterContainer) {
+          const firstLink = chapterContainer.querySelector('ul.list-chapter li:first-child a');
+          if (firstLink) {
+            const href = getAttribute(firstLink, 'href');
             if (href) firstChapterUrl = makeAbsoluteUrl(href, url);
           }
         }
-      }
-    } else {
-      const chapterContainer = findElement(doc, '#tab-chapters, #list-chapter');
-      if (chapterContainer) {
-        const chapterUl = findElement(chapterContainer, 'ul.list-chapter');
-        if (chapterUl) {
-          const firstLi = findElement(chapterUl, 'li:first-child');
-          if (firstLi) {
-            const firstA = findElement(firstLi, 'a');
-            if (firstA) {
-              const href = getAttr(firstA, 'href');
-              if (href) firstChapterUrl = makeAbsoluteUrl(href, url);
+        
+        if (!firstChapterUrl) {
+          const links = doc.querySelectorAll('a[href*="chapter"]');
+          for (let i = 0; i < links.length; i++) {
+            const link = links[i];
+            const href = getAttribute(link, 'href');
+            const text = getTextContent(link).toLowerCase();
+            if (href && (text.includes('chapter 1') || href.includes('chapter-1') || href.includes('chapter1'))) {
+              firstChapterUrl = makeAbsoluteUrl(href, url);
+              break;
             }
           }
         }
       }
-      
-      if (!firstChapterUrl) {
-        const chapterLinks = findElements(doc, 'a[href*="chapter"]');
-        for (const link of chapterLinks) {
-          const href = getAttr(link, 'href');
-          const text = getText(link).toLowerCase();
-          if (href && (text.includes('chapter 1') || href.includes('chapter-1') || href.includes('chapter1'))) {
-            firstChapterUrl = makeAbsoluteUrl(href, url);
-            break;
-          }
-        }
-      }
+    } catch (e) {
+      console.log('First chapter extraction failed');
     }
     
     return {
@@ -288,59 +294,84 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
     
     // Extract chapter title
     let title = `Chapter ${chapterNum}`;
-    const titleTag = findElement(doc, 'h1.chapter-title, h2.chr-title, span.entry-title, .chapter-title');
-    if (titleTag) {
-      const rawTitle = getText(titleTag);
-      const cleanTitle = rawTitle.replace(/^Chapter\s*\d+\s*[:\-]*\s*/i, '');
-      if (cleanTitle && cleanTitle.length > 0) {
-        title = `Chapter ${chapterNum}: ${cleanTitle}`;
+    try {
+      const titleSelectors = [
+        'h1.chapter-title', 'h2.chr-title', 'span.entry-title', '.chapter-title'
+      ];
+      for (const selector of titleSelectors) {
+        const titleElem = doc.querySelector(selector);
+        if (titleElem) {
+          const rawTitle = getTextContent(titleElem);
+          const cleanTitle = rawTitle.replace(/^Chapter\s*\d+\s*[:\-]*\s*/i, '');
+          if (cleanTitle && cleanTitle.length > 0) {
+            title = `Chapter ${chapterNum}: ${cleanTitle}`;
+          }
+          break;
+        }
       }
+    } catch (e) {
+      console.log('Title extraction failed');
     }
     
     // Extract content
     let content = '';
-    const paragraphs = findElements(doc, 'p');
-    
-    if (paragraphs.length > 0) {
-      const textParagraphs: string[] = [];
-      for (const p of paragraphs) {
-        const text = getText(p);
-        if (text.length > 5 && !text.toLowerCase().includes('next chapter')) {
-          textParagraphs.push(text);
+    try {
+      const paragraphs = doc.querySelectorAll('p');
+      if (paragraphs && paragraphs.length > 0) {
+        const textParagraphs: string[] = [];
+        for (let i = 0; i < paragraphs.length; i++) {
+          const text = getTextContent(paragraphs[i]);
+          if (text.length > 5 && !text.toLowerCase().includes('next chapter')) {
+            textParagraphs.push(text);
+          }
         }
+        content = textParagraphs.join('\n\n');
       }
-      content = textParagraphs.join('\n\n');
+    } catch (e) {
+      console.log('Content extraction failed');
     }
     
     // Fallback to article content
     if (!content) {
-      const article = findElement(doc, 'article, .chapter-content, .content-inner');
-      if (article) {
-        const articleParagraphs = findElements(article, 'p');
-        if (articleParagraphs.length > 0) {
-          const texts = articleParagraphs.map((p: any) => getText(p));
-          content = texts.filter((t: string) => t.length > 0).join('\n\n');
-        } else {
-          content = getText(article);
+      try {
+        const article = doc.querySelector('article, .chapter-content, .content-inner');
+        if (article) {
+          const paragraphs = article.querySelectorAll('p');
+          if (paragraphs && paragraphs.length > 0) {
+            const texts: string[] = [];
+            for (let i = 0; i < paragraphs.length; i++) {
+              const text = getTextContent(paragraphs[i]);
+              if (text) texts.push(text);
+            }
+            content = texts.join('\n\n');
+          } else {
+            content = getTextContent(article);
+          }
         }
+      } catch (e) {
+        console.log('Article extraction failed');
       }
     }
     
     // Find next chapter URL
     let nextUrl: string | null = null;
-    const nextLinks = findElements(doc, 'a');
-    
-    for (const link of nextLinks) {
-      const text = getText(link).toLowerCase();
-      const href = getAttr(link, 'href');
-      const classes = getAttr(link, 'class') || '';
-      const id = getAttr(link, 'id') || '';
-      
-      if (href && (text.includes('next') || text.includes('next chapter') || 
-                   classes.includes('next') || id.includes('next'))) {
-        nextUrl = makeAbsoluteUrl(href, url);
-        break;
+    try {
+      const links = doc.querySelectorAll('a');
+      for (let i = 0; i < links.length; i++) {
+        const link = links[i];
+        const text = getTextContent(link).toLowerCase();
+        const href = getAttribute(link, 'href');
+        const className = getAttribute(link, 'class') || '';
+        const id = getAttribute(link, 'id') || '';
+        
+        if (href && (text.includes('next') || text.includes('next chapter') || 
+                     className.includes('next') || id.includes('next'))) {
+          nextUrl = makeAbsoluteUrl(href, url);
+          break;
+        }
       }
+    } catch (e) {
+      console.log('Next chapter extraction failed');
     }
     
     return {
