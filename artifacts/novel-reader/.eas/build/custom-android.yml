@@ -1,0 +1,9 @@
+build:
+  name: Custom Android APK build
+  steps:
+    - eas/checkout
+    - eas/install_node_modules:
+        inputs:
+          frozen_lockfile: false
+    - eas/prebuild
+    - eas/run_gradle
