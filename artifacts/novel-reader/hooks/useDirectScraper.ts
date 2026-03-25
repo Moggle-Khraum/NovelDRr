@@ -26,14 +26,7 @@ const extractBetween = (html: string, startTag: string, endTag: string): string 
   return html.substring(contentStart, endIndex).trim();
 };
 
-// Helper: Extract attribute value
-const getAttribute = (html: string, tag: string, attr: string): string => {
-  const regex = new RegExp(`<${tag}[^>]*${attr}=["']([^"']*)["']`, 'i');
-  const match = html.match(regex);
-  return match ? match[1] : '';
-};
-
-// Helper: Extract text from HTML (strip tags)
+// Helper: Strip HTML tags
 const stripTags = (html: string): string => {
   return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 };
@@ -90,7 +83,7 @@ const makeAbsoluteUrl = (relativeUrl: string, baseUrl: string): string => {
 };
 
 export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
-  console.log('[Scraper] Fetching:', url);
+  console.log('[Scraper] Fetching novel meta from:', url);
   
   try {
     const response = await axios.get(url, {
@@ -106,7 +99,7 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
     const isNovelFull = domainLower.includes('novelfull') && !isReadNovelFull;
     const isFreeWebNovel = domainLower.includes('freewebnovel');
     
-    // Extract title using regex
+    // Extract title
     let title = extractTitleFromUrl(url);
     
     if (isReadNovelFull || isNovelFull) {
@@ -182,12 +175,10 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
       const chapterMatch = html.match(/<ul[^>]*class="ul-list5"[^>]*>.*?<li[^>]*>.*?<a[^>]*href="([^"]+)"/i);
       if (chapterMatch) firstChapterUrl = makeAbsoluteUrl(chapterMatch[1], url);
     } else {
-      // Try chapter containers
       const chapterMatch = html.match(/<(?:div|ul)[^>]*(?:id="(?:tab-chapters|list-chapter)"|class="list-chapter")[^>]*>.*?<li[^>]*>.*?<a[^>]*href="([^"]+)"/i);
       if (chapterMatch) {
         firstChapterUrl = makeAbsoluteUrl(chapterMatch[1], url);
       } else {
-        // Fallback: find any chapter-1 link
         const chapterLinkMatch = html.match(/<a[^>]*href="([^"]*chapter[-/]1[^"]*)"[^>]*>/i);
         if (chapterLinkMatch) firstChapterUrl = makeAbsoluteUrl(chapterLinkMatch[1], url);
       }
@@ -263,4 +254,3 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
     throw new Error(`Failed to fetch chapter: ${error.message}`);
   }
 };
-
