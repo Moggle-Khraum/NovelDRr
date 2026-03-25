@@ -1,6 +1,5 @@
-// hooks/useDirectScraper.ts
 import axios from 'axios';
-import { DOMParser } from 'react-native-html-parser';
+import { parse } from 'fast-html-parser';
 
 export interface NovelMeta {
   title: string;
@@ -17,25 +16,121 @@ export interface ChapterData {
   nextUrl: string | null;
 }
 
-// Helper functions (mirroring Python helpers)
-const ensureAbsoluteUrl = (url: string, baseUrl: string): string => {
-  if (!url) return baseUrl;
-  if (url.startsWith('http')) return url;
-  if (url.startsWith('/')) {
-    try {
-      const parsed = new URL(baseUrl);
-      return `${parsed.protocol}//${parsed.host}${url}`;
-    } catch {
-      return url;
-    }
-  }
-  try {
-    return new URL(url, baseUrl).href;
-  } catch {
-    return url;
-  }
+// Helper to get text from element
+const getText = (element: any): string => {
+  if (!element) return '';
+  if (element.rawText) return element.rawText.trim();
+  if (element.text) return element.text.trim();
+  if (element.structure && element.structure.text) return element.structure.text.trim();
+  return '';
 };
 
+// Helper to get attribute
+const getAttr = (element: any, attr: string): string => {
+  if (!element) return '';
+  if (element.attributes && element.attributes[attr]) return element.attributes[attr];
+  return '';
+};
+
+// Helper to find first element by selector
+const findOne = (root: any, selector: string): any => {
+  if (!root) return null;
+  
+  // Simple selector parser (supports tag, #id, .class)
+  let tag = '*';
+  let id = '';
+  let className = '';
+  
+  if (selector.includes('#')) {
+    const parts = selector.split('#');
+    tag = parts[0] || '*';
+    const idAndClass = parts[1].split('.');
+    id = idAndClass[0];
+    className = idAndClass.slice(1).join('.');
+  } else if (selector.includes('.')) {
+    const parts = selector.split('.');
+    tag = parts[0] || '*';
+    className = parts.slice(1).join('.');
+  } else {
+    tag = selector;
+  }
+  
+  const search = (node: any): any => {
+    if (!node) return null;
+    
+    // Check current node
+    if (node.tagName && node.tagName.toLowerCase() === tag.toLowerCase()) {
+      if (id && node.attributes && node.attributes.id !== id) {
+        // not matching id
+      } else if (className) {
+        const nodeClass = node.attributes?.class || '';
+        const classes = nodeClass.split(' ');
+        if (classes.includes(className)) {
+          return node;
+        }
+      } else if (!id && !className) {
+        return node;
+      } else if (id && node.attributes && node.attributes.id === id) {
+        return node;
+      }
+    }
+    
+    // Search children
+    if (node.childNodes) {
+      for (let i = 0; i < node.childNodes.length; i++) {
+        const result = search(node.childNodes[i]);
+        if (result) return result;
+      }
+    }
+    
+    return null;
+  };
+  
+  return search(root);
+};
+
+// Helper to find all elements by selector
+const findAll = (root: any, selector: string): any[] => {
+  const results: any[] = [];
+  
+  let tag = '*';
+  let className = '';
+  
+  if (selector.includes('.')) {
+    const parts = selector.split('.');
+    tag = parts[0] || '*';
+    className = parts.slice(1).join('.');
+  } else {
+    tag = selector;
+  }
+  
+  const search = (node: any) => {
+    if (!node) return;
+    
+    if (node.tagName && node.tagName.toLowerCase() === tag.toLowerCase()) {
+      if (className) {
+        const nodeClass = node.attributes?.class || '';
+        const classes = nodeClass.split(' ');
+        if (classes.includes(className)) {
+          results.push(node);
+        }
+      } else {
+        results.push(node);
+      }
+    }
+    
+    if (node.childNodes) {
+      for (let i = 0; i < node.childNodes.length; i++) {
+        search(node.childNodes[i]);
+      }
+    }
+  };
+  
+  search(root);
+  return results;
+};
+
+// Helper to extract title from URL (same as Python)
 const extractTitleFromUrl = (url: string): string => {
   try {
     const parsedUrl = new URL(url);
@@ -71,128 +166,25 @@ const extractTitleFromUrl = (url: string): string => {
   }
 };
 
-// Direct translation of Python's _get_first_chapter_url
-const getFirstChapterUrl = (doc: any, baseUrl: string): string | null => {
-  // 1. Target the Specific Chapter List Containers (ReadNovelFull)
-  const chapterContainer = doc.querySelector('#tab-chapters, #list-chapter');
-  
-  if (chapterContainer) {
-    const chapterUl = chapterContainer.querySelector('ul.list-chapter');
-    if (chapterUl) {
-      const firstLi = chapterUl.querySelector('li');
-      if (firstLi) {
-        const firstA = firstLi.querySelector('a');
-        if (firstA && firstA.getAttribute('href')) {
-          return ensureAbsoluteUrl(firstA.getAttribute('href'), baseUrl);
-        }
-      }
+const ensureAbsoluteUrl = (relativeUrl: string, baseUrl: string): string => {
+  if (!relativeUrl) return baseUrl;
+  if (relativeUrl.startsWith('http')) return relativeUrl;
+  if (relativeUrl.startsWith('/')) {
+    try {
+      const parsed = new URL(baseUrl);
+      return `${parsed.protocol}//${parsed.host}${relativeUrl}`;
+    } catch {
+      return relativeUrl;
     }
   }
-  
-  // 2. Method: Table-based lists (Fallback)
-  const chapterTable = doc.querySelector('table#chapters');
-  if (chapterTable) {
-    const firstLink = chapterTable.querySelector('a');
-    if (firstLink && firstLink.getAttribute('href')) {
-      return ensureAbsoluteUrl(firstLink.getAttribute('href'), baseUrl);
-    }
+  try {
+    return new URL(relativeUrl, baseUrl).href;
+  } catch {
+    return relativeUrl;
   }
-  
-  // 3. Method: "Brute Force" Keyword Search
-  const allLinks = doc.querySelectorAll('a');
-  for (let i = 0; i < allLinks.length; i++) {
-    const link = allLinks[i];
-    const href = link.getAttribute('href')?.toLowerCase() || '';
-    const text = link.textContent?.toLowerCase() || '';
-    
-    if ((href.includes('chapter-1') || href.includes('chapter-01') || href.includes('chapter1') ||
-         text.includes('chapter 1') || text.includes('chapter1')) &&
-        !href.includes('next') && !href.includes('last')) {
-      return ensureAbsoluteUrl(link.getAttribute('href'), baseUrl);
-    }
-  }
-  
-  return null;
 };
 
-// Direct translation of Python's get_first_chapter for FreeWebNovel
-const getFreeWebNovelFirstChapter = (doc: any, baseUrl: string): string | null => {
-  const ul = doc.querySelector('ul.ul-list5');
-  if (!ul) return null;
-  
-  const firstLi = ul.querySelector('li');
-  if (!firstLi) return null;
-  
-  const firstA = firstLi.querySelector('a');
-  if (!firstA) return null;
-  
-  const href = firstA.getAttribute('href');
-  return href ? ensureAbsoluteUrl(href, baseUrl) : null;
-};
-
-// Direct translation of Python's chapter title extraction
-const extractChapterTitle = (doc: any, chapterNum: number): string => {
-  let displayTitle = `Chapter ${chapterNum}`;
-  
-  // Look for title in h1, h2, or span with chapter-related classes
-  const titleSelectors = [
-    'h1.chapter-title', 'h2.chapter-title', 'span.chapter-title',
-    'h1.chr-title', 'h2.chr-title', 'span.chr-title',
-    'h1.entry-title', 'h2.entry-title', 'span.entry-title'
-  ];
-  
-  for (const selector of titleSelectors) {
-    const titleTag = doc.querySelector(selector);
-    if (titleTag) {
-      const rawName = titleTag.textContent?.trim() || '';
-      const cleanName = rawName.replace(/^Chapter\s*\d+\s*[:\-]*\s*/i, '').trim();
-      if (cleanName) {
-        displayTitle = `Chapter ${chapterNum}: ${cleanName}`;
-      }
-      break;
-    }
-  }
-  
-  return displayTitle;
-};
-
-// Direct translation of Python's content extraction
-const extractChapterContent = (doc: any): string => {
-  const paragraphs = doc.querySelectorAll('p');
-  const validParagraphs: string[] = [];
-  
-  for (let i = 0; i < paragraphs.length; i++) {
-    const text = paragraphs[i].textContent?.trim() || '';
-    // Filter out short paragraphs (likely navigation elements)
-    if (text.length > 5 && !text.toLowerCase().includes('next chapter')) {
-      validParagraphs.push(text);
-    }
-  }
-  
-  return validParagraphs.join('\n\n');
-};
-
-// Direct translation of Python's next chapter link finding
-const findNextChapterLink = (doc: any, currentUrl: string): string | null => {
-  const allLinks = doc.querySelectorAll('a');
-  
-  for (let i = 0; i < allLinks.length; i++) {
-    const link = allLinks[i];
-    const text = link.textContent?.toLowerCase() || '';
-    const href = link.getAttribute('href') || '';
-    const classes = link.getAttribute('class')?.toLowerCase() || '';
-    const id = link.getAttribute('id')?.toLowerCase() || '';
-    
-    if ((text.includes('next') || text.includes('next chapter') ||
-         classes.includes('next') || id.includes('next')) && href) {
-      return ensureAbsoluteUrl(href, currentUrl);
-    }
-  }
-  
-  return null;
-};
-
-// Main novel meta extraction (translated from Python)
+// Main novel meta extraction
 export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
   console.log('[Scraper] Fetching novel meta from:', url);
   
@@ -205,139 +197,162 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
     });
     
     const html = response.data;
-    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const root = parse(html);
     
     const domainLower = url.toLowerCase();
     const isReadNovelFull = domainLower.includes('readnovelfull');
     const isNovelFull = domainLower.includes('novelfull') && !isReadNovelFull;
     const isFreeWebNovel = domainLower.includes('freewebnovel');
     
-    // Extract title from URL first (like Python)
+    // Extract title
     let title = extractTitleFromUrl(url);
     
-    // Try to get title from page if available
     if (isReadNovelFull || isNovelFull) {
-      const titleElem = doc.querySelector('h3.title, h1.title, .book-title');
-      if (titleElem) title = titleElem.textContent?.trim() || title;
+      const titleElem = findOne(root, 'h3.title') || findOne(root, 'h1.title') || findOne(root, '.book-title');
+      if (titleElem) title = getText(titleElem);
     } else if (isFreeWebNovel) {
-      const titleElem = doc.querySelector('h1.novel-title, h1.title');
-      if (titleElem) title = titleElem.textContent?.trim() || title;
+      const titleElem = findOne(root, 'h1.novel-title') || findOne(root, 'h1.title');
+      if (titleElem) title = getText(titleElem);
     }
     
-    // Extract author (translated from Python)
+    // Extract author
     let author = 'Unknown Author';
     
     if (isReadNovelFull) {
-      const authorSpan = doc.querySelector('span[itemprop="author"]');
-      if (authorSpan) {
-        const authorMeta = authorSpan.querySelector('meta[itemprop="name"]');
-        if (authorMeta) author = authorMeta.getAttribute('content') || 'Unknown';
+      const authorSpan = findOne(root, 'span[itemprop="author"]');
+      if (authorSpan && authorSpan.childNodes) {
+        for (const child of authorSpan.childNodes) {
+          if (child.tagName === 'meta' && child.attributes && child.attributes.itemprop === 'name') {
+            author = child.attributes.content || 'Unknown';
+            break;
+          }
+        }
       }
     } else if (isNovelFull) {
-      const infoDiv = doc.querySelector('div.info');
-      if (infoDiv) {
-        const h3Elements = infoDiv.querySelectorAll('h3');
-        for (let i = 0; i < h3Elements.length; i++) {
-          const h3 = h3Elements[i];
-          if (h3.textContent?.includes('Author:')) {
-            const authorLink = h3.nextElementSibling?.querySelector('a');
-            if (authorLink) author = authorLink.textContent?.trim() || 'Unknown';
+      const infoDiv = findOne(root, 'div.info');
+      if (infoDiv && infoDiv.childNodes) {
+        for (const child of infoDiv.childNodes) {
+          if (child.tagName === 'h3' && getText(child).includes('Author:')) {
+            if (child.nextSibling) {
+              const authorLink = findOne(child.nextSibling, 'a');
+              if (authorLink) author = getText(authorLink);
+            }
             break;
           }
         }
       }
     } else if (isFreeWebNovel) {
-      const authorItem = doc.querySelector('div.item');
-      if (authorItem) {
-        const authorLink = authorItem.querySelector('div.right a.a1');
-        if (authorLink) author = authorLink.textContent?.trim() || 'Unknown';
-      }
+      const authorLink = findOne(root, 'div.item div.right a.a1');
+      if (authorLink) author = getText(authorLink);
     }
     
-    // Extract synopsis (translated from Python)
+    // Extract synopsis
     let synopsis = 'No summary available.';
     
     if (isReadNovelFull) {
-      const descDiv = doc.querySelector('div[itemprop="description"]');
+      const descDiv = findOne(root, 'div[itemprop="description"]');
       if (descDiv) {
-        const paragraphs = descDiv.querySelectorAll('p');
+        const paragraphs = findAll(descDiv, 'p');
         if (paragraphs.length > 0) {
-          const texts: string[] = [];
-          for (let i = 0; i < paragraphs.length; i++) {
-            const text = paragraphs[i].textContent?.trim() || '';
-            if (text) texts.push(text);
-          }
+          const texts = paragraphs.map(p => getText(p)).filter(t => t.length > 0);
           synopsis = texts.join('\n\n');
         } else {
-          synopsis = descDiv.textContent?.trim() || synopsis;
+          synopsis = getText(descDiv);
         }
       }
     } else if (isNovelFull) {
-      const descDiv = doc.querySelector('div.desc-text');
+      const descDiv = findOne(root, 'div.desc-text');
       if (descDiv) {
-        const paragraphs = descDiv.querySelectorAll('p');
+        const paragraphs = findAll(descDiv, 'p');
         if (paragraphs.length > 0) {
-          const texts: string[] = [];
-          for (let i = 0; i < paragraphs.length; i++) {
-            const text = paragraphs[i].textContent?.trim() || '';
-            if (text) texts.push(text);
-          }
+          const texts = paragraphs.map(p => getText(p)).filter(t => t.length > 0);
           synopsis = texts.join('\n\n');
         } else {
-          synopsis = descDiv.textContent?.trim() || synopsis;
+          synopsis = getText(descDiv);
         }
       }
     } else if (isFreeWebNovel) {
-      const descDiv = doc.querySelector('div.m-desc');
+      const descDiv = findOne(root, 'div.m-desc');
       if (descDiv) {
-        const inner = descDiv.querySelector('div.inner');
+        const inner = findOne(descDiv, 'div.inner');
         if (inner) {
-          const paragraphs = inner.querySelectorAll('p');
+          const paragraphs = findAll(inner, 'p');
           if (paragraphs.length > 0) {
-            const texts: string[] = [];
-            for (let i = 0; i < paragraphs.length; i++) {
-              const text = paragraphs[i].textContent?.trim() || '';
-              if (text) texts.push(text);
-            }
+            const texts = paragraphs.map(p => getText(p)).filter(t => t.length > 0);
             synopsis = texts.join('\n\n');
           }
         }
       }
     }
     
-    // Extract cover image (translated from Python)
+    // Extract cover URL
     let coverUrl = '';
-    let imgUrl = null;
     
-    // FreeWebNovel cover
-    const picDiv = doc.querySelector('div.pic');
+    const picDiv = findOne(root, 'div.pic');
     if (picDiv) {
-      const imgTag = picDiv.querySelector('img');
-      if (imgTag && imgTag.getAttribute('src')) {
-        imgUrl = imgTag.getAttribute('src');
+      const img = findOne(picDiv, 'img');
+      if (img) {
+        const src = getAttr(img, 'src');
+        if (src) coverUrl = ensureAbsoluteUrl(src, url);
       }
     }
     
-    // ReadNovelFull/NovelFull cover
-    if (!imgUrl) {
-      const coverDiv = doc.querySelector('div.book');
+    if (!coverUrl) {
+      const coverDiv = findOne(root, 'div.book');
       if (coverDiv) {
-        const imgTag = coverDiv.querySelector('img');
-        if (imgTag && imgTag.getAttribute('src')) {
-          imgUrl = imgTag.getAttribute('src');
+        const img = findOne(coverDiv, 'img');
+        if (img) {
+          const src = getAttr(img, 'src');
+          if (src) coverUrl = ensureAbsoluteUrl(src, url);
         }
       }
     }
     
-    if (imgUrl) coverUrl = ensureAbsoluteUrl(imgUrl, url);
-    
-    // Get first chapter URL (translated from Python)
+    // Extract first chapter URL
     let firstChapterUrl: string | null = null;
     
     if (isFreeWebNovel) {
-      firstChapterUrl = getFreeWebNovelFirstChapter(doc, url);
+      const ul = findOne(root, 'ul.ul-list5');
+      if (ul) {
+        const firstLi = ul.childNodes?.find((n: any) => n.tagName === 'li');
+        if (firstLi) {
+          const firstA = findOne(firstLi, 'a');
+          if (firstA) {
+            const href = getAttr(firstA, 'href');
+            if (href) firstChapterUrl = ensureAbsoluteUrl(href, url);
+          }
+        }
+      }
     } else {
-      firstChapterUrl = getFirstChapterUrl(doc, url);
+      // Try chapter containers
+      const chapterContainer = findOne(root, '#tab-chapters') || findOne(root, '#list-chapter');
+      if (chapterContainer) {
+        const chapterUl = findOne(chapterContainer, 'ul.list-chapter');
+        if (chapterUl) {
+          const firstLi = chapterUl.childNodes?.find((n: any) => n.tagName === 'li');
+          if (firstLi) {
+            const firstA = findOne(firstLi, 'a');
+            if (firstA) {
+              const href = getAttr(firstA, 'href');
+              if (href) firstChapterUrl = ensureAbsoluteUrl(href, url);
+            }
+          }
+        }
+      }
+      
+      // Fallback: find any chapter 1 link
+      if (!firstChapterUrl) {
+        const allLinks = findAll(root, 'a');
+        for (const link of allLinks) {
+          const href = getAttr(link, 'href')?.toLowerCase() || '';
+          const text = getText(link).toLowerCase();
+          if ((href.includes('chapter-1') || href.includes('chapter/1') || text.includes('chapter 1')) &&
+              !href.includes('next') && !href.includes('last')) {
+            firstChapterUrl = ensureAbsoluteUrl(getAttr(link, 'href'), url);
+            break;
+          }
+        }
+      }
     }
     
     console.log('[Scraper] Found first chapter:', firstChapterUrl);
@@ -355,7 +370,7 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
   }
 };
 
-// Chapter fetching (translated from Python's download loop)
+// Chapter fetching
 export const directFetchChapter = async (url: string, chapterNum: number): Promise<ChapterData> => {
   console.log('[Scraper] Fetching chapter:', url);
   
@@ -368,16 +383,57 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
     });
     
     const html = response.data;
-    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const root = parse(html);
     
-    // Extract chapter title (like Python)
-    const title = extractChapterTitle(doc, chapterNum);
+    // Extract chapter title
+    let title = `Chapter ${chapterNum}`;
+    const titleSelectors = [
+      'h1.chapter-title', 'h2.chapter-title', 'span.chapter-title',
+      'h1.chr-title', 'h2.chr-title', 'span.chr-title',
+      'h1.entry-title', 'h2.entry-title', 'span.entry-title'
+    ];
     
-    // Extract content (like Python)
-    const content = extractChapterContent(doc);
+    for (const selector of titleSelectors) {
+      const titleElem = findOne(root, selector);
+      if (titleElem) {
+        const rawTitle = getText(titleElem);
+        const cleanTitle = rawTitle.replace(/^Chapter\s*\d+\s*[:\-]*\s*/i, '').trim();
+        if (cleanTitle && cleanTitle.length > 0) {
+          title = `Chapter ${chapterNum}: ${cleanTitle}`;
+        }
+        break;
+      }
+    }
     
-    // Find next chapter link (like Python)
-    const nextUrl = findNextChapterLink(doc, url);
+    // Extract content (all paragraphs)
+    const paragraphs = findAll(root, 'p');
+    const validParagraphs: string[] = [];
+    
+    for (const p of paragraphs) {
+      const text = getText(p);
+      if (text.length > 5 && !text.toLowerCase().includes('next chapter')) {
+        validParagraphs.push(text);
+      }
+    }
+    
+    const content = validParagraphs.join('\n\n');
+    
+    // Find next chapter link
+    let nextUrl: string | null = null;
+    const allLinks = findAll(root, 'a');
+    
+    for (const link of allLinks) {
+      const text = getText(link).toLowerCase();
+      const href = getAttr(link, 'href');
+      const classes = getAttr(link, 'class')?.toLowerCase() || '';
+      const id = getAttr(link, 'id')?.toLowerCase() || '';
+      
+      if (href && (text.includes('next') || text.includes('next chapter') ||
+                   classes.includes('next') || id.includes('next'))) {
+        nextUrl = ensureAbsoluteUrl(href, url);
+        break;
+      }
+    }
     
     return {
       url,
