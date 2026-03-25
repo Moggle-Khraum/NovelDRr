@@ -36,7 +36,6 @@ function LogLine({ entry }: { entry: LogEntry }) {
     warning: Colors.amber,
   };
   
-  // Add emoji mapping based on text content
   const getIcon = (text: string) => {
     if (text.includes("CONNECTING")) return "🔍";
     if (text.includes("Source Domain")) return "📡";
@@ -120,7 +119,6 @@ export default function AddNovelScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      // Extract domain from URL for initial display
       let domain = "";
       try {
         const urlObj = new URL(trimmedUrl);
@@ -144,7 +142,6 @@ export default function AddNovelScreen() {
       addLog(`Author: ${meta.author}`, "info");
       
       if (meta.synopsis && meta.synopsis !== "No summary available.") {
-        // Show first 100 chars of synopsis
         const shortSynopsis = meta.synopsis.length > 100 
           ? meta.synopsis.substring(0, 100) + "..." 
           : meta.synopsis;
@@ -222,7 +219,6 @@ export default function AddNovelScreen() {
 
         downloaded++;
         
-        // Show different icons based on chapter number
         if (downloaded % 10 === 0) {
           addLog(`Saved: ${data.title} [${downloaded} chapters downloaded so far]`, "success");
         } else {
@@ -304,10 +300,11 @@ export default function AddNovelScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 20 }]}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomPad + 20 }]}
+        showsVerticalScrollIndicator={true}
+        alwaysBounceVertical={true}
       >
+        {/* Supported Sites Card */}
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.cardLabel, { color: colors.textSecondary }]}>SUPPORTED SITES</Text>
           <Text style={[styles.cardValue, { color: colors.text }]}>
@@ -315,6 +312,7 @@ export default function AddNovelScreen() {
           </Text>
         </View>
 
+        {/* Form Section */}
         <View style={styles.form}>
           <View>
             <Text style={[styles.label, { color: colors.textSecondary }]}>Novel URL</Text>
@@ -450,6 +448,9 @@ export default function AddNovelScreen() {
             )}
           </ScrollView>
         </View>
+
+        {/* Extra space at bottom for better scrolling */}
+        <View style={styles.bottomSpacer} />
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -469,15 +470,15 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     fontSize: 22,
   },
-  scroll: { 
-    padding: 16, 
-    gap: 16,
-    flexGrow: 1,
+  scrollContent: { 
+    paddingHorizontal: 16,
+    paddingTop: 16,
   },
   card: {
     borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
     padding: 14,
+    marginBottom: 16,
   },
   cardLabel: {
     fontFamily: "Inter_600SemiBold",
@@ -489,7 +490,10 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     fontSize: 13,
   },
-  form: { gap: 14 },
+  form: { 
+    gap: 14,
+    marginBottom: 16,
+  },
   label: {
     fontFamily: "Inter_500Medium",
     fontSize: 12,
@@ -533,7 +537,7 @@ const styles = StyleSheet.create({
   },
   progressSection: { 
     gap: 8,
-    marginTop: 8,
+    marginBottom: 16,
   },
   progressHeader: {
     flexDirection: "row",
@@ -560,7 +564,7 @@ const styles = StyleSheet.create({
   },
   logSection: { 
     gap: 8,
-    marginBottom: 20,
+    marginBottom: 16,
   },
   logHeader: {
     flexDirection: "row",
@@ -588,5 +592,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     paddingHorizontal: 4,
   },
+  bottomSpacer: {
+    height: 20,
+  },
 });
-
