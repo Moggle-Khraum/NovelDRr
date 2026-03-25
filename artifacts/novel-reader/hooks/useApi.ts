@@ -1,17 +1,6 @@
-// hooks/useApi.ts
-import { 
-  directFetchNovelMeta, 
-  directFetchChapter,
-  NovelMeta,
-  ChapterData 
-} from './useDirectScraper';
+import { directFetchNovelMeta, directFetchChapter } from './useDirectScraper';
 
-export type { NovelMeta, ChapterData };
+export type { NovelMeta, ChapterData } from './useDirectScraper';
 
-export const fetchNovelMeta = async (url: string): Promise<NovelMeta> => {
-  return directFetchNovelMeta(url);
-};
-
-export const fetchChapter = async (url: string, chapterNum: number): Promise<ChapterData> => {
-  return directFetchChapter(url, chapterNum);
-};
+export const fetchNovelMeta = directFetchNovelMeta;
+export const fetchChapter = directFetchChapter;
