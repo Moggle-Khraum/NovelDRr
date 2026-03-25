@@ -11,6 +11,7 @@ import {
   Text,
   TextInput,
   View,
+  FlatList,
 } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -297,6 +298,42 @@ export default function UpdatesScreen() {
     },
   ];
 
+  const renderNovelItem = ({ item }: { item: Novel }) => (
+    <Pressable
+      style={[
+        styles.novelItem,
+        {
+          backgroundColor: selectedNovel?.id === item.id ? colors.accent : colors.surface,
+          borderColor: colors.border,
+        },
+      ]}
+      onPress={() => setSelectedNovel(item)}
+    >
+      <View style={styles.novelItemContent}>
+        <Text
+          style={[
+            styles.novelTitle,
+            { color: selectedNovel?.id === item.id ? "#fff" : colors.text },
+          ]}
+          numberOfLines={2}
+        >
+          {item.title}
+        </Text>
+        <Text
+          style={[
+            styles.novelChapters,
+            { color: selectedNovel?.id === item.id ? colors.textMuted : colors.textSecondary },
+          ]}
+        >
+          {item.chapters.length} chapters
+        </Text>
+      </View>
+      {selectedNovel?.id === item.id && (
+        <Ionicons name="checkmark-circle" size={20} color="#fff" style={styles.checkIcon} />
+      )}
+    </Pressable>
+  );
+
   return (
     <KeyboardAvoidingView
       style={[styles.container, { backgroundColor: colors.background }]}
@@ -312,44 +349,18 @@ export default function UpdatesScreen() {
         showsVerticalScrollIndicator={true}
         alwaysBounceVertical={true}
       >
-        {/* Select Novel - Reverted to Dropdown Style */}
+        {/* Select Novel - Vertical List */}
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.cardLabel, { color: colors.textSecondary }]}>SELECT NOVEL</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.novelScroll}>
-            <View style={styles.novelButtons}>
-              {novels.map((novel) => (
-                <Pressable
-                  key={novel.id}
-                  style={[
-                    styles.novelButton,
-                    {
-                      backgroundColor: selectedNovel?.id === novel.id ? colors.accent : colors.surface,
-                      borderColor: colors.border,
-                    },
-                  ]}
-                  onPress={() => setSelectedNovel(novel)}
-                >
-                  <Text
-                    style={[
-                      styles.novelButtonText,
-                      { color: selectedNovel?.id === novel.id ? "#fff" : colors.text },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {novel.title}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.chapterCount,
-                      { color: selectedNovel?.id === novel.id ? colors.textMuted : colors.textSecondary },
-                    ]}
-                  >
-                    {novel.chapters.length} ch
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          </ScrollView>
+          <View style={styles.novelListContainer}>
+            {novels.length === 0 ? (
+              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+                No novels in library. Add some first!
+              </Text>
+            ) : (
+              novels.map((novel) => renderNovelItem({ item: novel }))
+            )}
+          </View>
         </View>
 
         {/* Form Section */}
@@ -507,31 +518,40 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     fontSize: 10,
     letterSpacing: 0.8,
-    marginBottom: 8,
+    marginBottom: 12,
   },
-  novelScroll: {
+  novelListContainer: {
+    gap: 8,
+  },
+  novelItem: {
     flexDirection: "row",
-  },
-  novelButtons: {
-    flexDirection: "row",
-    gap: 10,
-    flexWrap: "wrap",
-  },
-  novelButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 10,
     borderWidth: 1,
-    minWidth: 100,
   },
-  novelButtonText: {
+  novelItemContent: {
+    flex: 1,
+  },
+  novelTitle: {
     fontFamily: "Inter_600SemiBold",
-    fontSize: 13,
-    marginBottom: 2,
+    fontSize: 14,
+    marginBottom: 4,
   },
-  chapterCount: {
+  novelChapters: {
     fontFamily: "Inter_400Regular",
-    fontSize: 10,
+    fontSize: 11,
+  },
+  checkIcon: {
+    marginLeft: 8,
+  },
+  emptyText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    textAlign: "center",
+    paddingVertical: 20,
   },
   form: { 
     gap: 14,
