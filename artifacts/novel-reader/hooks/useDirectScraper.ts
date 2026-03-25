@@ -16,16 +16,6 @@ export interface ChapterData {
   nextUrl: string | null;
 }
 
-// Helper: Extract content between tags
-const extractBetween = (html: string, startTag: string, endTag: string): string => {
-  const startIndex = html.indexOf(startTag);
-  if (startIndex === -1) return '';
-  const contentStart = startIndex + startTag.length;
-  const endIndex = html.indexOf(endTag, contentStart);
-  if (endIndex === -1) return '';
-  return html.substring(contentStart, endIndex).trim();
-};
-
 // Helper: Strip HTML tags
 const stripTags = (html: string): string => {
   return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
@@ -168,13 +158,47 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
     const coverMatch = html.match(/<div[^>]*class="(?:pic|book)"[^>]*>.*?<img[^>]*src="([^"]+)"/i);
     if (coverMatch) coverUrl = makeAbsoluteUrl(coverMatch[1], url);
     
-    // Extract first chapter URL
+    // Extract first chapter URL - ENHANCED FOR FREEWEBNOVEL
     let firstChapterUrl: string | null = null;
     
     if (isFreeWebNovel) {
-      const chapterMatch = html.match(/<ul[^>]*class="ul-list5"[^>]*>.*?<li[^>]*>.*?<a[^>]*href="([^"]+)"/i);
-      if (chapterMatch) firstChapterUrl = makeAbsoluteUrl(chapterMatch[1], url);
+      console.log('[Scraper] FreeWebNovel detected, looking for chapter links...');
+      
+      // Try multiple patterns for FreeWebNovel
+      const patterns = [
+        /<ul[^>]*class="ul-list5"[^>]*>.*?<li[^>]*>.*?<a[^>]*href="([^"]+)"[^>]*>/i,
+        /<ul[^>]*class="[^"]*chapter[^"]*"[^>]*>.*?<li[^>]*>.*?<a[^>]*href="([^"]+)"[^>]*>/i,
+        /<a[^>]*href="([^"]*chapter-1[^"]*)"[^>]*>/i,
+        /href="([^"]*chapter-1[^"]*)"/i,
+        /<a[^>]*href="([^"]+)"[^>]*>Chapter\s*1<\/a>/i,
+        /<a[^>]*href="([^"]+)"[^>]*>Start Reading<\/a>/i,
+        /<a[^>]*href="([^"]+)"[^>]*>Read First Chapter<\/a>/i,
+      ];
+      
+      for (const pattern of patterns) {
+        const match = html.match(pattern);
+        if (match && match[1]) {
+          firstChapterUrl = makeAbsoluteUrl(match[1], url);
+          console.log('[Scraper] Found FreeWebNovel first chapter:', firstChapterUrl);
+          break;
+        }
+      }
+      
+      // Fallback: find any chapter link
+      if (!firstChapterUrl) {
+        const chapterLinks = html.match(/<a[^>]*href="([^"]*chapter[^"]*)"[^>]*>/gi);
+        if (chapterLinks && chapterLinks.length > 0) {
+          for (const link of chapterLinks) {
+            const hrefMatch = link.match(/href="([^"]+)"/i);
+            if (hrefMatch && hrefMatch[1]) {
+              firstChapterUrl = makeAbsoluteUrl(hrefMatch[1], url);
+              break;
+            }
+          }
+        }
+      }
     } else {
+      // ReadNovelFull and NovelFull extraction
       const chapterMatch = html.match(/<(?:div|ul)[^>]*(?:id="(?:tab-chapters|list-chapter)"|class="list-chapter")[^>]*>.*?<li[^>]*>.*?<a[^>]*href="([^"]+)"/i);
       if (chapterMatch) {
         firstChapterUrl = makeAbsoluteUrl(chapterMatch[1], url);
@@ -221,25 +245,50 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
       if (cleanTitle) title = `Chapter ${chapterNum}: ${cleanTitle}`;
     }
     
-    // Extract content (all paragraphs)
+    // Extract content - ENHANCED FOR FREEWEBNOVEL
     const paragraphMatches = html.match(/<p[^>]*>(.*?)<\/p>/gis);
     const validParagraphs: string[] = [];
     
     if (paragraphMatches) {
       for (const p of paragraphMatches) {
         const text = stripTags(p);
-        if (text.length > 5 && !text.toLowerCase().includes('next chapter')) {
+        if (text.length > 5 && 
+            !text.toLowerCase().includes('next chapter') &&
+            !text.toLowerCase().includes('previous chapter') &&
+            !text.toLowerCase().includes('back to') &&
+            !text.toLowerCase().includes('table of contents')) {
           validParagraphs.push(text);
         }
       }
     }
     
-    const content = validParagraphs.join('\n\n');
+    let content = validParagraphs.join('\n\n');
+    
+    // If no paragraphs found, try content containers
+    if (!content) {
+      const contentMatch = html.match(/<div[^>]*class="chapter-content"[^>]*>(.*?)<\/div>/is) ||
+                           html.match(/<div[^>]*class="content"[^>]*>(.*?)<\/div>/is) ||
+                           html.match(/<article[^>]*>(.*?)<\/article>/is) ||
+                           html.match(/<div[^>]*id="chapter-content"[^>]*>(.*?)<\/div>/is);
+      if (contentMatch) {
+        const innerContent = contentMatch[1];
+        const innerParagraphs = innerContent.match(/<p[^>]*>(.*?)<\/p>/gis);
+        if (innerParagraphs) {
+          const texts: string[] = [];
+          for (const p of innerParagraphs) {
+            const text = stripTags(p);
+            if (text.length > 5) texts.push(text);
+          }
+          content = texts.join('\n\n');
+        } else {
+          content = stripTags(innerContent);
+        }
+      }
+    }
     
     // Find next chapter URL - EXACT PYTHON TRANSLATION
     let nextUrl: string | null = null;
     
-    // Get all links (like soup.find_all('a', href=True))
     const linkRegex = /<a\s+[^>]*href="([^"]+)"[^>]*>.*?<\/a>/gi;
     let linkMatch;
     
@@ -247,22 +296,17 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
       const fullLink = linkMatch[0];
       const href = linkMatch[1];
       
-      // Extract text content (like a.get_text().lower())
       const textMatch = fullLink.match(/>([^<]*)</);
       const txt = textMatch ? textMatch[1].toLowerCase() : '';
       
-      // Extract class attribute (like str(a.get('class', [])).lower())
       const classMatch = fullLink.match(/class=["']([^"']*)["']/i);
       const classAttr = classMatch ? classMatch[1].toLowerCase() : '';
       
-      // Extract id attribute (like a.get('id', '').lower())
       const idMatch = fullLink.match(/id=["']([^"']*)["']/i);
       const idAttr = idMatch ? idMatch[1].toLowerCase() : '';
       
-      // Combine attrs like Python does
       const attrs = classAttr + idAttr;
       
-      // Check conditions exactly like Python
       if (txt.includes('next') || 
           txt.includes('next chapter') || 
           attrs.includes('next') || 
@@ -273,7 +317,6 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
       }
     }
     
-    // Debug if not found
     if (!nextUrl) {
       console.log('[Scraper] No next chapter found. Checked all links.');
     }
@@ -289,4 +332,3 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
     throw new Error(`Failed to fetch chapter: ${error.message}`);
   }
 };
-
