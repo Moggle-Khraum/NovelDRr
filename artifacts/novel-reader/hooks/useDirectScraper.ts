@@ -89,122 +89,141 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
     const isNovelFull = domainLower.includes('novelfull') && !isReadNovelFull;
     const isFreeWebNovel = domainLower.includes('freewebnovel');
     
-    // Extract title
+    // Extract title from URL first (like Python)
     let title = extractTitleFromUrl(url);
-    
-    if (isReadNovelFull || isNovelFull) {
-      const titleMatch = html.match(/<h3[^>]*class="title"[^>]*>([^<]+)<\/h3>/i) ||
-                         html.match(/<h1[^>]*class="title"[^>]*>([^<]+)<\/h1>/i) ||
-                         html.match(/<div[^>]*class="book-title"[^>]*>([^<]+)<\/div>/i);
-      if (titleMatch) title = decodeHTML(titleMatch[1].trim());
-    } else if (isFreeWebNovel) {
-      const titleMatch = html.match(/<h1[^>]*class="novel-title"[^>]*>([^<]+)<\/h1>/i) ||
-                         html.match(/<h1[^>]*class="title"[^>]*>([^<]+)<\/h1>/i);
-      if (titleMatch) title = decodeHTML(titleMatch[1].trim());
-    }
     
     // Extract author
     let author = 'Unknown Author';
     
-    if (isReadNovelFull) {
-      const authorMatch = html.match(/<span[^>]*itemprop="author"[^>]*>.*?<meta[^>]*itemprop="name"[^>]*content="([^"]+)"/i);
-      if (authorMatch) author = decodeHTML(authorMatch[1]);
-    } else if (isNovelFull) {
-      const authorMatch = html.match(/<div[^>]*class="info"[^>]*>.*?<h3[^>]*>Author:<\/h3>\s*<a[^>]*>([^<]+)<\/a>/i);
-      if (authorMatch) author = decodeHTML(authorMatch[1].trim());
-    } else if (isFreeWebNovel) {
-      const authorMatch = html.match(/<div[^>]*class="item"[^>]*>.*?<div[^>]*class="right"[^>]*>.*?<a[^>]*class="a1"[^>]*>([^<]+)<\/a>/i);
-      if (authorMatch) author = decodeHTML(authorMatch[1].trim());
-    }
-    
     // Extract synopsis
     let synopsis = 'No summary available.';
     
-    if (isReadNovelFull) {
-      const descMatch = html.match(/<div[^>]*itemprop="description"[^>]*>(.*?)<\/div>/is);
-      if (descMatch) {
-        const paragraphs = descMatch[1].match(/<p[^>]*>(.*?)<\/p>/gis);
-        if (paragraphs) {
-          synopsis = paragraphs.map(p => stripTags(p)).join('\n\n');
-        } else {
-          synopsis = stripTags(descMatch[1]);
-        }
-      }
-    } else if (isNovelFull) {
-      const descMatch = html.match(/<div[^>]*class="desc-text"[^>]*>(.*?)<\/div>/is);
-      if (descMatch) {
-        const paragraphs = descMatch[1].match(/<p[^>]*>(.*?)<\/p>/gis);
-        if (paragraphs) {
-          synopsis = paragraphs.map(p => stripTags(p)).join('\n\n');
-        } else {
-          synopsis = stripTags(descMatch[1]);
-        }
-      }
-    } else if (isFreeWebNovel) {
-      const descMatch = html.match(/<div[^>]*class="m-desc"[^>]*>(.*?)<\/div>/is);
-      if (descMatch) {
-        const innerMatch = descMatch[1].match(/<div[^>]*class="inner"[^>]*>(.*?)<\/div>/is);
-        if (innerMatch) {
-          const paragraphs = innerMatch[1].match(/<p[^>]*>(.*?)<\/p>/gis);
-          if (paragraphs) {
-            synopsis = paragraphs.map(p => stripTags(p)).join('\n\n');
-          }
-        }
-      }
-    }
-    
     // Extract cover URL
     let coverUrl = '';
-    const coverMatch = html.match(/<div[^>]*class="(?:pic|book)"[^>]*>.*?<img[^>]*src="([^"]+)"/i);
-    if (coverMatch) coverUrl = makeAbsoluteUrl(coverMatch[1], url);
     
-    // Extract first chapter URL - ENHANCED FOR FREEWEBNOVEL
+    // Extract first chapter URL
     let firstChapterUrl: string | null = null;
     
-    if (isFreeWebNovel) {
-      console.log('[Scraper] FreeWebNovel detected, looking for chapter links...');
+    if (isReadNovelFull || isNovelFull) {
+      // --- TITLE for ReadNovelFull/NovelFull ---
+      const titleMatch = html.match(/<h3[^>]*class="title"[^>]*>([^<]+)<\/h3>/i) ||
+                         html.match(/<h1[^>]*class="title"[^>]*>([^<]+)<\/h1>/i) ||
+                         html.match(/<div[^>]*class="book-title"[^>]*>([^<]+)<\/div>/i);
+      if (titleMatch) title = decodeHTML(titleMatch[1].trim());
       
-      // Try multiple patterns for FreeWebNovel
-      const patterns = [
-        /<ul[^>]*class="ul-list5"[^>]*>.*?<li[^>]*>.*?<a[^>]*href="([^"]+)"[^>]*>/i,
-        /<ul[^>]*class="[^"]*chapter[^"]*"[^>]*>.*?<li[^>]*>.*?<a[^>]*href="([^"]+)"[^>]*>/i,
-        /<a[^>]*href="([^"]*chapter-1[^"]*)"[^>]*>/i,
-        /href="([^"]*chapter-1[^"]*)"/i,
-        /<a[^>]*href="([^"]+)"[^>]*>Chapter\s*1<\/a>/i,
-        /<a[^>]*href="([^"]+)"[^>]*>Start Reading<\/a>/i,
-        /<a[^>]*href="([^"]+)"[^>]*>Read First Chapter<\/a>/i,
-      ];
-      
-      for (const pattern of patterns) {
-        const match = html.match(pattern);
-        if (match && match[1]) {
-          firstChapterUrl = makeAbsoluteUrl(match[1], url);
-          console.log('[Scraper] Found FreeWebNovel first chapter:', firstChapterUrl);
-          break;
-        }
+      // --- AUTHOR for ReadNovelFull ---
+      if (isReadNovelFull) {
+        const authorMatch = html.match(/<span[^>]*itemprop="author"[^>]*>.*?<meta[^>]*itemprop="name"[^>]*content="([^"]+)"/i);
+        if (authorMatch) author = decodeHTML(authorMatch[1]);
       }
       
-      // Fallback: find any chapter link
-      if (!firstChapterUrl) {
-        const chapterLinks = html.match(/<a[^>]*href="([^"]*chapter[^"]*)"[^>]*>/gi);
-        if (chapterLinks && chapterLinks.length > 0) {
-          for (const link of chapterLinks) {
-            const hrefMatch = link.match(/href="([^"]+)"/i);
-            if (hrefMatch && hrefMatch[1]) {
-              firstChapterUrl = makeAbsoluteUrl(hrefMatch[1], url);
-              break;
-            }
+      // --- AUTHOR for NovelFull ---
+      if (isNovelFull) {
+        const authorMatch = html.match(/<div[^>]*class="info"[^>]*>.*?<h3[^>]*>Author:<\/h3>\s*<a[^>]*>([^<]+)<\/a>/i);
+        if (authorMatch) author = decodeHTML(authorMatch[1].trim());
+      }
+      
+      // --- SYNOPSIS for ReadNovelFull ---
+      if (isReadNovelFull) {
+        const descMatch = html.match(/<div[^>]*itemprop="description"[^>]*>([\s\S]*?)<\/div>/i);
+        if (descMatch) {
+          const paragraphs = descMatch[1].match(/<p[^>]*>(.*?)<\/p>/gis);
+          if (paragraphs) {
+            synopsis = paragraphs.map(p => stripTags(p)).join('\n\n');
+          } else {
+            synopsis = stripTags(descMatch[1]);
           }
         }
       }
-    } else {
-      // ReadNovelFull and NovelFull extraction
+      
+      // --- SYNOPSIS for NovelFull ---
+      if (isNovelFull) {
+        const descMatch = html.match(/<div[^>]*class="desc-text"[^>]*>([\s\S]*?)<\/div>/i);
+        if (descMatch) {
+          const paragraphs = descMatch[1].match(/<p[^>]*>(.*?)<\/p>/gis);
+          if (paragraphs) {
+            synopsis = paragraphs.map(p => stripTags(p)).join('\n\n');
+          } else {
+            synopsis = stripTags(descMatch[1]);
+          }
+        }
+      }
+      
+      // --- COVER for ReadNovelFull/NovelFull ---
+      const coverMatch = html.match(/<div[^>]*class="book"[^>]*>.*?<img[^>]*src="([^"]+)"[^>]*>/i);
+      if (coverMatch) coverUrl = makeAbsoluteUrl(coverMatch[1], url);
+      
+      // --- FIRST CHAPTER for ReadNovelFull/NovelFull ---
       const chapterMatch = html.match(/<(?:div|ul)[^>]*(?:id="(?:tab-chapters|list-chapter)"|class="list-chapter")[^>]*>.*?<li[^>]*>.*?<a[^>]*href="([^"]+)"/i);
       if (chapterMatch) {
         firstChapterUrl = makeAbsoluteUrl(chapterMatch[1], url);
       } else {
         const chapterLinkMatch = html.match(/<a[^>]*href="([^"]*chapter[-/]1[^"]*)"[^>]*>/i);
         if (chapterLinkMatch) firstChapterUrl = makeAbsoluteUrl(chapterLinkMatch[1], url);
+      }
+    }
+    
+    // ============================================
+    // FREEWEBNOVEL SPECIFIC EXTRACTION
+    // ============================================
+    if (isFreeWebNovel) {
+      console.log('[Scraper] FreeWebNovel detected, using Python-matched selectors');
+      
+      // --- TITLE for FreeWebNovel ---
+      const titleMatch = html.match(/<h1[^>]*class="novel-title"[^>]*>([^<]+)<\/h1>/i) ||
+                         html.match(/<h1[^>]*class="title"[^>]*>([^<]+)<\/h1>/i);
+      if (titleMatch) title = decodeHTML(titleMatch[1].trim());
+      
+      // --- COVER (div.pic img) - matches Python line 237-242 ---
+      const coverMatch = html.match(/<div[^>]*class="pic"[^>]*>.*?<img[^>]*src="([^"]+)"[^>]*>/i);
+      if (coverMatch) coverUrl = makeAbsoluteUrl(coverMatch[1], url);
+      
+      // --- AUTHOR (div.item > span[title=Author] > div.right > a.a1) - matches Python line 259-268 ---
+      const authorItemMatch = html.match(/<div[^>]*class="item"[^>]*>([\s\S]*?)<\/div>/i);
+      if (authorItemMatch) {
+        const authorItem = authorItemMatch[1];
+        if (authorItem.match(/<span[^>]*title="Author"[^>]*>/i)) {
+          const rightDivMatch = authorItem.match(/<div[^>]*class="right"[^>]*>([\s\S]*?)<\/div>/i);
+          if (rightDivMatch) {
+            const authorLinkMatch = rightDivMatch[1].match(/<a[^>]*class="a1"[^>]*>([^<]+)<\/a>/i);
+            if (authorLinkMatch) author = decodeHTML(authorLinkMatch[1].trim());
+          }
+        }
+      }
+      
+      // --- SYNOPSIS (div.m-desc > div.inner > p) - matches Python line 286-295 ---
+      const descMatch = html.match(/<div[^>]*class="m-desc"[^>]*>([\s\S]*?)<\/div>/i);
+      if (descMatch) {
+        const innerMatch = descMatch[1].match(/<div[^>]*class="inner"[^>]*>([\s\S]*?)<\/div>/i);
+        if (innerMatch) {
+          const paragraphs = innerMatch[1].match(/<p[^>]*>(.*?)<\/p>/gis);
+          if (paragraphs) {
+            synopsis = paragraphs.map(p => stripTags(p)).filter(t => t.length > 0).join('\n\n');
+          }
+        }
+      }
+      
+      // --- FIRST CHAPTER (ul.ul-list5 > li:first-child > a) - matches Python line 304-315 ---
+      const ulMatch = html.match(/<ul[^>]*class="ul-list5"[^>]*>([\s\S]*?)<\/ul>/i);
+      if (ulMatch) {
+        const ulContent = ulMatch[1];
+        const firstLiMatch = ulContent.match(/<li[^>]*>([\s\S]*?)<\/li>/i);
+        if (firstLiMatch) {
+          const firstAMatch = firstLiMatch[1].match(/<a[^>]*href="([^"]+)"[^>]*>/i);
+          if (firstAMatch && firstAMatch[1]) {
+            firstChapterUrl = makeAbsoluteUrl(firstAMatch[1], url);
+            console.log('[Scraper] Found FreeWebNovel first chapter via ul.ul-list5');
+          }
+        }
+      }
+      
+      // Fallback for FreeWebNovel: look for any link containing chapter-1
+      if (!firstChapterUrl) {
+        const fallbackMatch = html.match(/<a[^>]*href="([^"]*chapter-1[^"]*)"[^>]*>/i);
+        if (fallbackMatch && fallbackMatch[1]) {
+          firstChapterUrl = makeAbsoluteUrl(fallbackMatch[1], url);
+          console.log('[Scraper] Found FreeWebNovel first chapter via fallback');
+        }
       }
     }
     
@@ -245,7 +264,7 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
       if (cleanTitle) title = `Chapter ${chapterNum}: ${cleanTitle}`;
     }
     
-    // Extract content - ENHANCED FOR FREEWEBNOVEL
+    // Extract content (all paragraphs)
     const paragraphMatches = html.match(/<p[^>]*>(.*?)<\/p>/gis);
     const validParagraphs: string[] = [];
     
@@ -264,12 +283,12 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
     
     let content = validParagraphs.join('\n\n');
     
-    // If no paragraphs found, try content containers
+    // If no paragraphs found, try content containers (especially for FreeWebNovel)
     if (!content) {
-      const contentMatch = html.match(/<div[^>]*class="chapter-content"[^>]*>(.*?)<\/div>/is) ||
-                           html.match(/<div[^>]*class="content"[^>]*>(.*?)<\/div>/is) ||
-                           html.match(/<article[^>]*>(.*?)<\/article>/is) ||
-                           html.match(/<div[^>]*id="chapter-content"[^>]*>(.*?)<\/div>/is);
+      const contentMatch = html.match(/<div[^>]*class="chapter-content"[^>]*>([\s\S]*?)<\/div>/i) ||
+                           html.match(/<div[^>]*class="content"[^>]*>([\s\S]*?)<\/div>/i) ||
+                           html.match(/<div[^>]*id="chapter-content"[^>]*>([\s\S]*?)<\/div>/i) ||
+                           html.match(/<article[^>]*>([\s\S]*?)<\/article>/i);
       if (contentMatch) {
         const innerContent = contentMatch[1];
         const innerParagraphs = innerContent.match(/<p[^>]*>(.*?)<\/p>/gis);
@@ -296,17 +315,22 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
       const fullLink = linkMatch[0];
       const href = linkMatch[1];
       
+      // Extract text content (like a.get_text().lower())
       const textMatch = fullLink.match(/>([^<]*)</);
       const txt = textMatch ? textMatch[1].toLowerCase() : '';
       
+      // Extract class attribute (like str(a.get('class', [])).lower())
       const classMatch = fullLink.match(/class=["']([^"']*)["']/i);
       const classAttr = classMatch ? classMatch[1].toLowerCase() : '';
       
+      // Extract id attribute (like a.get('id', '').lower())
       const idMatch = fullLink.match(/id=["']([^"']*)["']/i);
       const idAttr = idMatch ? idMatch[1].toLowerCase() : '';
       
+      // Combine attrs like Python does
       const attrs = classAttr + idAttr;
       
+      // Check conditions exactly like Python
       if (txt.includes('next') || 
           txt.includes('next chapter') || 
           attrs.includes('next') || 
