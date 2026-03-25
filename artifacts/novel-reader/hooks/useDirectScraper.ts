@@ -78,7 +78,17 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
   try {
     const response = await axios.get(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0',
       },
       timeout: 15000
     });
@@ -167,31 +177,37 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
     // FREEWEBNOVEL SPECIFIC EXTRACTION
     // ============================================
     if (isFreeWebNovel) {
-      console.log('[Scraper] FreeWebNovel detected, using Python-matched selectors');
+      console.log('[Scraper] FreeWebNovel detected');
       
-      // --- TITLE for FreeWebNovel ---
-      const titleMatch = html.match(/<h1[^>]*class="novel-title"[^>]*>([^<]+)<\/h1>/i) ||
-                         html.match(/<h1[^>]*class="title"[^>]*>([^<]+)<\/h1>/i);
-      if (titleMatch) title = decodeHTML(titleMatch[1].trim());
+      // --- TITLE (from img alt or h1) ---
+      const imgTitleMatch = html.match(/<img[^>]*alt="([^"]+)"[^>]*>/i);
+      if (imgTitleMatch && imgTitleMatch[1]) {
+        title = decodeHTML(imgTitleMatch[1].trim());
+      }
+      const h1Match = html.match(/<h1[^>]*class="novel-title"[^>]*>([^<]+)<\/h1>/i);
+      if (h1Match) title = decodeHTML(h1Match[1].trim());
       
-      // --- COVER (div.pic img) - matches Python line 237-242 ---
+      // --- COVER (div.pic img) ---
       const coverMatch = html.match(/<div[^>]*class="pic"[^>]*>.*?<img[^>]*src="([^"]+)"[^>]*>/i);
-      if (coverMatch) coverUrl = makeAbsoluteUrl(coverMatch[1], url);
-      
-      // --- AUTHOR (div.item > span[title=Author] > div.right > a.a1) - matches Python line 259-268 ---
-      const authorItemMatch = html.match(/<div[^>]*class="item"[^>]*>([\s\S]*?)<\/div>/i);
-      if (authorItemMatch) {
-        const authorItem = authorItemMatch[1];
-        if (authorItem.match(/<span[^>]*title="Author"[^>]*>/i)) {
-          const rightDivMatch = authorItem.match(/<div[^>]*class="right"[^>]*>([\s\S]*?)<\/div>/i);
-          if (rightDivMatch) {
-            const authorLinkMatch = rightDivMatch[1].match(/<a[^>]*class="a1"[^>]*>([^<]+)<\/a>/i);
-            if (authorLinkMatch) author = decodeHTML(authorLinkMatch[1].trim());
-          }
+      if (coverMatch) {
+        let coverPath = coverMatch[1];
+        if (coverPath.startsWith('/')) {
+          const baseUrl = new URL(url);
+          coverUrl = `${baseUrl.protocol}//${baseUrl.host}${coverPath}`;
+        } else {
+          coverUrl = coverPath;
         }
+        console.log('[Scraper] Found cover:', coverUrl);
       }
       
-      // --- SYNOPSIS (div.m-desc > div.inner > p) - matches Python line 286-295 ---
+      // --- AUTHOR (div.item > div.right > a.a1) ---
+      const authorMatch = html.match(/<div[^>]*class="item"[^>]*>.*?<div[^>]*class="right"[^>]*>.*?<a[^>]*class="a1"[^>]*>([^<]+)<\/a>/i);
+      if (authorMatch) {
+        author = decodeHTML(authorMatch[1].trim());
+        console.log('[Scraper] Found author:', author);
+      }
+      
+      // --- SYNOPSIS (div.m-desc > div.inner > p) ---
       const descMatch = html.match(/<div[^>]*class="m-desc"[^>]*>([\s\S]*?)<\/div>/i);
       if (descMatch) {
         const innerMatch = descMatch[1].match(/<div[^>]*class="inner"[^>]*>([\s\S]*?)<\/div>/i);
@@ -199,11 +215,24 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
           const paragraphs = innerMatch[1].match(/<p[^>]*>(.*?)<\/p>/gis);
           if (paragraphs) {
             synopsis = paragraphs.map(p => stripTags(p)).filter(t => t.length > 0).join('\n\n');
+            console.log('[Scraper] Found synopsis, length:', synopsis.length);
           }
         }
       }
       
-      // --- FIRST CHAPTER (ul.ul-list5 > li:first-child > a) - matches Python line 304-315 ---
+      // --- FIRST CHAPTER - Add "/chapter-1" for FreeWebNovel ---
+      let baseNovelUrl = url;
+      if (baseNovelUrl.endsWith('/')) {
+        baseNovelUrl = baseNovelUrl.slice(0, -1);
+      }
+      // Remove any existing chapter part
+      if (baseNovelUrl.includes('/chapter-')) {
+        baseNovelUrl = baseNovelUrl.split('/chapter-')[0];
+      }
+      firstChapterUrl = `${baseNovelUrl}/chapter-1`;
+      console.log('[Scraper] FreeWebNovel first chapter URL:', firstChapterUrl);
+      
+      // Also try to find from ul.ul-list5 as fallback
       const ulMatch = html.match(/<ul[^>]*class="ul-list5"[^>]*>([\s\S]*?)<\/ul>/i);
       if (ulMatch) {
         const ulContent = ulMatch[1];
@@ -214,15 +243,6 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
             firstChapterUrl = makeAbsoluteUrl(firstAMatch[1], url);
             console.log('[Scraper] Found FreeWebNovel first chapter via ul.ul-list5');
           }
-        }
-      }
-      
-      // Fallback for FreeWebNovel: look for any link containing chapter-1
-      if (!firstChapterUrl) {
-        const fallbackMatch = html.match(/<a[^>]*href="([^"]*chapter-1[^"]*)"[^>]*>/i);
-        if (fallbackMatch && fallbackMatch[1]) {
-          firstChapterUrl = makeAbsoluteUrl(fallbackMatch[1], url);
-          console.log('[Scraper] Found FreeWebNovel first chapter via fallback');
         }
       }
     }
@@ -248,20 +268,48 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
   try {
     const response = await axios.get(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0',
       },
       timeout: 15000
     });
     
     const html = response.data;
+    const isFreeWebNovel = url.toLowerCase().includes('freewebnovel');
     
     // Extract chapter title
     let title = `Chapter ${chapterNum}`;
-    const titleMatch = html.match(/<(?:h1|h2|span)[^>]*(?:class="(?:chapter-title|chr-title|entry-title)")[^>]*>([^<]+)</i);
-    if (titleMatch) {
-      const rawTitle = stripTags(titleMatch[1]);
-      const cleanTitle = rawTitle.replace(/^Chapter\s*\d+\s*[:\-]*\s*/i, '').trim();
-      if (cleanTitle) title = `Chapter ${chapterNum}: ${cleanTitle}`;
+    
+    // Special handling for FreeWebNovel chapter title
+    if (isFreeWebNovel) {
+      const titleMatch = html.match(/<h1[^>]*class="chapter-title"[^>]*>([^<]+)<\/h1>/i) ||
+                         html.match(/<h1[^>]*>Chapter\s*\d+[:\-]?\s*([^<]+)<\/h1>/i);
+      if (titleMatch) {
+        const rawTitle = stripTags(titleMatch[1]);
+        const cleanTitle = rawTitle.replace(/^Chapter\s*\d+\s*[:\-]*\s*/i, '').trim();
+        if (cleanTitle) {
+          title = `Chapter ${chapterNum}: ${cleanTitle}`;
+        } else {
+          title = `Chapter ${chapterNum}`;
+        }
+      }
+    } else {
+      // For ReadNovelFull and NovelFull
+      const titleMatch = html.match(/<(?:h1|h2|span)[^>]*(?:class="(?:chapter-title|chr-title|entry-title)")[^>]*>([^<]+)</i);
+      if (titleMatch) {
+        const rawTitle = stripTags(titleMatch[1]);
+        const cleanTitle = rawTitle.replace(/^Chapter\s*\d+\s*[:\-]*\s*/i, '').trim();
+        if (cleanTitle) title = `Chapter ${chapterNum}: ${cleanTitle}`;
+      }
     }
     
     // Extract content (all paragraphs)
