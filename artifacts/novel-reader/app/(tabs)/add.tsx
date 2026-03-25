@@ -27,16 +27,42 @@ type LogEntry = {
 };
 
 function LogLine({ entry }: { entry: LogEntry }) {
+  const { colors } = useTheme();
   const colorMap = {
-    info: "#888888",
+    info: colors.textSecondary,
     downloading: Colors.downloading,
     success: Colors.success,
     error: Colors.error,
     warning: Colors.amber,
   };
+  
+  // Add emoji mapping based on text content
+  const getIcon = (text: string) => {
+    if (text.includes("CONNECTING")) return "🔍";
+    if (text.includes("Source Domain")) return "📡";
+    if (text.includes("Title:")) return "📚";
+    if (text.includes("Author:")) return "✍️";
+    if (text.includes("Synopsis:")) return "📝";
+    if (text.includes("Cover found")) return "🖼️";
+    if (text.includes("First chapter")) return "🔗";
+    if (text.includes("Downloading Chapter")) return "📥";
+    if (text.includes("Saved:")) return "💾";
+    if (text.includes("COMPLETE")) return "🎉";
+    if (text.includes("ERROR")) return "❌";
+    if (text.includes("SKIPPED")) return "⏭️";
+    if (text.includes("limit")) return "✅";
+    if (text.includes("halted")) return "⚠️";
+    if (text.includes("No more chapters")) return "🏁";
+    if (text.includes("━━━━")) return "";
+    return "";
+  };
+  
+  const icon = getIcon(entry.text);
+  const displayText = icon ? `${icon} ${entry.text}` : entry.text;
+  
   return (
     <Text style={[styles.logLine, { color: colorMap[entry.type] }]}>
-      {entry.text}
+      {displayText}
     </Text>
   );
 }
@@ -60,8 +86,8 @@ export default function AddNovelScreen() {
 
   const addLog = (text: string, type: LogEntry["type"] = "info") => {
     const entry: LogEntry = { id: Date.now().toString() + Math.random(), text, type };
-    setLogs((prev) => [...prev.slice(-80), entry]);
-    setTimeout(() => logScrollRef.current?.scrollToEnd({ animated: true }), 50);
+    setLogs((prev) => [...prev.slice(-200), entry]);
+    setTimeout(() => logScrollRef.current?.scrollToEnd({ animated: true }), 100);
   };
 
   const clearAll = () => {
@@ -94,17 +120,51 @@ export default function AddNovelScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      addLog("Connecting to source...", "downloading");
+      // Extract domain from URL for initial display
+      let domain = "";
+      try {
+        const urlObj = new URL(trimmedUrl);
+        domain = urlObj.hostname;
+      } catch {
+        domain = "Unknown";
+      }
+      
+      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
+      addLog(`CONNECTING TO SOURCE...`, "downloading");
+      addLog(`Source Domain: ${domain}`, "info");
+      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
       const meta = await fetchNovelMeta(trimmedUrl);
+      
+      addLog(`Connection successful!`, "success");
+      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
+      addLog(`NOVEL INFORMATION`, "downloading");
+      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
       addLog(`Title: ${meta.title}`, "success");
       addLog(`Author: ${meta.author}`, "info");
+      
+      if (meta.synopsis && meta.synopsis !== "No summary available.") {
+        // Show first 100 chars of synopsis
+        const shortSynopsis = meta.synopsis.length > 100 
+          ? meta.synopsis.substring(0, 100) + "..." 
+          : meta.synopsis;
+        addLog(`Synopsis: ${shortSynopsis}`, "info");
+      }
+      
+      if (meta.coverUrl) {
+        addLog(`Cover found`, "info");
+      }
+      
+      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
       if (!meta.firstChapterUrl) {
         addLog("Could not find chapter links on this page", "error");
         setIsDownloading(false);
         return;
       }
+
+      addLog(`First chapter URL found`, "success");
+      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
       const existingNovel = novels.find((n) => n.title === meta.title);
       const safeId = meta.title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "") + "-" + Date.now();
@@ -113,7 +173,13 @@ export default function AddNovelScreen() {
       const existingChapters: Chapter[] = existingNovel?.chapters || [];
       const existingCount = existingChapters.length;
 
+      if (existingCount > 0) {
+        addLog(`Existing chapters in library: ${existingCount}`, "info");
+        addLog(`Will skip already downloaded chapters`, "info");
+      }
+      
       addLog(`Starting from chapter ${startCh}...`, "downloading");
+      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
       let currentUrl: string | null = meta.firstChapterUrl;
       let chapterNum = 1;
@@ -130,13 +196,15 @@ export default function AddNovelScreen() {
         }
 
         if (maxCh !== null && downloaded >= maxCh) {
+          addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
           addLog(`Reached max chapter limit (${maxCh})`, "success");
+          addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
           break;
         }
 
         const alreadyExists = newChapters.some((c) => c.url === currentUrl);
         if (alreadyExists) {
-          addLog(`[SKIPPED] Chapter ${chapterNum} already exists`, "info");
+          addLog(`[SKIPPED] Chapter ${chapterNum} already exists in library`, "info");
           chapterNum++;
           continue;
         }
@@ -153,14 +221,22 @@ export default function AddNovelScreen() {
         });
 
         downloaded++;
-        addLog(`Saved: ${data.title}`, downloaded % 5 === 0 ? "success" : "info");
+        
+        // Show different icons based on chapter number
+        if (downloaded % 10 === 0) {
+          addLog(`Saved: ${data.title} [${downloaded} chapters downloaded so far]`, "success");
+        } else {
+          addLog(`Saved: ${data.title}`, "info");
+        }
 
         if (maxCh) {
           setProgress((downloaded / maxCh) * 100);
         }
 
         if (!data.nextUrl) {
-          addLog("No more chapters found.", "info");
+          addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
+          addLog(`No more chapters found.`, "info");
+          addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
           break;
         }
         currentUrl = data.nextUrl;
@@ -169,11 +245,20 @@ export default function AddNovelScreen() {
         await new Promise((r) => setTimeout(r, 200));
       }
 
+      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
+      
       if (stopRef.current) {
-        addLog("Download halted by user.", "warning");
+        addLog(`Download halted by user.`, "warning");
+        addLog(`Downloaded ${downloaded} chapters before stop.`, "info");
       } else {
-        addLog(`Download complete! ${downloaded} new chapters added.`, "success");
+        addLog(`DOWNLOAD COMPLETE!`, "success");
+        addLog(`Total new chapters added: ${downloaded}`, "success");
+        if (downloaded > 0) {
+          addLog(`Novel saved to your library`, "success");
+        }
       }
+      
+      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
       const novel: Novel = {
         id: novelId,
@@ -190,7 +275,9 @@ export default function AddNovelScreen() {
       setProgress(100);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
-      addLog(`Error: ${e.message || "Download failed"}`, "error");
+      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "error");
+      addLog(`ERROR: ${e.message || "Download failed"}`, "error");
+      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "error");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setIsDownloading(false);
@@ -217,7 +304,7 @@ export default function AddNovelScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 100 }]}
+        contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 20 }]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
@@ -312,51 +399,57 @@ export default function AddNovelScreen() {
           </View>
         </View>
 
-        {(logs.length > 0 || isDownloading) && (
-          <Animated.View entering={FadeIn}>
-            <View style={styles.progressSection}>
-              <View style={styles.progressHeader}>
-                <Ionicons name="bar-chart" size={15} color={colors.accent} />
-                <Text style={[styles.sectionTitle, { color: colors.text }]}>Progress</Text>
-                {progressLabel ? (
-                  <Text style={[styles.progressLabel, { color: colors.textSecondary }]}>
-                    {progressLabel}
-                  </Text>
-                ) : null}
-              </View>
-              <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
-                <Animated.View
-                  style={[
-                    styles.progressFill,
-                    {
-                      backgroundColor: colors.accent,
-                      width: `${Math.min(progress, 100)}%`,
-                    },
-                  ]}
-                />
-              </View>
-            </View>
+        {/* Progress Section - Always Visible */}
+        <View style={styles.progressSection}>
+          <View style={styles.progressHeader}>
+            <Ionicons name="bar-chart" size={15} color={colors.accent} />
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Progress</Text>
+            {progressLabel ? (
+              <Text style={[styles.progressLabel, { color: colors.textSecondary }]}>
+                {progressLabel}
+              </Text>
+            ) : null}
+          </View>
+          <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
+            <Animated.View
+              style={[
+                styles.progressFill,
+                {
+                  backgroundColor: colors.accent,
+                  width: `${Math.min(progress, 100)}%`,
+                },
+              ]}
+            />
+          </View>
+        </View>
 
-            <View style={styles.logSection}>
-              <View style={styles.logHeader}>
-                <Ionicons name="sync" size={15} color={colors.accent} />
-                <Text style={[styles.sectionTitle, { color: colors.text }]}>Activity Log</Text>
-                <Pressable onPress={() => setLogs([])}>
-                  <Text style={[styles.clearLog, { color: colors.textMuted }]}>Clear</Text>
-                </Pressable>
-              </View>
-              <ScrollView
-                ref={logScrollRef}
-                style={[styles.logBox, { backgroundColor: colors.surface, borderColor: colors.border }]}
-                showsVerticalScrollIndicator={false}
-              >
-                {logs.map((entry) => (
-                  <LogLine key={entry.id} entry={entry} />
-                ))}
-              </ScrollView>
-            </View>
-          </Animated.View>
-        )}
+        {/* Activity Log Section - Always Visible with Scroll */}
+        <View style={styles.logSection}>
+          <View style={styles.logHeader}>
+            <Ionicons name="sync" size={15} color={colors.accent} />
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Activity Log</Text>
+            <Pressable onPress={() => setLogs([])}>
+              <Text style={[styles.clearLog, { color: colors.textMuted }]}>Clear</Text>
+            </Pressable>
+          </View>
+          <ScrollView
+            ref={logScrollRef}
+            style={[styles.logBox, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            contentContainerStyle={styles.logContent}
+            showsVerticalScrollIndicator={true}
+            nestedScrollEnabled={true}
+          >
+            {logs.length === 0 ? (
+              <Text style={[styles.logLine, { color: colors.textMuted }]}>
+                Ready to download...
+              </Text>
+            ) : (
+              logs.map((entry) => (
+                <LogLine key={entry.id} entry={entry} />
+              ))
+            )}
+          </ScrollView>
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -376,7 +469,11 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     fontSize: 22,
   },
-  scroll: { padding: 16, gap: 16 },
+  scroll: { 
+    padding: 16, 
+    gap: 16,
+    flexGrow: 1,
+  },
   card: {
     borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
@@ -434,7 +531,10 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     fontSize: 14,
   },
-  progressSection: { gap: 8 },
+  progressSection: { 
+    gap: 8,
+    marginTop: 8,
+  },
   progressHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -458,7 +558,10 @@ const styles = StyleSheet.create({
     height: "100%",
     borderRadius: 3,
   },
-  logSection: { gap: 8 },
+  logSection: { 
+    gap: 8,
+    marginBottom: 20,
+  },
   logHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -472,11 +575,18 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: StyleSheet.hairlineWidth,
     padding: 10,
-    maxHeight: 180,
+    maxHeight: 280,
+    minHeight: 150,
+  },
+  logContent: {
+    paddingBottom: 8,
   },
   logLine: {
     fontFamily: "Inter_400Regular",
     fontSize: 12,
     lineHeight: 18,
+    marginBottom: 4,
+    paddingHorizontal: 4,
   },
 });
+
