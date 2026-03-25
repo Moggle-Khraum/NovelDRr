@@ -236,11 +236,46 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
     
     const content = validParagraphs.join('\n\n');
     
-    // Find next chapter URL
+    // Find next chapter URL - EXACT PYTHON TRANSLATION
     let nextUrl: string | null = null;
-    const nextMatch = html.match(/<a[^>]*href="([^"]+)"[^>]*>(?:Next|Next Chapter|&gt;)/i);
-    if (nextMatch) {
-      nextUrl = makeAbsoluteUrl(nextMatch[1], url);
+    
+    // Get all links (like soup.find_all('a', href=True))
+    const linkRegex = /<a\s+[^>]*href="([^"]+)"[^>]*>.*?<\/a>/gi;
+    let linkMatch;
+    
+    while ((linkMatch = linkRegex.exec(html)) !== null) {
+      const fullLink = linkMatch[0];
+      const href = linkMatch[1];
+      
+      // Extract text content (like a.get_text().lower())
+      const textMatch = fullLink.match(/>([^<]*)</);
+      const txt = textMatch ? textMatch[1].toLowerCase() : '';
+      
+      // Extract class attribute (like str(a.get('class', [])).lower())
+      const classMatch = fullLink.match(/class=["']([^"']*)["']/i);
+      const classAttr = classMatch ? classMatch[1].toLowerCase() : '';
+      
+      // Extract id attribute (like a.get('id', '').lower())
+      const idMatch = fullLink.match(/id=["']([^"']*)["']/i);
+      const idAttr = idMatch ? idMatch[1].toLowerCase() : '';
+      
+      // Combine attrs like Python does
+      const attrs = classAttr + idAttr;
+      
+      // Check conditions exactly like Python
+      if (txt.includes('next') || 
+          txt.includes('next chapter') || 
+          attrs.includes('next') || 
+          attrs.includes('next_chapter')) {
+        nextUrl = makeAbsoluteUrl(href, url);
+        console.log('[Scraper] Found next chapter:', nextUrl);
+        break;
+      }
+    }
+    
+    // Debug if not found
+    if (!nextUrl) {
+      console.log('[Scraper] No next chapter found. Checked all links.');
     }
     
     return {
@@ -254,3 +289,4 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
     throw new Error(`Failed to fetch chapter: ${error.message}`);
   }
 };
+
