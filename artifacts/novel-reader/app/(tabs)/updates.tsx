@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -12,7 +12,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
+import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useLibrary, Novel, Chapter } from "@/context/LibraryContext";
@@ -36,7 +36,6 @@ function LogLine({ entry }: { entry: LogEntry }) {
     warning: Colors.amber,
   };
   
-  // Add emoji mapping based on text content
   const getIcon = (text: string) => {
     if (text.includes("CONNECTING")) return "🔍";
     if (text.includes("Source Domain")) return "📡";
@@ -97,8 +96,16 @@ export default function UpdatesScreen() {
     setTimeout(() => logScrollRef.current?.scrollToEnd({ animated: true }), 100);
   };
 
-  const clearLogs = () => {
+  const clearAll = () => {
     setLogs([]);
+    setProgress(0);
+    setProgressLabel("");
+    setElapsedTime("00:00:00");
+    setMaxChStr("");
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
   };
 
   const formatTime = (seconds: number): string => {
@@ -145,7 +152,6 @@ export default function UpdatesScreen() {
       const existingChapters = selectedNovel.chapters;
       const startCh = existingChapters.length + 1;
       
-      // Extract domain from URL
       let domain = "";
       try {
         const urlObj = new URL(selectedNovel.sourceUrl);
@@ -159,7 +165,7 @@ export default function UpdatesScreen() {
       addLog(`Source Domain: ${domain}`, "info");
       addLog(`Novel: ${selectedNovel.title}`, "success");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-      addLog(`📚 LIBRARY STATUS`, "downloading");
+      addLog(`LIBRARY STATUS`, "downloading");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
       addLog(`Existing chapters: ${existingChapters.length}`, "info");
       addLog(`Starting from chapter: ${startCh}`, "info");
@@ -169,7 +175,7 @@ export default function UpdatesScreen() {
       }
       
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-      addLog(`🚀 STARTING UPDATE...`, "downloading");
+      addLog(`STARTING UPDATE...`, "downloading");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
       const meta = await fetchNovelMeta(selectedNovel.sourceUrl);
@@ -213,7 +219,7 @@ export default function UpdatesScreen() {
         }
 
         setProgressLabel(`Chapter ${chapterNum}`);
-        addLog(`🔄 UPDATING Chapter ${chapterNum}...`, "downloading");
+        addLog(`UPDATING Chapter ${chapterNum}...`, "downloading");
 
         const data = await fetchChapter(currentUrl, chapterNum);
 
@@ -226,9 +232,9 @@ export default function UpdatesScreen() {
         downloaded++;
         
         if (downloaded % 5 === 0) {
-          addLog(`✅ DONE: ${data.title} [${downloaded} new chapters so far]`, "success");
+          addLog(`DONE: ${data.title} [${downloaded} new chapters so far]`, "success");
         } else {
-          addLog(`✅ DONE: ${data.title}`, "info");
+          addLog(`DONE: ${data.title}`, "info");
         }
 
         if (maxCh) {
@@ -253,7 +259,7 @@ export default function UpdatesScreen() {
         addLog(`Update halted by user.`, "warning");
         addLog(`Downloaded ${downloaded} new chapters before stop.`, "info");
       } else {
-        addLog(`✨ UPDATE COMPLETE!`, "success");
+        addLog(`UPDATE COMPLETE!`, "success");
         addLog(`Total new chapters added: ${downloaded}`, "success");
         if (downloaded > 0) {
           addLog(`Novel updated in your library`, "success");
@@ -302,10 +308,11 @@ export default function UpdatesScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 20 }]}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomPad + 20 }]}
+        showsVerticalScrollIndicator={true}
+        alwaysBounceVertical={true}
       >
+        {/* Select Novel - Reverted to Dropdown Style */}
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.cardLabel, { color: colors.textSecondary }]}>SELECT NOVEL</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.novelScroll}>
@@ -345,6 +352,7 @@ export default function UpdatesScreen() {
           </ScrollView>
         </View>
 
+        {/* Form Section */}
         <View style={styles.form}>
           <View>
             <Text style={[styles.label, { color: colors.textSecondary }]}>Max Chapters to Download</Text>
@@ -391,10 +399,10 @@ export default function UpdatesScreen() {
             {!isUpdating && (
               <Pressable
                 style={[styles.outlineBtn, { borderColor: colors.border }]}
-                onPress={clearLogs}
+                onPress={clearAll}
               >
                 <Ionicons name="trash-outline" size={16} color={colors.textSecondary} />
-                <Text style={[styles.outlineBtnText, { color: colors.textSecondary }]}>Clear Log</Text>
+                <Text style={[styles.outlineBtnText, { color: colors.textSecondary }]}>Clear All</Text>
               </Pressable>
             )}
           </View>
@@ -442,11 +450,6 @@ export default function UpdatesScreen() {
           <View style={styles.logHeader}>
             <Ionicons name="sync" size={15} color={colors.accent} />
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Activity Log</Text>
-            {!isUpdating && logs.length > 0 && (
-              <Pressable onPress={clearLogs}>
-                <Text style={[styles.clearLog, { color: colors.textMuted }]}>Clear</Text>
-              </Pressable>
-            )}
           </View>
           <ScrollView
             ref={logScrollRef}
@@ -468,6 +471,9 @@ export default function UpdatesScreen() {
             )}
           </ScrollView>
         </View>
+
+        {/* Extra space at bottom for better scrolling */}
+        <View style={styles.bottomSpacer} />
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -487,15 +493,15 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     fontSize: 22,
   },
-  scroll: { 
-    padding: 16, 
-    gap: 16,
-    flexGrow: 1,
+  scrollContent: { 
+    paddingHorizontal: 16,
+    paddingTop: 16,
   },
   card: {
     borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
     padding: 14,
+    marginBottom: 16,
   },
   cardLabel: {
     fontFamily: "Inter_600SemiBold",
@@ -527,7 +533,10 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 10,
   },
-  form: { gap: 14 },
+  form: { 
+    gap: 14,
+    marginBottom: 16,
+  },
   label: {
     fontFamily: "Inter_500Medium",
     fontSize: 12,
@@ -570,7 +579,7 @@ const styles = StyleSheet.create({
   },
   progressSection: { 
     gap: 8,
-    marginTop: 8,
+    marginBottom: 16,
   },
   progressHeader: {
     flexDirection: "row",
@@ -579,7 +588,7 @@ const styles = StyleSheet.create({
   },
   timerSection: {
     gap: 8,
-    marginTop: 8,
+    marginBottom: 16,
   },
   timerHeader: {
     flexDirection: "row",
@@ -611,16 +620,12 @@ const styles = StyleSheet.create({
   },
   logSection: { 
     gap: 8,
-    marginBottom: 20,
+    marginBottom: 16,
   },
   logHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-  },
-  clearLog: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
   },
   logBox: {
     borderRadius: 10,
@@ -639,5 +644,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     paddingHorizontal: 4,
   },
+  bottomSpacer: {
+    height: 20,
+  },
 });
-
