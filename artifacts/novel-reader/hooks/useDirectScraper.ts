@@ -72,8 +72,22 @@ const makeAbsoluteUrl = (relativeUrl: string, baseUrl: string): string => {
   }
 };
 
+// Debug logger that can be used to send messages to the Activity Log
+let debugLogCallback: ((message: string, type: string) => void) | null = null;
+
+export const setDebugLogCallback = (callback: (message: string, type: string) => void) => {
+  debugLogCallback = callback;
+};
+
+const debugLog = (message: string, type: string = "info") => {
+  console.log(`[DEBUG] ${message}`);
+  if (debugLogCallback) {
+    debugLogCallback(message, type);
+  }
+};
+
 export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
-  console.log('[Scraper] Fetching novel meta from:', url);
+  debugLog(`Fetching novel meta from: ${url}`, "downloading");
   
   try {
     const response = await axios.get(url, {
@@ -177,12 +191,13 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
     // FREEWEBNOVEL SPECIFIC EXTRACTION
     // ============================================
     if (isFreeWebNovel) {
-      console.log('[Scraper] FreeWebNovel detected');
+      debugLog("FreeWebNovel detected", "downloading");
       
       // --- TITLE (from img alt or h1) ---
       const imgTitleMatch = html.match(/<img[^>]*alt="([^"]+)"[^>]*>/i);
       if (imgTitleMatch && imgTitleMatch[1]) {
         title = decodeHTML(imgTitleMatch[1].trim());
+        debugLog(`Title from image: ${title}`, "success");
       }
       const h1Match = html.match(/<h1[^>]*class="novel-title"[^>]*>([^<]+)<\/h1>/i);
       if (h1Match) title = decodeHTML(h1Match[1].trim());
@@ -197,14 +212,14 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
         } else {
           coverUrl = coverPath;
         }
-        console.log('[Scraper] Found cover:', coverUrl);
+        debugLog(`Cover found: ${coverUrl}`, "info");
       }
       
       // --- AUTHOR (div.item > div.right > a.a1) ---
       const authorMatch = html.match(/<div[^>]*class="item"[^>]*>.*?<div[^>]*class="right"[^>]*>.*?<a[^>]*class="a1"[^>]*>([^<]+)<\/a>/i);
       if (authorMatch) {
         author = decodeHTML(authorMatch[1].trim());
-        console.log('[Scraper] Found author:', author);
+        debugLog(`Author found: ${author}`, "info");
       }
       
       // --- SYNOPSIS (div.m-desc > div.inner > p) ---
@@ -215,7 +230,7 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
           const paragraphs = innerMatch[1].match(/<p[^>]*>(.*?)<\/p>/gis);
           if (paragraphs) {
             synopsis = paragraphs.map(p => stripTags(p)).filter(t => t.length > 0).join('\n\n');
-            console.log('[Scraper] Found synopsis, length:', synopsis.length);
+            debugLog(`Synopsis found (${synopsis.length} chars)`, "info");
           }
         }
       }
@@ -230,24 +245,11 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
         baseNovelUrl = baseNovelUrl.split('/chapter-')[0];
       }
       firstChapterUrl = `${baseNovelUrl}/chapter-1`;
-      console.log('[Scraper] FreeWebNovel first chapter URL:', firstChapterUrl);
-      
-      // Also try to find from ul.ul-list5 as fallback
-      const ulMatch = html.match(/<ul[^>]*class="ul-list5"[^>]*>([\s\S]*?)<\/ul>/i);
-      if (ulMatch) {
-        const ulContent = ulMatch[1];
-        const firstLiMatch = ulContent.match(/<li[^>]*>([\s\S]*?)<\/li>/i);
-        if (firstLiMatch) {
-          const firstAMatch = firstLiMatch[1].match(/<a[^>]*href="([^"]+)"[^>]*>/i);
-          if (firstAMatch && firstAMatch[1]) {
-            firstChapterUrl = makeAbsoluteUrl(firstAMatch[1], url);
-            console.log('[Scraper] Found FreeWebNovel first chapter via ul.ul-list5');
-          }
-        }
-      }
+      debugLog(`Constructed first chapter URL: ${firstChapterUrl}`, "success");
     }
     
-    console.log('[Scraper] Found first chapter:', firstChapterUrl);
+    debugLog(`Title: ${title}`, "success");
+    debugLog(`Author: ${author}`, "info");
     
     return {
       title: decodeHTML(title),
@@ -257,13 +259,13 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
       firstChapterUrl
     };
   } catch (error: any) {
-    console.error('[Scraper] Error:', error.message);
+    debugLog(`Error: ${error.message}`, "error");
     throw new Error(`Failed to fetch novel: ${error.message}`);
   }
 };
 
 export const directFetchChapter = async (url: string, chapterNum: number): Promise<ChapterData> => {
-  console.log('[Scraper] Fetching chapter:', url);
+  debugLog(`Fetching chapter ${chapterNum} from: ${url}`, "downloading");
   
   try {
     const response = await axios.get(url, {
@@ -286,10 +288,21 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
     const html = response.data;
     const isFreeWebNovel = url.toLowerCase().includes('freewebnovel');
     
+    // Debug: Check HTML content
+    if (isFreeWebNovel) {
+      debugLog(`HTML length: ${html.length} characters`, "info");
+      debugLog(`Has 'm-desc': ${html.includes('m-desc')}`, "info");
+      debugLog(`Has 'inner': ${html.includes('inner')}`, "info");
+      debugLog(`Has '<p': ${html.includes('<p')}`, "info");
+      
+      // Show first 500 chars of HTML for debugging
+      const htmlSnippet = html.substring(0, 500).replace(/\n/g, ' ');
+      debugLog(`HTML snippet: ${htmlSnippet}...`, "info");
+    }
+    
     // Extract chapter title
     let title = `Chapter ${chapterNum}`;
     
-    // Special handling for FreeWebNovel chapter title
     if (isFreeWebNovel) {
       const titleMatch = html.match(/<h1[^>]*class="chapter-title"[^>]*>([^<]+)<\/h1>/i) ||
                          html.match(/<h1[^>]*>Chapter\s*\d+[:\-]?\s*([^<]+)<\/h1>/i);
@@ -298,12 +311,12 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
         const cleanTitle = rawTitle.replace(/^Chapter\s*\d+\s*[:\-]*\s*/i, '').trim();
         if (cleanTitle) {
           title = `Chapter ${chapterNum}: ${cleanTitle}`;
-        } else {
-          title = `Chapter ${chapterNum}`;
         }
+        debugLog(`Chapter title: ${title}`, "success");
+      } else {
+        debugLog(`Could not find chapter title in HTML`, "warning");
       }
     } else {
-      // For ReadNovelFull and NovelFull
       const titleMatch = html.match(/<(?:h1|h2|span)[^>]*(?:class="(?:chapter-title|chr-title|entry-title)")[^>]*>([^<]+)</i);
       if (titleMatch) {
         const rawTitle = stripTags(titleMatch[1]);
@@ -312,46 +325,96 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
       }
     }
     
-    // Extract content (all paragraphs)
-    const paragraphMatches = html.match(/<p[^>]*>(.*?)<\/p>/gis);
-    const validParagraphs: string[] = [];
+    // ============================================
+    // CONTENT EXTRACTION - ENHANCED FOR FREEWEBNOVEL
+    // ============================================
+    let content = '';
     
-    if (paragraphMatches) {
-      for (const p of paragraphMatches) {
-        const text = stripTags(p);
-        if (text.length > 5 && 
-            !text.toLowerCase().includes('next chapter') &&
-            !text.toLowerCase().includes('previous chapter') &&
-            !text.toLowerCase().includes('back to') &&
-            !text.toLowerCase().includes('table of contents')) {
-          validParagraphs.push(text);
+    if (isFreeWebNovel) {
+      debugLog("FreeWebNovel content extraction...", "downloading");
+      
+      // Try FreeWebNovel specific content containers
+      const contentPatterns = [
+        // Pattern 1: m-desc > txt > inner > p
+        /<div[^>]*class="m-desc[^"]*"[^>]*>[\s\S]*?<div[^>]*class="txt"[^>]*>[\s\S]*?<div[^>]*class="inner"[^>]*>([\s\S]*?)<\/div>/i,
+        // Pattern 2: Direct inner div
+        /<div[^>]*class="inner"[^>]*>([\s\S]*?)<\/div>/i,
+        // Pattern 3: chapter-content
+        /<div[^>]*class="chapter-content"[^>]*>([\s\S]*?)<\/div>/i,
+        // Pattern 4: content class
+        /<div[^>]*class="content"[^>]*>([\s\S]*?)<\/div>/i,
+        // Pattern 5: Any div with class containing "chapter"
+        /<div[^>]*class="[^"]*chapter[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+      ];
+      
+      let contentHtml = '';
+      for (let i = 0; i < contentPatterns.length; i++) {
+        const match = html.match(contentPatterns[i]);
+        if (match && match[1]) {
+          contentHtml = match[1];
+          debugLog(`Found content container with pattern ${i + 1}`, "success");
+          break;
         }
       }
-    }
-    
-    let content = validParagraphs.join('\n\n');
-    
-    // If no paragraphs found, try content containers (especially for FreeWebNovel)
-    if (!content) {
-      const contentMatch = html.match(/<div[^>]*class="chapter-content"[^>]*>([\s\S]*?)<\/div>/i) ||
-                           html.match(/<div[^>]*class="content"[^>]*>([\s\S]*?)<\/div>/i) ||
-                           html.match(/<div[^>]*id="chapter-content"[^>]*>([\s\S]*?)<\/div>/i) ||
-                           html.match(/<article[^>]*>([\s\S]*?)<\/article>/i);
-      if (contentMatch) {
-        const innerContent = contentMatch[1];
-        const innerParagraphs = innerContent.match(/<p[^>]*>(.*?)<\/p>/gis);
-        if (innerParagraphs) {
-          const texts: string[] = [];
-          for (const p of innerParagraphs) {
-            const text = stripTags(p);
-            if (text.length > 5) texts.push(text);
+      
+      if (contentHtml) {
+        const paragraphs = contentHtml.match(/<p[^>]*>(.*?)<\/p>/gis);
+        if (paragraphs && paragraphs.length > 0) {
+          const validParagraphs: string[] = [];
+          for (const p of paragraphs) {
+            let text = stripTags(p);
+            text = text.replace(/\s+/g, ' ').trim();
+            if (text.length > 5 && 
+                !text.toLowerCase().includes('next chapter') &&
+                !text.toLowerCase().includes('previous chapter') &&
+                !text.toLowerCase().includes('back to') &&
+                !text.toLowerCase().includes('table of contents')) {
+              validParagraphs.push(text);
+            }
           }
-          content = texts.join('\n\n');
+          content = validParagraphs.join('\n\n');
+          debugLog(`Extracted ${validParagraphs.length} paragraphs, total ${content.length} chars`, "success");
         } else {
-          content = stripTags(innerContent);
+          content = stripTags(contentHtml);
+          debugLog(`Extracted text content: ${content.length} chars`, "info");
         }
+      } else {
+        debugLog(`No content container found`, "warning");
       }
     }
+    
+    // If no content yet, try general paragraph extraction
+    if (!content) {
+      const paragraphMatches = html.match(/<p[^>]*>(.*?)<\/p>/gis);
+      if (paragraphMatches && paragraphMatches.length > 0) {
+        const validParagraphs: string[] = [];
+        for (const p of paragraphMatches) {
+          const text = stripTags(p);
+          if (text.length > 5 && 
+              !text.toLowerCase().includes('next chapter') &&
+              !text.toLowerCase().includes('previous chapter') &&
+              !text.toLowerCase().includes('back to') &&
+              !text.toLowerCase().includes('table of contents')) {
+            validParagraphs.push(text);
+          }
+        }
+        content = validParagraphs.join('\n\n');
+        debugLog(`General extraction: ${validParagraphs.length} paragraphs, total ${content.length} chars`, "info");
+      } else {
+        debugLog(`No paragraphs found in HTML`, "warning");
+      }
+    }
+    
+    // Last resort fallback
+    if (!content) {
+      const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+      if (bodyMatch) {
+        content = stripTags(bodyMatch[1]).substring(0, 5000);
+        debugLog(`Fallback content: ${content.length} chars`, "warning");
+      }
+    }
+    
+    debugLog(`Final content length: ${content.length} characters`, content.length > 0 ? "success" : "error");
     
     // Find next chapter URL - EXACT PYTHON TRANSLATION
     let nextUrl: string | null = null;
@@ -363,34 +426,29 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
       const fullLink = linkMatch[0];
       const href = linkMatch[1];
       
-      // Extract text content (like a.get_text().lower())
       const textMatch = fullLink.match(/>([^<]*)</);
       const txt = textMatch ? textMatch[1].toLowerCase() : '';
       
-      // Extract class attribute (like str(a.get('class', [])).lower())
       const classMatch = fullLink.match(/class=["']([^"']*)["']/i);
       const classAttr = classMatch ? classMatch[1].toLowerCase() : '';
       
-      // Extract id attribute (like a.get('id', '').lower())
       const idMatch = fullLink.match(/id=["']([^"']*)["']/i);
       const idAttr = idMatch ? idMatch[1].toLowerCase() : '';
       
-      // Combine attrs like Python does
       const attrs = classAttr + idAttr;
       
-      // Check conditions exactly like Python
       if (txt.includes('next') || 
           txt.includes('next chapter') || 
           attrs.includes('next') || 
           attrs.includes('next_chapter')) {
         nextUrl = makeAbsoluteUrl(href, url);
-        console.log('[Scraper] Found next chapter:', nextUrl);
+        debugLog(`Found next chapter: ${nextUrl}`, "success");
         break;
       }
     }
     
     if (!nextUrl) {
-      console.log('[Scraper] No next chapter found. Checked all links.');
+      debugLog(`No next chapter found`, "info");
     }
     
     return {
@@ -400,7 +458,7 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
       nextUrl
     };
   } catch (error: any) {
-    console.error('[Scraper] Error:', error.message);
+    debugLog(`Error: ${error.message}`, "error");
     throw new Error(`Failed to fetch chapter: ${error.message}`);
   }
 };
