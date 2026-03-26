@@ -26,8 +26,9 @@ A mobile app for downloading and reading web novels offline. Supports ReadNovelF
 ## Supported Sites
 
 - [ReadNovelFull](https://readnovelfull.com)
-- [NovelFull](https://novelfull.com)
+- [NovelFull](https://novelfull.net)
 - [FreeWebNovel](https://freewebnovel.com)
+- [Novelbin](https://novelbin.me)
 
 ## Building the APK
 
