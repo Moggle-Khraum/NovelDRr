@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -74,7 +74,7 @@ function LogLine({ entry }: { entry: LogEntry }) {
 
 export default function UpdatesScreen() {
   const { colors } = useTheme();
-  const { novels, updateNovel, refreshLibrary } = useLibrary();
+  const { novels, updateNovel } = useLibrary();
   const insets = useSafeAreaInsets();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
@@ -150,7 +150,6 @@ export default function UpdatesScreen() {
 
       if (!meta.firstChapterUrl) {
         addLog("Could not find chapter links on this page", "error");
-        setIsUpdating(false);
         return;
       }
 
@@ -159,29 +158,22 @@ export default function UpdatesScreen() {
 
       let currentUrl: string | null = meta.firstChapterUrl;
       let chapterNum = 1;
-      const existingChapters = [...selectedNovel.chapters];
-      const newChapters: Chapter[] = [...existingChapters];
+      const newChapters: Chapter[] = [...selectedNovel.chapters];
       let downloaded = 0;
 
-      // Skip to the chapter we need to start from
-      addLog(`Locating chapter ${startCh}...`, "downloading");
-      while (currentUrl && chapterNum < startCh) {
-        const data = await fetchChapter(currentUrl, chapterNum);
-        if (!data.nextUrl) break;
-        currentUrl = data.nextUrl;
-        chapterNum++;
-      }
-      
-      if (chapterNum < startCh) {
-        addLog(`Could not find chapter ${startCh}. The novel may have fewer chapters.`, "warning");
-        setIsUpdating(false);
-        return;
-      }
-      
-      addLog(`Found chapter ${chapterNum} to start from`, "success");
-      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-
+      // Single unified loop — mirrors add.tsx exactly:
+      // • chapterNum < startCh  → navigate forward (cheap skip)
+      // • alreadyExists         → navigate forward (skip duplicate)
+      // • otherwise             → download and push
       while (currentUrl && !stopRef.current) {
+        if (chapterNum < startCh) {
+          const data = await fetchChapter(currentUrl, chapterNum);
+          if (!data.nextUrl) break;
+          currentUrl = data.nextUrl;
+          chapterNum++;
+          continue;
+        }
+
         if (maxCh !== null && downloaded >= maxCh) {
           addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
           addLog(`Reached max chapter limit (${maxCh})`, "success");
@@ -191,7 +183,10 @@ export default function UpdatesScreen() {
 
         const alreadyExists = newChapters.some((c) => c.url === currentUrl);
         if (alreadyExists) {
-          addLog(`[SKIPPED] Chapter ${chapterNum} already exists in library`, "info");
+          // Must fetch to get nextUrl — same fix as updates fix from before
+          const data = await fetchChapter(currentUrl, chapterNum);
+          if (!data.nextUrl) break;
+          currentUrl = data.nextUrl;
           chapterNum++;
           continue;
         }
@@ -208,9 +203,9 @@ export default function UpdatesScreen() {
         });
 
         downloaded++;
-        
+
         if (downloaded % 5 === 0) {
-          addLog(`Saved: ${data.title} [${downloaded} new chapters downloaded so far]`, "success");
+          addLog(`Saved: ${data.title} [${downloaded} new chapters so far]`, "success");
         } else {
           addLog(`Saved: ${data.title}`, "info");
         }
@@ -232,37 +227,32 @@ export default function UpdatesScreen() {
       }
 
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-      
+
       if (stopRef.current) {
         addLog(`Update halted by user.`, "warning");
         addLog(`Downloaded ${downloaded} new chapters before stop.`, "info");
       } else {
         addLog(`UPDATE COMPLETE!`, "success");
         addLog(`Total new chapters added: ${downloaded}`, "success");
-        if (downloaded > 0) {
-          addLog(`Novel updated in your library`, "success");
-        } else {
+        if (downloaded === 0) {
           addLog(`No new chapters found. Novel is up to date!`, "info");
+        } else {
+          addLog(`Novel updated in your library`, "success");
         }
       }
-      
+
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
-      // Create updated novel object
-      const updatedNovel: Novel = {
-        ...selectedNovel,
-        chapters: newChapters,
-      };
-      
-      // Update the novel in the library
-      await updateNovel(updatedNovel);
-      
-      // Force refresh the selected novel state
-      setSelectedNovel(updatedNovel);
-      
-      // Refresh the library to update chapter counts
-      await refreshLibrary();
-      
+      // Always save — even if halted — so partial downloads are kept
+      if (downloaded > 0) {
+        const updatedNovel: Novel = {
+          ...selectedNovel,
+          chapters: newChapters,
+        };
+        await updateNovel(updatedNovel);
+        setSelectedNovel(updatedNovel);
+      }
+
       setProgress(100);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
