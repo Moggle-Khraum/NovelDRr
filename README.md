@@ -1,6 +1,6 @@
 # Novel DR
 
-A mobile app for downloading and reading web novels offline. Supports ReadNovelFull, NovelFull, and FreeWebNovel.
+A mobile app for downloading and reading web novels offline. Supports limited novel sites.
 
 ## Features
 
