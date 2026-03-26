@@ -1,267 +1,526 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Image } from "expo-image";
-import * as Haptics from "expo-haptics";
-import { router } from "expo-router";
-import React, { useState } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import {
-  Alert,
   FlatList,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
+  Alert,
+  Animated,
+  RefreshControl,
+  Modal,
+  TextInput,
 } from "react-native";
-import Animated, {
-  FadeIn,
-  FadeOut,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import * as Haptics from "expo-haptics";
 
 import { useLibrary, Novel } from "@/context/LibraryContext";
 import { useTheme } from "@/context/ThemeContext";
+import { useRouter } from "expo-router";
 
-function NovelCard({ novel, onPress, onLongPress }: { novel: Novel; onPress: () => void; onLongPress: () => void }) {
+// Novel Card Component
+const NovelCard = ({ novel, onPress, onLongPress, isSelected, selectionMode }: {
+  novel: Novel;
+  onPress: () => void;
+  onLongPress: () => void;
+  isSelected: boolean;
+  selectionMode: boolean;
+}) => {
   const { colors } = useTheme();
-  const scale = useSharedValue(1);
-
-  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
-
-  const chapters = novel.chapters.length;
-  const progress = novel.lastRead
-    ? `Ch. ${novel.lastRead.chapterIndex + 1}/${chapters}`
-    : `${chapters} chapters`;
-
+  
   return (
     <Pressable
-      onPress={() => { scale.value = withSpring(1, { damping: 15 }); onPress(); }}
-      onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onLongPress(); }}
-      onPressIn={() => { scale.value = withSpring(0.97, { damping: 15 }); }}
-      onPressOut={() => { scale.value = withSpring(1, { damping: 15 }); }}
+      onPress={onPress}
+      onLongPress={onLongPress}
+      style={({ pressed }) => [
+        styles.card,
+        {
+          backgroundColor: isSelected ? colors.accent + '20' : colors.card,
+          borderColor: isSelected ? colors.accent : colors.border,
+          transform: [{ scale: pressed ? 0.98 : 1 }],
+        },
+      ]}
     >
-      <Animated.View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }, animStyle]}>
-        <View style={styles.coverContainer}>
-          {novel.coverUrl ? (
-            <Image
-              source={{ uri: novel.coverUrl }}
-              style={styles.cover}
-              contentFit="cover"
-            />
-          ) : (
-            <View style={[styles.coverPlaceholder, { backgroundColor: colors.surface }]}>
-              <Ionicons name="book" size={28} color={colors.accent} />
-            </View>
-          )}
-        </View>
-        <View style={styles.info}>
-          <Text style={[styles.title, { color: colors.text }]} numberOfLines={2}>
+      <View style={styles.cardContent}>
+        <View style={styles.cardInfo}>
+          <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>
             {novel.title}
           </Text>
-          <Text style={[styles.author, { color: colors.textSecondary }]} numberOfLines={1}>
+          <Text style={[styles.cardAuthor, { color: colors.textSecondary }]}>
             {novel.author}
           </Text>
-          <View style={styles.footer}>
-            <View style={[styles.badge, { backgroundColor: colors.accent + "22" }]}>
-              <Text style={[styles.badgeText, { color: colors.accent }]}>{progress}</Text>
-            </View>
-            {novel.lastRead && (
-              <View style={[styles.continueBadge, { backgroundColor: colors.accent }]}>
-                <Text style={styles.continueText}>Continue</Text>
-              </View>
-            )}
-          </View>
+          <Text style={[styles.cardChapters, { color: colors.textMuted }]}>
+            {novel.chapters.length} chapters
+          </Text>
         </View>
-        <Ionicons name="chevron-forward" size={16} color={colors.textMuted} style={styles.chevron} />
-      </Animated.View>
+        {selectionMode && (
+          <View style={styles.checkboxContainer}>
+            <Ionicons
+              name={isSelected ? "checkbox" : "square-outline"}
+              size={24}
+              color={isSelected ? colors.accent : colors.textSecondary}
+            />
+          </View>
+        )}
+      </View>
     </Pressable>
   );
-}
+};
 
 export default function LibraryScreen() {
-  const { novels, removeNovel, loading } = useLibrary();
   const { colors } = useTheme();
+  const { novels, removeNovel, refreshLibrary, loading } = useLibrary();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
+  
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedNovels, setSelectedNovels] = useState<string[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const [confirmDeleteVisible, setConfirmDeleteVisible] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+  const fabAnim = useRef(new Animated.Value(0)).current;
+  const [fabVisible, setFabVisible] = useState(true);
 
-  const topPad = Platform.OS === "web" ? 67 : insets.top;
-  const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
+  // Animate FAB on scroll
+  const handleScroll = (event: any) => {
+    const offsetY = event.nativeEvent.contentOffset.y;
+    const shouldShow = offsetY < 50;
+    
+    if (shouldShow !== fabVisible) {
+      setFabVisible(shouldShow);
+      Animated.spring(fabAnim, {
+        toValue: shouldShow ? 0 : 100,
+        useNativeDriver: true,
+        tension: 50,
+        friction: 7,
+      }).start();
+    }
+  };
 
-  const handleDelete = (novel: Novel) => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+  // First confirmation dialog (like Python's MDDialog)
+  const showFirstConfirmation = () => {
+    if (selectedNovels.length === 0) return;
+    
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    
     Alert.alert(
-      "Remove Novel",
-      `Remove "${novel.title}" from your library?`,
+      "Confirm Deletion",
+      `Remove ${selectedNovels.length} novel(s) from your Library?`,
       [
-        { text: "Cancel", style: "cancel" },
         {
-          text: "Remove",
+          text: "Cancel",
+          style: "cancel",
+          onPress: () => {},
+        },
+        {
+          text: "Delete",
           style: "destructive",
-          onPress: () => {
-            removeNovel(novel.id);
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          },
+          onPress: () => showSecondConfirmation(),
         },
       ]
     );
   };
-
+  
+  // Second confirmation dialog with text input (like Python's second prompt)
+  const showSecondConfirmation = () => {
+    setConfirmText("");
+    setConfirmDeleteVisible(true);
+  };
+  
+  // Perform actual deletion (like Python's delete_selected_novels)
+  const performDelete = async () => {
+    if (confirmText.toUpperCase() !== "DELETE") {
+      Alert.alert("Confirmation Failed", 'Type "DELETE" to confirm deletion.');
+      return;
+    }
+    
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    setConfirmDeleteVisible(false);
+    
+    for (const novelId of selectedNovels) {
+      await removeNovel(novelId);
+    }
+    
+    // Exit selection mode and clear selected
+    setSelectionMode(false);
+    setSelectedNovels([]);
+    
+    // Refresh the library
+    await refreshLibrary();
+    
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  };
+  
+  // Toggle selection mode (like Python's show_library_options)
+  const enterSelectionMode = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSelectionMode(true);
+    setSelectedNovels([]);
+  };
+  
+  const exitSelectionMode = () => {
+    setSelectionMode(false);
+    setSelectedNovels([]);
+  };
+  
+  // Toggle novel selection (like Python's toggle_novel_selection)
+  const toggleNovelSelection = (novelId: string) => {
+    setSelectedNovels(prev => 
+      prev.includes(novelId) 
+        ? prev.filter(id => id !== novelId)
+        : [...prev, novelId]
+    );
+  };
+  
+  // Handle novel press (open or select)
+  const handleNovelPress = (novel: Novel) => {
+    if (selectionMode) {
+      toggleNovelSelection(novel.id);
+    } else {
+      router.push({
+        pathname: "/chapters",
+        params: { novelId: novel.id }
+      });
+    }
+  };
+  
+  // Handle long press (enter selection mode) - like Python's on_release in selection mode
+  const handleNovelLongPress = (novel: Novel) => {
+    if (!selectionMode) {
+      enterSelectionMode();
+      toggleNovelSelection(novel.id);
+    }
+  };
+  
+  // Refresh handler
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await refreshLibrary();
+    setRefreshing(false);
+  }, [refreshLibrary]);
+  
+  // Clear selection when exiting
+  const handleExitSelection = () => {
+    exitSelectionMode();
+  };
+  
+  // Render header
+  const renderHeader = () => (
+    <View style={[styles.header, { borderBottomColor: colors.border }]}>
+      <Text style={[styles.headerTitle, { color: colors.text }]}>My Library</Text>
+      <Text style={[styles.headerCount, { color: colors.textSecondary }]}>
+        {novels.length} {novels.length === 1 ? 'novel' : 'novels'}
+      </Text>
+    </View>
+  );
+  
+  // Render empty state
+  const renderEmpty = () => (
+    <View style={styles.emptyContainer}>
+      <Ionicons name="library-outline" size={64} color={colors.textMuted} />
+      <Text style={[styles.emptyTitle, { color: colors.text }]}>Your library is empty</Text>
+      <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+        Add your first novel to start reading
+      </Text>
+    </View>
+  );
+  
+  // Render selection mode header (like Python's floating selection bar)
+  const renderSelectionHeader = () => (
+    <View style={[styles.selectionHeader, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+      <Pressable onPress={exitSelectionMode} style={styles.selectionBack}>
+        <Ionicons name="arrow-back" size={24} color={colors.text} />
+      </Pressable>
+      <Text style={[styles.selectionTitle, { color: colors.text }]}>
+        Selected: {selectedNovels.length}
+      </Text>
+      {selectedNovels.length > 0 && (
+        <Pressable onPress={showFirstConfirmation} style={styles.selectionDelete}>
+          <Ionicons name="trash-outline" size={24} color={colors.error} />
+        </Pressable>
+      )}
+    </View>
+  );
+  
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: topPad + 12, borderBottomColor: colors.border, backgroundColor: colors.background }]}>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Novel DR</Text>
-        <Text style={[styles.headerSub, { color: colors.textSecondary }]}>
-          {novels.length} {novels.length === 1 ? "novel" : "novels"}
-        </Text>
-      </View>
-
-      {!loading && novels.length === 0 ? (
-        <Animated.View entering={FadeIn} style={styles.emptyState}>
-          <Image
-            source={require("@/assets/images/shook.png")}
-            style={styles.shookImg}
-            contentFit="contain"
+      {selectionMode ? renderSelectionHeader() : renderHeader()}
+      
+      <FlatList
+        data={novels}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={[
+          styles.listContent,
+          { paddingBottom: insets.bottom + 80 }
+        ]}
+        showsVerticalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.accent}
+            colors={[colors.accent]}
           />
-          <Text style={[styles.emptyTitle, { color: colors.text }]}>Your library is empty</Text>
-          <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-            Head to the Download tab to add your first novel
-          </Text>
+        }
+        ListEmptyComponent={renderEmpty}
+        renderItem={({ item }) => (
+          <NovelCard
+            novel={item}
+            onPress={() => handleNovelPress(item)}
+            onLongPress={() => handleNovelLongPress(item)}
+            isSelected={selectedNovels.includes(item.id)}
+            selectionMode={selectionMode}
+          />
+        )}
+      />
+      
+      {/* Floating Action Button - Refresh (like Python doesn't have this, but nice to have) */}
+      {!selectionMode && (
+        <Animated.View
+          style={[
+            styles.fab,
+            {
+              backgroundColor: colors.accent,
+              transform: [{ translateY: fabAnim }],
+              bottom: insets.bottom + 20,
+            },
+          ]}
+        >
           <Pressable
-            style={[styles.addBtn, { backgroundColor: colors.accent }]}
-            onPress={() => router.push("/(tabs)/add")}
+            onPress={onRefresh}
+            style={({ pressed }) => ({
+              opacity: pressed ? 0.8 : 1,
+              width: 56,
+              height: 56,
+              borderRadius: 28,
+              justifyContent: 'center',
+              alignItems: 'center',
+            })}
           >
-            <Ionicons name="add" size={18} color="#fff" />
-            <Text style={styles.addBtnText}>Add Novel</Text>
+            <Ionicons name="refresh" size={28} color="#fff" />
           </Pressable>
         </Animated.View>
-      ) : (
-        <FlatList
-          data={novels}
-          keyExtractor={(n) => n.id}
-          renderItem={({ item, index }) => (
-            <Animated.View entering={FadeIn.delay(index * 50)}>
-              <NovelCard
-                novel={item}
-                onPress={() => router.push({ pathname: "/novel/[id]", params: { id: item.id } })}
-                onLongPress={() => handleDelete(item)}
-              />
-            </Animated.View>
-          )}
-          contentContainerStyle={{
-            padding: 16,
-            paddingBottom: bottomPad + 90,
-            gap: 12,
-          }}
-          showsVerticalScrollIndicator={false}
-        />
       )}
+      
+      {/* Second Confirmation Modal (like Python's second dialog) */}
+      <Modal
+        visible={confirmDeleteVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setConfirmDeleteVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+            <Ionicons name="alert-circle" size={48} color={colors.error} style={styles.modalIcon} />
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Confirm Deletion</Text>
+            <Text style={[styles.modalMessage, { color: colors.textSecondary }]}>
+              This will permanently delete {selectedNovels.length} novel(s) and all their chapters.
+            </Text>
+            <Text style={[styles.modalWarning, { color: colors.error }]}>
+              Type "DELETE" to confirm.
+            </Text>
+            <TextInput
+              style={[styles.modalInput, { 
+                backgroundColor: colors.surface, 
+                borderColor: colors.border,
+                color: colors.text 
+              }]}
+              value={confirmText}
+              onChangeText={setConfirmText}
+              placeholder="DELETE"
+              placeholderTextColor={colors.textMuted}
+              autoCapitalize="characters"
+              autoFocus={true}
+            />
+            <View style={styles.modalButtons}>
+              <Pressable
+                style={[styles.modalButton, styles.modalCancelButton, { borderColor: colors.border }]}
+                onPress={() => setConfirmDeleteVisible(false)}
+              >
+                <Text style={[styles.modalButtonText, { color: colors.textSecondary }]}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.modalButton, styles.modalDeleteButton, { backgroundColor: colors.error }]}
+                onPress={performDelete}
+              >
+                <Text style={[styles.modalButtonText, { color: "#fff" }]}>DELETE</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: {
+    flex: 1,
+  },
   header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingHorizontal: 20,
-    paddingBottom: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
   },
   headerTitle: {
     fontFamily: "Inter_700Bold",
-    fontSize: 28,
+    fontSize: 24,
   },
-  headerSub: {
+  headerCount: {
     fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    marginTop: 2,
+    fontSize: 14,
+  },
+  selectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+  },
+  selectionBack: {
+    padding: 8,
+  },
+  selectionTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 18,
+  },
+  selectionDelete: {
+    padding: 8,
+  },
+  listContent: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    gap: 12,
   },
   card: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 16,
+  },
+  cardContent: {
     flexDirection: "row",
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: "hidden",
+    justifyContent: "space-between",
     alignItems: "center",
-    padding: 12,
-    gap: 12,
   },
-  coverContainer: {
-    width: 64,
-    height: 88,
-    borderRadius: 8,
-    overflow: "hidden",
-    flexShrink: 0,
+  cardInfo: {
+    flex: 1,
   },
-  cover: { width: "100%", height: "100%" },
-  coverPlaceholder: {
-    width: "100%",
-    height: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 8,
-  },
-  info: { flex: 1, gap: 4 },
-  title: {
+  cardTitle: {
     fontFamily: "Inter_600SemiBold",
-    fontSize: 15,
-    lineHeight: 21,
+    fontSize: 16,
+    marginBottom: 4,
   },
-  author: {
+  cardAuthor: {
     fontFamily: "Inter_400Regular",
     fontSize: 13,
+    marginBottom: 2,
   },
-  footer: { flexDirection: "row", gap: 6, marginTop: 4, flexWrap: "wrap" },
-  badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+  cardChapters: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
   },
-  badgeText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 11,
+  checkboxContainer: {
+    marginLeft: 12,
   },
-  continueBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  continueText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 11,
-    color: "#fff",
-  },
-  chevron: { marginLeft: "auto" },
-  emptyState: {
-    flex: 1,
+  emptyContainer: {
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 40,
+    paddingTop: 100,
     gap: 12,
   },
-  shookImg: { width: 120, height: 120 },
   emptyTitle: {
     fontFamily: "Inter_600SemiBold",
-    fontSize: 20,
-    textAlign: "center",
+    fontSize: 18,
   },
-  emptySubtitle: {
+  emptyText: {
     fontFamily: "Inter_400Regular",
     fontSize: 14,
     textAlign: "center",
-    lineHeight: 20,
   },
-  addBtn: {
-    flexDirection: "row",
+  fab: {
+    position: "absolute",
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: "center",
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    width: "80%",
+    borderRadius: 16,
+    padding: 20,
+    alignItems: "center",
+    gap: 12,
+  },
+  modalIcon: {
+    marginBottom: 8,
+  },
+  modalTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 20,
+  },
+  modalMessage: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    textAlign: "center",
+  },
+  modalWarning: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
     marginTop: 8,
   },
-  addBtnText: {
+  modalInput: {
+    width: "100%",
+    height: 48,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    fontFamily: "Inter_400Regular",
+    fontSize: 16,
+    textAlign: "center",
+    marginTop: 8,
+  },
+  modalButtons: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 16,
+    width: "100%",
+  },
+  modalButton: {
+    flex: 1,
+    height: 44,
+    borderRadius: 8,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalCancelButton: {
+    borderWidth: 1,
+  },
+  modalDeleteButton: {
+    backgroundColor: "#ff4444",
+  },
+  modalButtonText: {
     fontFamily: "Inter_600SemiBold",
-    fontSize: 15,
-    color: "#fff",
+    fontSize: 14,
   },
 });
+
