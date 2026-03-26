@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -11,9 +11,8 @@ import {
   Text,
   TextInput,
   View,
-  FlatList,
 } from "react-native";
-import Animated from "react-native-reanimated";
+import Animated, { FadeIn } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useLibrary, Novel, Chapter } from "@/context/LibraryContext";
@@ -47,6 +46,7 @@ function LogLine({ entry }: { entry: LogEntry }) {
     if (text.includes("First chapter")) return "🔗";
     if (text.includes("UPDATING")) return "🔄";
     if (text.includes("Downloading Chapter")) return "📥";
+    if (text.includes("Saved:")) return "💾";
     if (text.includes("DONE")) return "✅";
     if (text.includes("SKIPPED")) return "⏭️";
     if (text.includes("COMPLETE")) return "🎉";
@@ -74,7 +74,7 @@ function LogLine({ entry }: { entry: LogEntry }) {
 
 export default function UpdatesScreen() {
   const { colors } = useTheme();
-  const { novels, updateNovel } = useLibrary();
+  const { novels, updateNovel, refreshLibrary } = useLibrary();
   const insets = useSafeAreaInsets();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
@@ -85,11 +85,8 @@ export default function UpdatesScreen() {
   const [progress, setProgress] = useState(0);
   const [progressLabel, setProgressLabel] = useState("");
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [elapsedTime, setElapsedTime] = useState("00:00:00");
   const stopRef = useRef(false);
   const logScrollRef = useRef<ScrollView>(null);
-  const startTimeRef = useRef<number>(0);
-  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const addLog = (text: string, type: LogEntry["type"] = "info") => {
     const entry: LogEntry = { id: Date.now().toString() + Math.random(), text, type };
@@ -101,35 +98,7 @@ export default function UpdatesScreen() {
     setLogs([]);
     setProgress(0);
     setProgressLabel("");
-    setElapsedTime("00:00:00");
     setMaxChStr("");
-    if (timerIntervalRef.current) {
-      clearInterval(timerIntervalRef.current);
-      timerIntervalRef.current = null;
-    }
-  };
-
-  const formatTime = (seconds: number): string => {
-    const hrs = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-  };
-
-  const startTimer = () => {
-    startTimeRef.current = Date.now();
-    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-    timerIntervalRef.current = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
-      setElapsedTime(formatTime(elapsed));
-    }, 1000);
-  };
-
-  const stopTimer = () => {
-    if (timerIntervalRef.current) {
-      clearInterval(timerIntervalRef.current);
-      timerIntervalRef.current = null;
-    }
   };
 
   const handleUpdate = async () => {
@@ -138,21 +107,17 @@ export default function UpdatesScreen() {
       return;
     }
 
+    const startCh = selectedNovel.chapters.length + 1;
     const maxCh = parseInt(maxChStr) || null;
 
     stopRef.current = false;
     setIsUpdating(true);
     setLogs([]);
     setProgress(0);
-    setProgressLabel("");
-    setElapsedTime("00:00:00");
-    startTimer();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      const existingChapters = selectedNovel.chapters;
-      const startCh = existingChapters.length + 1;
-      
+      // Extract domain from URL
       let domain = "";
       try {
         const urlObj = new URL(selectedNovel.sourceUrl);
@@ -164,43 +129,55 @@ export default function UpdatesScreen() {
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
       addLog(`CONNECTING TO SOURCE...`, "downloading");
       addLog(`Source Domain: ${domain}`, "info");
-      addLog(`Novel: ${selectedNovel.title}`, "success");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-      addLog(`LIBRARY STATUS`, "downloading");
+
+      const meta = await fetchNovelMeta(selectedNovel.sourceUrl);
+      
+      addLog(`Connection successful!`, "success");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-      addLog(`Existing chapters: ${existingChapters.length}`, "info");
-      addLog(`Starting from chapter: ${startCh}`, "info");
+      addLog(`NOVEL INFORMATION`, "downloading");
+      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
+      addLog(`Title: ${meta.title}`, "success");
+      addLog(`Author: ${meta.author}`, "info");
+      addLog(`Current chapters in library: ${selectedNovel.chapters.length}`, "info");
+      addLog(`Starting from chapter ${startCh}...`, "info");
       
       if (maxCh) {
         addLog(`Max chapters to download: ${maxCh}`, "info");
       }
       
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-      addLog(`STARTING UPDATE...`, "downloading");
-      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
-      const meta = await fetchNovelMeta(selectedNovel.sourceUrl);
-      
       if (!meta.firstChapterUrl) {
         addLog("Could not find chapter links on this page", "error");
         setIsUpdating(false);
-        stopTimer();
         return;
       }
 
+      addLog(`First chapter URL found`, "success");
+      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
+
       let currentUrl: string | null = meta.firstChapterUrl;
       let chapterNum = 1;
+      const existingChapters = [...selectedNovel.chapters];
       const newChapters: Chapter[] = [...existingChapters];
       let downloaded = 0;
 
-      // Find the chapter to start from
+      // Skip to the chapter we need to start from
+      addLog(`Locating chapter ${startCh}...`, "downloading");
       while (currentUrl && chapterNum < startCh) {
         const data = await fetchChapter(currentUrl, chapterNum);
         if (!data.nextUrl) break;
         currentUrl = data.nextUrl;
         chapterNum++;
       }
-
+      
+      if (chapterNum < startCh) {
+        addLog(`Could not find chapter ${startCh}. The novel may have fewer chapters.`, "warning");
+        setIsUpdating(false);
+        return;
+      }
+      
       addLog(`Found chapter ${chapterNum} to start from`, "success");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
@@ -214,13 +191,13 @@ export default function UpdatesScreen() {
 
         const alreadyExists = newChapters.some((c) => c.url === currentUrl);
         if (alreadyExists) {
-          addLog(`[SKIPPED] Chapter ${chapterNum} already exists`, "info");
+          addLog(`[SKIPPED] Chapter ${chapterNum} already exists in library`, "info");
           chapterNum++;
           continue;
         }
 
         setProgressLabel(`Chapter ${chapterNum}`);
-        addLog(`UPDATING Chapter ${chapterNum}...`, "downloading");
+        addLog(`Downloading Chapter ${chapterNum}...`, "downloading");
 
         const data = await fetchChapter(currentUrl, chapterNum);
 
@@ -233,9 +210,9 @@ export default function UpdatesScreen() {
         downloaded++;
         
         if (downloaded % 5 === 0) {
-          addLog(`DONE: ${data.title} [${downloaded} new chapters so far]`, "success");
+          addLog(`Saved: ${data.title} [${downloaded} new chapters downloaded so far]`, "success");
         } else {
-          addLog(`DONE: ${data.title}`, "info");
+          addLog(`Saved: ${data.title}`, "info");
         }
 
         if (maxCh) {
@@ -271,11 +248,21 @@ export default function UpdatesScreen() {
       
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
+      // Create updated novel object
       const updatedNovel: Novel = {
         ...selectedNovel,
         chapters: newChapters,
       };
+      
+      // Update the novel in the library
       await updateNovel(updatedNovel);
+      
+      // Force refresh the selected novel state
+      setSelectedNovel(updatedNovel);
+      
+      // Refresh the library to update chapter counts
+      await refreshLibrary();
+      
       setProgress(100);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
@@ -285,7 +272,6 @@ export default function UpdatesScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setIsUpdating(false);
-      stopTimer();
     }
   };
 
@@ -298,37 +284,38 @@ export default function UpdatesScreen() {
     },
   ];
 
-  const renderNovelItem = ({ item }: { item: Novel }) => (
+  const renderNovelItem = (novel: Novel) => (
     <Pressable
+      key={novel.id}
       style={[
         styles.novelItem,
         {
-          backgroundColor: selectedNovel?.id === item.id ? colors.accent : colors.surface,
+          backgroundColor: selectedNovel?.id === novel.id ? colors.accent : colors.surface,
           borderColor: colors.border,
         },
       ]}
-      onPress={() => setSelectedNovel(item)}
+      onPress={() => setSelectedNovel(novel)}
     >
       <View style={styles.novelItemContent}>
         <Text
           style={[
             styles.novelTitle,
-            { color: selectedNovel?.id === item.id ? "#fff" : colors.text },
+            { color: selectedNovel?.id === novel.id ? "#fff" : colors.text },
           ]}
           numberOfLines={2}
         >
-          {item.title}
+          {novel.title}
         </Text>
         <Text
           style={[
             styles.novelChapters,
-            { color: selectedNovel?.id === item.id ? colors.textMuted : colors.textSecondary },
+            { color: selectedNovel?.id === novel.id ? colors.textMuted : colors.textSecondary },
           ]}
         >
-          {item.chapters.length} chapters
+          {novel.chapters.length} chapters
         </Text>
       </View>
-      {selectedNovel?.id === item.id && (
+      {selectedNovel?.id === novel.id && (
         <Ionicons name="checkmark-circle" size={20} color="#fff" style={styles.checkIcon} />
       )}
     </Pressable>
@@ -345,11 +332,11 @@ export default function UpdatesScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomPad + 20 }]}
-        showsVerticalScrollIndicator={true}
-        alwaysBounceVertical={true}
+        contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 20 }]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
-        {/* Select Novel - Vertical List */}
+        {/* Select Novel Section */}
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.cardLabel, { color: colors.textSecondary }]}>SELECT NOVEL</Text>
           <View style={styles.novelListContainer}>
@@ -358,15 +345,14 @@ export default function UpdatesScreen() {
                 No novels in library. Add some first!
               </Text>
             ) : (
-              novels.map((novel) => renderNovelItem({ item: novel }))
+              novels.map((novel) => renderNovelItem(novel))
             )}
           </View>
         </View>
 
-        {/* Form Section */}
         <View style={styles.form}>
           <View>
-            <Text style={[styles.label, { color: colors.textSecondary }]}>Max Chapters to Download</Text>
+            <Text style={[styles.label, { color: colors.textSecondary }]}>Max Chapters</Text>
             <TextInput
               style={inputStyle}
               value={maxChStr}
@@ -413,54 +399,48 @@ export default function UpdatesScreen() {
                 onPress={clearAll}
               >
                 <Ionicons name="trash-outline" size={16} color={colors.textSecondary} />
-                <Text style={[styles.outlineBtnText, { color: colors.textSecondary }]}>Clear All</Text>
+                <Text style={[styles.outlineBtnText, { color: colors.textSecondary }]}>Clear</Text>
               </Pressable>
             )}
           </View>
         </View>
 
-        {/* Progress Section - Always Visible */}
+        {/* Progress Section */}
         {(isUpdating || progress > 0) && (
-          <View style={styles.progressSection}>
-            <View style={styles.progressHeader}>
-              <Ionicons name="bar-chart" size={15} color={colors.accent} />
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>Progress</Text>
-              {progressLabel ? (
-                <Text style={[styles.progressLabel, { color: colors.textSecondary }]}>
-                  {progressLabel}
-                </Text>
-              ) : null}
+          <Animated.View entering={FadeIn}>
+            <View style={styles.progressSection}>
+              <View style={styles.progressHeader}>
+                <Ionicons name="bar-chart" size={15} color={colors.accent} />
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>Progress</Text>
+                {progressLabel ? (
+                  <Text style={[styles.progressLabel, { color: colors.textSecondary }]}>
+                    {progressLabel}
+                  </Text>
+                ) : null}
+              </View>
+              <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
+                <Animated.View
+                  style={[
+                    styles.progressFill,
+                    {
+                      backgroundColor: colors.accent,
+                      width: `${Math.min(progress, 100)}%`,
+                    },
+                  ]}
+                />
+              </View>
             </View>
-            <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
-              <Animated.View
-                style={[
-                  styles.progressFill,
-                  {
-                    backgroundColor: colors.accent,
-                    width: `${Math.min(progress, 100)}%`,
-                  },
-                ]}
-              />
-            </View>
-          </View>
+          </Animated.View>
         )}
 
-        {/* Timer Section - Always Visible during update */}
-        {(isUpdating || elapsedTime !== "00:00:00") && (
-          <View style={styles.timerSection}>
-            <View style={styles.timerHeader}>
-              <Ionicons name="time-outline" size={15} color={colors.accent} />
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>Elapsed Time</Text>
-              <Text style={[styles.timerValue, { color: colors.accent }]}>{elapsedTime}</Text>
-            </View>
-          </View>
-        )}
-
-        {/* Activity Log Section - Always Visible with Scroll */}
+        {/* Activity Log Section */}
         <View style={styles.logSection}>
           <View style={styles.logHeader}>
             <Ionicons name="sync" size={15} color={colors.accent} />
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Activity Log</Text>
+            <Pressable onPress={clearAll}>
+              <Text style={[styles.clearLog, { color: colors.textMuted }]}>Clear</Text>
+            </Pressable>
           </View>
           <ScrollView
             ref={logScrollRef}
@@ -482,9 +462,6 @@ export default function UpdatesScreen() {
             )}
           </ScrollView>
         </View>
-
-        {/* Extra space at bottom for better scrolling */}
-        <View style={styles.bottomSpacer} />
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -504,15 +481,15 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     fontSize: 22,
   },
-  scrollContent: { 
-    paddingHorizontal: 16,
-    paddingTop: 16,
+  scroll: { 
+    padding: 16, 
+    gap: 16,
+    flexGrow: 1,
   },
   card: {
     borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
     padding: 14,
-    marginBottom: 16,
   },
   cardLabel: {
     fontFamily: "Inter_600SemiBold",
@@ -553,10 +530,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingVertical: 20,
   },
-  form: { 
-    gap: 14,
-    marginBottom: 16,
-  },
+  form: { gap: 14 },
   label: {
     fontFamily: "Inter_500Medium",
     fontSize: 12,
@@ -570,6 +544,7 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 14,
   },
+  row: { flexDirection: "row", gap: 12 },
   buttons: { flexDirection: "row", gap: 10, flexWrap: "wrap" },
   primaryBtn: {
     flexDirection: "row",
@@ -597,28 +572,11 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     fontSize: 14,
   },
-  progressSection: { 
-    gap: 8,
-    marginBottom: 16,
-  },
+  progressSection: { gap: 8 },
   progressHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-  },
-  timerSection: {
-    gap: 8,
-    marginBottom: 16,
-  },
-  timerHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  timerValue: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 16,
-    marginLeft: "auto",
   },
   sectionTitle: {
     fontFamily: "Inter_600SemiBold",
@@ -638,14 +596,15 @@ const styles = StyleSheet.create({
     height: "100%",
     borderRadius: 3,
   },
-  logSection: { 
-    gap: 8,
-    marginBottom: 16,
-  },
+  logSection: { gap: 8 },
   logHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
+  },
+  clearLog: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
   },
   logBox: {
     borderRadius: 10,
@@ -664,7 +623,6 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     paddingHorizontal: 4,
   },
-  bottomSpacer: {
-    height: 20,
-  },
 });
+
+
