@@ -9,7 +9,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
   FlatList,
 } from "react-native";
@@ -18,7 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useLibrary, Novel, Chapter } from "@/context/LibraryContext";
 import { useTheme } from "@/context/ThemeContext";
-import { fetchNovelMeta, fetchChapter } from "@/hooks/useApi";
+import { fetchChapter } from "@/hooks/useApi"; // Ensure this matches your scraper hook
 import Colors from "@/constants/colors";
 
 type LogEntry = {
@@ -41,630 +40,266 @@ function LogLine({ entry }: { entry: LogEntry }) {
     if (text.includes("CONNECTING")) return "🔍";
     if (text.includes("Source Domain")) return "📡";
     if (text.includes("Title:")) return "📚";
-    if (text.includes("Author:")) return "✍️";
-    if (text.includes("Synopsis:")) return "📝";
-    if (text.includes("Cover found")) return "🖼️";
-    if (text.includes("First chapter")) return "🔗";
-    if (text.includes("UPDATING")) return "🔄";
-    if (text.includes("Downloading Chapter")) return "📥";
+    if (text.includes("Chapter")) return "📄";
     if (text.includes("DONE")) return "✅";
-    if (text.includes("SKIPPED")) return "⏭️";
-    if (text.includes("COMPLETE")) return "🎉";
     if (text.includes("ERROR")) return "❌";
-    if (text.includes("limit")) return "✅";
-    if (text.includes("halted")) return "⚠️";
-    if (text.includes("No more chapters")) return "🏁";
-    if (text.includes("━━━━")) return "";
-    if (text.includes("Scanning library")) return "🔍";
-    if (text.includes("Found existing")) return "📚";
-    if (text.includes("Starting update")) return "🚀";
-    if (text.includes("Update finished")) return "✨";
-    return "";
+    return "•";
   };
-  
-  const icon = getIcon(entry.text);
-  const displayText = icon ? `${icon} ${entry.text}` : entry.text;
-  
+
   return (
-    <Text style={[styles.logLine, { color: colorMap[entry.type] }]}>
-      {displayText}
-    </Text>
+    <View style={styles.logLine}>
+      <Text style={styles.logIcon}>{getIcon(entry.text)}</Text>
+      <Text style={[styles.logText, { color: colorMap[entry.type] }]}>
+        {entry.text}
+      </Text>
+    </View>
   );
 }
 
 export default function UpdatesScreen() {
-  const { colors } = useTheme();
-  const { novels, updateNovel } = useLibrary();
+  const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
-  const topPad = Platform.OS === "web" ? 67 : insets.top;
-  const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
+  const { novels, addChapter, updateNovel } = useLibrary();
 
-  const [selectedNovel, setSelectedNovel] = useState<Novel | null>(null);
-  const [maxChStr, setMaxChStr] = useState("");
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [progressLabel, setProgressLabel] = useState("");
+  const [selectedNovelId, setSelectedNovelId] = useState<string | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [elapsedTime, setElapsedTime] = useState("00:00:00");
-  const stopRef = useRef(false);
-  const logScrollRef = useRef<ScrollView>(null);
-  const startTimeRef = useRef<number>(0);
-  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [progress, setProgress] = useState(0);
+  
+  const scrollRef = useRef<ScrollView>(null);
+  const stopSignal = useRef(false);
 
   const addLog = (text: string, type: LogEntry["type"] = "info") => {
-    const entry: LogEntry = { id: Date.now().toString() + Math.random(), text, type };
-    setLogs((prev) => [...prev.slice(-200), entry]);
-    setTimeout(() => logScrollRef.current?.scrollToEnd({ animated: true }), 100);
+    setLogs((prev) => [
+      ...prev,
+      { id: Math.random().toString(36).substring(7), text, type },
+    ]);
   };
 
-  const clearAll = () => {
-    setLogs([]);
-    setProgress(0);
-    setProgressLabel("");
-    setElapsedTime("00:00:00");
-    setMaxChStr("");
-    if (timerIntervalRef.current) {
-      clearInterval(timerIntervalRef.current);
-      timerIntervalRef.current = null;
-    }
-  };
-
-  const formatTime = (seconds: number): string => {
-    const hrs = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-  };
-
-  const startTimer = () => {
-    startTimeRef.current = Date.now();
-    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-    timerIntervalRef.current = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
-      setElapsedTime(formatTime(elapsed));
-    }, 1000);
-  };
-
-  const stopTimer = () => {
-    if (timerIntervalRef.current) {
-      clearInterval(timerIntervalRef.current);
-      timerIntervalRef.current = null;
-    }
-  };
-
-  const handleUpdate = async () => {
-    if (!selectedNovel) {
-      addLog("Please select a novel first", "error");
+  const handleStart = async () => {
+    const novel = novels.find((n) => n.id === selectedNovelId);
+    
+    if (!novel) {
+      addLog("Please select a novel to update.", "error");
       return;
     }
 
-    const maxCh = parseInt(maxChStr) || null;
+    if (isDownloading) {
+      stopSignal.current = true;
+      return;
+    }
 
-    stopRef.current = false;
-    setIsUpdating(true);
+    setIsDownloading(true);
+    stopSignal.current = false;
     setLogs([]);
     setProgress(0);
-    setProgressLabel("");
-    setElapsedTime("00:00:00");
-    startTimer();
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    addLog(`CONNECTING: ${novel.title}`, "info");
 
     try {
-      const existingChapters = selectedNovel.chapters;
-      const startCh = existingChapters.length + 1;
-      
-      let domain = "";
-      try {
-        const urlObj = new URL(selectedNovel.sourceUrl);
-        domain = urlObj.hostname;
-      } catch {
-        domain = "Unknown";
-      }
-      
-      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-      addLog(`CONNECTING TO SOURCE...`, "downloading");
-      addLog(`Source Domain: ${domain}`, "info");
-      addLog(`Novel: ${selectedNovel.title}`, "success");
-      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-      addLog(`LIBRARY STATUS`, "downloading");
-      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-      addLog(`Existing chapters: ${existingChapters.length}`, "info");
-      addLog(`Starting from chapter: ${startCh}`, "info");
-      
-      if (maxCh) {
-        addLog(`Max chapters to download: ${maxCh}`, "info");
-      }
-      
-      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-      addLog(`STARTING UPDATE...`, "downloading");
-      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
+      // Logic: Start from the URL of the last chapter we have saved.
+      // If no chapters exist, we'd need a starting URL from the novel meta.
+      let currentUrl = novel.lastChapterUrl;
+      let chapterNum = novel.chapters?.length || 0;
+      let newChaptersCount = 0;
 
-      const meta = await fetchNovelMeta(selectedNovel.sourceUrl);
-      
-      if (!meta.firstChapterUrl) {
-        addLog("Could not find chapter links on this page", "error");
-        setIsUpdating(false);
-        stopTimer();
+      if (!currentUrl) {
+        addLog("No source URL found for this novel. Cannot update.", "error");
+        setIsDownloading(false);
         return;
       }
 
-      let currentUrl: string | null = meta.firstChapterUrl;
-      let chapterNum = 1;
-      const newChapters: Chapter[] = [...existingChapters];
-      let downloaded = 0;
+      // First, fetch the last saved chapter to find the "Next" link
+      addLog("Checking for new chapters...", "info");
+      const initialData = await fetchChapter(currentUrl);
+      let nextUrl = initialData.nextUrl;
 
-      // Find the chapter to start from
-      while (currentUrl && chapterNum < startCh) {
-        const data = await fetchChapter(currentUrl, chapterNum);
-        if (!data.nextUrl) break;
-        currentUrl = data.nextUrl;
+      while (nextUrl && !stopSignal.current) {
         chapterNum++;
-      }
+        addLog(`Downloading Chapter ${chapterNum}...`, "downloading");
 
-      addLog(`Found chapter ${chapterNum} to start from`, "success");
-      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
+        const chapterData = await fetchChapter(nextUrl);
 
-      while (currentUrl && !stopRef.current) {
-        if (maxCh !== null && downloaded >= maxCh) {
-          addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-          addLog(`Reached max chapter limit (${maxCh})`, "success");
-          addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-          break;
-        }
+        const newChapter: Chapter = {
+          id: `${novel.id}-ch${chapterNum}`,
+          novelId: novel.id,
+          title: chapterData.title,
+          content: chapterData.content,
+          chapterNum: chapterNum,
+          url: nextUrl,
+          createdAt: new Date().toISOString(),
+        };
 
-        const alreadyExists = newChapters.some((c) => c.url === currentUrl);
-        if (alreadyExists) {
-          addLog(`[SKIPPED] Chapter ${chapterNum} already exists`, "info");
-          chapterNum++;
-          continue;
-        }
-
-        setProgressLabel(`Chapter ${chapterNum}`);
-        addLog(`UPDATING Chapter ${chapterNum}...`, "downloading");
-
-        const data = await fetchChapter(currentUrl, chapterNum);
-
-        newChapters.push({
-          title: data.title,
-          url: currentUrl,
-          content: data.content,
+        // Save chapter to local library
+        await addChapter(newChapter);
+        
+        // Update the novel's 'lastChapterUrl' so we can resume later
+        await updateNovel(novel.id, {
+          lastChapterUrl: nextUrl,
+          updatedAt: new Date().toISOString(),
         });
 
-        downloaded++;
+        newChaptersCount++;
+        nextUrl = chapterData.nextUrl;
         
-        if (downloaded % 5 === 0) {
-          addLog(`DONE: ${data.title} [${downloaded} new chapters so far]`, "success");
-        } else {
-          addLog(`DONE: ${data.title}`, "info");
-        }
-
-        if (maxCh) {
-          setProgress((downloaded / maxCh) * 100);
-        }
-
-        if (!data.nextUrl) {
-          addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-          addLog(`No more chapters found.`, "info");
-          addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-          break;
-        }
-        currentUrl = data.nextUrl;
-        chapterNum++;
-
-        await new Promise((r) => setTimeout(r, 200));
+        // Visual progress (infinite feel since we don't know the total)
+        setProgress((prev) => Math.min(prev + 0.1, 0.9));
       }
 
-      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-      
-      if (stopRef.current) {
-        addLog(`Update halted by user.`, "warning");
-        addLog(`Downloaded ${downloaded} new chapters before stop.`, "info");
+      if (stopSignal.current) {
+        addLog("Update paused by user.", "warning");
+      } else if (newChaptersCount === 0) {
+        addLog("DONE: Novel is already up to date!", "success");
+        setProgress(1);
       } else {
-        addLog(`UPDATE COMPLETE!`, "success");
-        addLog(`Total new chapters added: ${downloaded}`, "success");
-        if (downloaded > 0) {
-          addLog(`Novel updated in your library`, "success");
-        } else {
-          addLog(`No new chapters found. Novel is up to date!`, "info");
-        }
+        addLog(`DONE: Successfully added ${newChaptersCount} new chapters.`, "success");
+        setProgress(1);
       }
-      
-      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
-      const updatedNovel: Novel = {
-        ...selectedNovel,
-        chapters: newChapters,
-      };
-      await updateNovel(updatedNovel);
-      setProgress(100);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (e: any) {
-      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "error");
-      addLog(`ERROR: ${e.message || "Update failed"}`, "error");
-      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "error");
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } catch (err: any) {
+      addLog(`ERROR: ${err.message || "Failed to fetch update"}`, "error");
     } finally {
-      setIsUpdating(false);
-      stopTimer();
+      setIsDownloading(false);
+      stopSignal.current = false;
     }
   };
 
-  const inputStyle = [
-    styles.input,
-    {
-      backgroundColor: colors.surface,
-      borderColor: colors.border,
-      color: colors.text,
-    },
-  ];
-
-  const renderNovelItem = ({ item }: { item: Novel }) => (
-    <Pressable
-      style={[
-        styles.novelItem,
-        {
-          backgroundColor: selectedNovel?.id === item.id ? colors.accent : colors.surface,
-          borderColor: colors.border,
-        },
-      ]}
-      onPress={() => setSelectedNovel(item)}
-    >
-      <View style={styles.novelItemContent}>
-        <Text
-          style={[
-            styles.novelTitle,
-            { color: selectedNovel?.id === item.id ? "#fff" : colors.text },
-          ]}
-          numberOfLines={2}
-        >
-          {item.title}
-        </Text>
-        <Text
-          style={[
-            styles.novelChapters,
-            { color: selectedNovel?.id === item.id ? colors.textMuted : colors.textSecondary },
-          ]}
-        >
-          {item.chapters.length} chapters
-        </Text>
-      </View>
-      {selectedNovel?.id === item.id && (
-        <Ionicons name="checkmark-circle" size={20} color="#fff" style={styles.checkIcon} />
-      )}
-    </Pressable>
-  );
-
   return (
     <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
       style={[styles.container, { backgroundColor: colors.background }]}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <View style={[styles.header, { paddingTop: topPad + 12, borderBottomColor: colors.border }]}>
-        <Ionicons name="update" size={22} color={colors.accent} />
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Novel Updates</Text>
+      <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
+        <Text style={[styles.title, { color: colors.text }]}>Library Updates</Text>
+        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+          Sync saved novels with the source
+        </Text>
       </View>
 
-      <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomPad + 20 }]}
-        showsVerticalScrollIndicator={true}
-        alwaysBounceVertical={true}
+      <ScrollView 
+        ref={scrollRef}
+        contentContainerStyle={styles.scrollContent}
+        onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
       >
-        {/* Select Novel - Vertical List */}
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.cardLabel, { color: colors.textSecondary }]}>SELECT NOVEL</Text>
-          <View style={styles.novelListContainer}>
-            {novels.length === 0 ? (
-              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-                No novels in library. Add some first!
-              </Text>
-            ) : (
-              novels.map((novel) => renderNovelItem({ item: novel }))
-            )}
-          </View>
-        </View>
-
-        {/* Form Section */}
-        <View style={styles.form}>
-          <View>
-            <Text style={[styles.label, { color: colors.textSecondary }]}>Max Chapters to Download</Text>
-            <TextInput
-              style={inputStyle}
-              value={maxChStr}
-              onChangeText={setMaxChStr}
-              placeholder="All (downloads all new chapters)"
-              placeholderTextColor={colors.textMuted}
-              keyboardType="number-pad"
-              editable={!isUpdating}
-            />
-          </View>
-
-          <View style={styles.buttons}>
-            <Pressable
-              style={[
-                styles.primaryBtn,
-                { backgroundColor: isUpdating || !selectedNovel ? colors.border : colors.accent },
-              ]}
-              onPress={isUpdating ? undefined : handleUpdate}
-              disabled={isUpdating || !selectedNovel}
-            >
-              {isUpdating ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Ionicons name="download" size={18} color="#fff" />
-              )}
-              <Text style={styles.primaryBtnText}>
-                {isUpdating ? "Updating..." : "Check for Updates"}
-              </Text>
-            </Pressable>
-
-            {isUpdating && (
+        {/* Novel Selection List */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Select Novel</Text>
+          <FlatList
+            data={novels}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
               <Pressable
-                style={[styles.outlineBtn, { borderColor: Colors.error }]}
-                onPress={() => { stopRef.current = true; }}
-              >
-                <Ionicons name="stop" size={16} color={Colors.error} />
-                <Text style={[styles.outlineBtnText, { color: Colors.error }]}>Halt</Text>
-              </Pressable>
-            )}
-
-            {!isUpdating && (
-              <Pressable
-                style={[styles.outlineBtn, { borderColor: colors.border }]}
-                onPress={clearAll}
-              >
-                <Ionicons name="trash-outline" size={16} color={colors.textSecondary} />
-                <Text style={[styles.outlineBtnText, { color: colors.textSecondary }]}>Clear All</Text>
-              </Pressable>
-            )}
-          </View>
-        </View>
-
-        {/* Progress Section - Always Visible */}
-        {(isUpdating || progress > 0) && (
-          <View style={styles.progressSection}>
-            <View style={styles.progressHeader}>
-              <Ionicons name="bar-chart" size={15} color={colors.accent} />
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>Progress</Text>
-              {progressLabel ? (
-                <Text style={[styles.progressLabel, { color: colors.textSecondary }]}>
-                  {progressLabel}
-                </Text>
-              ) : null}
-            </View>
-            <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
-              <Animated.View
+                onPress={() => setSelectedNovelId(item.id)}
                 style={[
-                  styles.progressFill,
-                  {
-                    backgroundColor: colors.accent,
-                    width: `${Math.min(progress, 100)}%`,
-                  },
+                  styles.novelCard,
+                  { 
+                    backgroundColor: colors.card,
+                    borderColor: selectedNovelId === item.id ? colors.primary : "transparent"
+                  }
                 ]}
-              />
-            </View>
-          </View>
-        )}
-
-        {/* Timer Section - Always Visible during update */}
-        {(isUpdating || elapsedTime !== "00:00:00") && (
-          <View style={styles.timerSection}>
-            <View style={styles.timerHeader}>
-              <Ionicons name="time-outline" size={15} color={colors.accent} />
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>Elapsed Time</Text>
-              <Text style={[styles.timerValue, { color: colors.accent }]}>{elapsedTime}</Text>
-            </View>
-          </View>
-        )}
-
-        {/* Activity Log Section - Always Visible with Scroll */}
-        <View style={styles.logSection}>
-          <View style={styles.logHeader}>
-            <Ionicons name="sync" size={15} color={colors.accent} />
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Activity Log</Text>
-          </View>
-          <ScrollView
-            ref={logScrollRef}
-            style={[styles.logBox, { backgroundColor: colors.surface, borderColor: colors.border }]}
-            contentContainerStyle={styles.logContent}
-            showsVerticalScrollIndicator={true}
-            nestedScrollEnabled={true}
-          >
-            {logs.length === 0 ? (
-              <Text style={[styles.logLine, { color: colors.textMuted }]}>
-                {selectedNovel 
-                  ? `Ready to check for updates in "${selectedNovel.title}"` 
-                  : "Select a novel to check for updates"}
-              </Text>
-            ) : (
-              logs.map((entry) => (
-                <LogLine key={entry.id} entry={entry} />
-              ))
+              >
+                <Text numberOfLines={1} style={[styles.novelCardText, { color: colors.text }]}>
+                  {item.title}
+                </Text>
+              </Pressable>
             )}
-          </ScrollView>
+            contentContainerStyle={styles.novelList}
+          />
         </View>
 
-        {/* Extra space at bottom for better scrolling */}
-        <View style={styles.bottomSpacer} />
+        {/* Progress Display */}
+        {isDownloading || logs.length > 0 ? (
+          <View style={styles.statusBox}>
+            <View style={styles.progressSection}>
+              <View style={styles.progressHeader}>
+                <Ionicons name="download-outline" size={18} color={colors.primary} />
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>Progress</Text>
+              </View>
+              <View style={[styles.progressBar, { backgroundColor: isDark ? "#333" : "#eee" }]}>
+                <View 
+                  style={[
+                    styles.progressFill, 
+                    { backgroundColor: colors.primary, width: `${progress * 100}%` }
+                  ]} 
+                />
+              </View>
+            </View>
+
+            <View style={styles.logSection}>
+              {logs.map((log) => (
+                <LogLine key={log.id} entry={log} />
+              ))}
+            </View>
+          </View>
+        ) : null}
       </ScrollView>
+
+      <View style={[styles.footer, { paddingBottom: insets.bottom + 20 }]}>
+        <Pressable
+          onPress={handleStart}
+          style={({ pressed }) => [
+            styles.primaryBtn,
+            { 
+              backgroundColor: isDownloading ? colors.error : colors.primary,
+              opacity: pressed ? 0.8 : 1 
+            },
+          ]}
+        >
+          {isDownloading ? (
+            <>
+              <ActivityIndicator size="small" color="#fff" />
+              <Text style={styles.primaryBtnText}>Stop Update</Text>
+            </>
+          ) : (
+            <>
+              <Ionicons name="refresh-outline" size={20} color="#fff" />
+              <Text style={styles.primaryBtnText}>Initiate Update</Text>
+            </>
+          )}
+        </Pressable>
+      </View>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 20,
-    paddingBottom: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  headerTitle: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 22,
-  },
-  scrollContent: { 
+  header: { paddingHorizontal: 20, marginBottom: 15 },
+  title: { fontSize: 28, fontFamily: "Inter_700Bold" },
+  subtitle: { fontSize: 15, fontFamily: "Inter_400Regular", marginTop: 4 },
+  scrollContent: { paddingHorizontal: 20, paddingBottom: 20 },
+  section: { marginBottom: 20 },
+  sectionTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold", marginBottom: 10 },
+  novelList: { gap: 10 },
+  novelCard: {
     paddingHorizontal: 16,
-    paddingTop: 16,
-  },
-  card: {
+    paddingVertical: 10,
     borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 14,
-    marginBottom: 16,
+    borderWidth: 2,
+    marginRight: 8,
+    maxWidth: 200,
   },
-  cardLabel: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 10,
-    letterSpacing: 0.8,
-    marginBottom: 12,
-  },
-  novelListContainer: {
-    gap: 8,
-  },
-  novelItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-  },
-  novelItemContent: {
-    flex: 1,
-  },
-  novelTitle: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    marginBottom: 4,
-  },
-  novelChapters: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 11,
-  },
-  checkIcon: {
-    marginLeft: 8,
-  },
-  emptyText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    textAlign: "center",
-    paddingVertical: 20,
-  },
-  form: { 
-    gap: 14,
-    marginBottom: 16,
-  },
-  label: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 12,
-    marginBottom: 6,
-  },
-  input: {
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-  },
-  buttons: { flexDirection: "row", gap: 10, flexWrap: "wrap" },
+  novelCardText: { fontFamily: "Inter_500Medium", fontSize: 14 },
+  statusBox: { marginTop: 10 },
+  progressSection: { marginBottom: 20 },
+  progressHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
+  progressBar: { height: 8, borderRadius: 4, overflow: "hidden" },
+  progressFill: { height: "100%" },
+  logSection: { gap: 6 },
+  logLine: { flexDirection: "row", gap: 8, alignItems: "flex-start" },
+  logIcon: { fontSize: 14 },
+  logText: { fontSize: 13, fontFamily: "Inter_400Regular", flex: 1 },
+  footer: { paddingHorizontal: 20, paddingTop: 10 },
   primaryBtn: {
     flexDirection: "row",
+    height: 56,
+    borderRadius: 16,
     alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderRadius: 10,
+    justifyContent: "center",
+    gap: 10,
   },
-  primaryBtnText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: "#fff",
-  },
-  outlineBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-  },
-  outlineBtnText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 14,
-  },
-  progressSection: { 
-    gap: 8,
-    marginBottom: 16,
-  },
-  progressHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  timerSection: {
-    gap: 8,
-    marginBottom: 16,
-  },
-  timerHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  timerValue: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 16,
-    marginLeft: "auto",
-  },
-  sectionTitle: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    flex: 1,
-  },
-  progressLabel: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-  },
-  progressBar: {
-    height: 6,
-    borderRadius: 3,
-    overflow: "hidden",
-  },
-  progressFill: {
-    height: "100%",
-    borderRadius: 3,
-  },
-  logSection: { 
-    gap: 8,
-    marginBottom: 16,
-  },
-  logHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  logBox: {
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 10,
-    maxHeight: 280,
-    minHeight: 150,
-  },
-  logContent: {
-    paddingBottom: 8,
-  },
-  logLine: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    lineHeight: 18,
-    marginBottom: 4,
-    paddingHorizontal: 4,
-  },
-  bottomSpacer: {
-    height: 20,
-  },
+  primaryBtnText: { color: "#fff", fontSize: 16, fontFamily: "Inter_600SemiBold" },
 });
