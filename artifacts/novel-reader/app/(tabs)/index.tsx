@@ -114,7 +114,7 @@ export default function LibraryScreen() {
       </View>
 
       {!loading && novels.length === 0 ? (
-        <Animated.View entering={FadeIn} style={styles.emptyState}>
+        <View style={styles.emptyState}>
           <Image
             source={require("@/assets/images/shook.png")}
             style={styles.shookImg}
@@ -131,7 +131,7 @@ export default function LibraryScreen() {
             <Ionicons name="add" size={18} color="#fff" />
             <Text style={styles.addBtnText}>Add Novel</Text>
           </Pressable>
-        </Animated.View>
+        </View>
       ) : (
         <FlatList
           data={novels}
