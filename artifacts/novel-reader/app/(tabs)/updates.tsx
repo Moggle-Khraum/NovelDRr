@@ -340,7 +340,7 @@ export default function UpdatesScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <View style={[styles.header, { paddingTop: topPad + 12, borderBottomColor: colors.border }]}>
-        <Ionicons name="update" size={22} color={colors.accent} />
+        <Ionicons name="refresh-circle" size={22} color={colors.accent} />
         <Text style={[styles.headerTitle, { color: colors.text }]}>Novel Updates</Text>
       </View>
 
