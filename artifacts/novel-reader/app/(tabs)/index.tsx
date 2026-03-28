@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React, { useState } from "react";
 import {
@@ -24,7 +23,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLibrary, Novel } from "@/context/LibraryContext";
 import { useTheme } from "@/context/ThemeContext";
 
-function NovelCard({ novel, onPress, onLongPress }: { novel: Novel; onPress: () => void; onLongPress: () => void }) {
+function NovelCard({ novel, onPress }: { novel: Novel; onPress: () => void }) {
   const { colors } = useTheme();
   const scale = useSharedValue(1);
 
@@ -37,12 +36,20 @@ function NovelCard({ novel, onPress, onLongPress }: { novel: Novel; onPress: () 
 
   return (
     <Pressable
-      onPress={() => { scale.value = withSpring(1, { damping: 15 }); onPress(); }}
-      onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onLongPress(); }}
-      onPressIn={() => { scale.value = withSpring(0.97, { damping: 15 }); }}
-      onPressOut={() => { scale.value = withSpring(1, { damping: 15 }); }}
+      onPress={() => {
+        scale.value = withSpring(1, { damping: 15 });
+        onPress();
+      }}
+      onPressIn={() => {
+        scale.value = withSpring(0.97, { damping: 15 });
+      }}
+      onPressOut={() => {
+        scale.value = withSpring(1, { damping: 15 });
+      }}
     >
-      <Animated.View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }, animStyle]}>
+      <Animated.View
+        style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }, animStyle]}
+      >
         <View style={styles.coverContainer}>
           {novel.coverUrl ? (
             <Image
@@ -81,35 +88,25 @@ function NovelCard({ novel, onPress, onLongPress }: { novel: Novel; onPress: () 
 }
 
 export default function LibraryScreen() {
-  const { novels, removeNovel, loading } = useLibrary();
+  const { novels, loading } = useLibrary();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const handleDelete = (novel: Novel) => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    Alert.alert(
-      "Remove Novel",
-      `Remove "${novel.title}" from your library?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Remove",
-          style: "destructive",
-          onPress: () => {
-            removeNovel(novel.id);
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          },
-        },
-      ]
-    );
-  };
-
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: topPad + 12, borderBottomColor: colors.border, backgroundColor: colors.background }]}>
+      <View
+        style={[
+          styles.header,
+          {
+            paddingTop: topPad + 12,
+            borderBottomColor: colors.border,
+            backgroundColor: colors.background,
+          },
+        ]}
+      >
         <Text style={[styles.headerTitle, { color: colors.text }]}>Novel DR</Text>
         <Text style={[styles.headerSub, { color: colors.textSecondary }]}>
           {novels.length} {novels.length === 1 ? "novel" : "novels"}
@@ -143,8 +140,9 @@ export default function LibraryScreen() {
             <Animated.View entering={FadeIn.delay(index * 50)}>
               <NovelCard
                 novel={item}
-                onPress={() => router.push({ pathname: "/novel/[id]", params: { id: item.id } })}
-                onLongPress={() => handleDelete(item)}
+                onPress={() =>
+                  router.push({ pathname: "/novel/[id]", params: { id: item.id } })
+                }
               />
             </Animated.View>
           )}
