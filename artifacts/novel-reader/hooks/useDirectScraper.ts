@@ -145,6 +145,13 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
     const domainLower = url.toLowerCase();
     const isReadNovelFull = domainLower.includes('readnovelfull');
     const isNovelFull = domainLower.includes('novelfull') && !isReadNovelFull;
+    
+    // Check for other similar sites (LightNovelWorld, AllNovelFull, LightNovelPub, NovelCool)
+    const isSimilarSite = domainLower.includes('lightnovelworld') || 
+                          domainLower.includes('allnovelfull') ||
+                          domainLower.includes('lightnovelpub') ||
+                          domainLower.includes('novelcool');
+    
     const isFreeWebNovel = domainLower.includes('freewebnovel');
     const isNovelBin = domainLower.includes('novelbin');
     
@@ -300,7 +307,7 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
         if (fallbackMatch) firstChapterUrl = makeAbsoluteUrl(fallbackMatch, url);
       }
     }
-    
+
     console.log('[Scraper] Found first chapter:', firstChapterUrl);
     
     return {
@@ -332,8 +339,21 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
       if (cleanTitle) title = `Chapter ${chapterNum}: ${cleanTitle}`;
     }
     
-    // Extract content (all paragraphs)
-    const paragraphMatches = html.match(/<p[^>]*>(.*?)<\/p>/gis);
+    // Extract content
+    // FreeWebNovel wraps content in a specific container — target it first (mirrors Python)
+    let paragraphMatches: string[] | null = null;
+    if (isFreeWebNovel) {
+      const containerMatch = html.match(/<div[^>]*class="chapter-content"[^>]*>([\s\S]*?)<\/div>/i) ||
+                             html.match(/<div[^>]*id="chapter-container"[^>]*>([\s\S]*?)<\/div>/i);
+      if (containerMatch) {
+        paragraphMatches = containerMatch[1].match(/<p[^>]*>([\s\S]*?)<\/p>/gis);
+      }
+    }
+    // Fallback for all sites: grab all <p> tags
+    if (!paragraphMatches) {
+      paragraphMatches = html.match(/<p[^>]*>([\s\S]*?)<\/p>/gis);
+    }
+
     const validParagraphs: string[] = [];
     
     if (paragraphMatches) {
