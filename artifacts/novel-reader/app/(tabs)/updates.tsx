@@ -48,9 +48,9 @@ function LogLine({ entry }: { entry: LogEntry }) {
     if (text.includes("Downloading Chapter")) return "📥";
     if (text.includes("Saved:")) return "💾";
     if (text.includes("DONE")) return "✅";
-    if (text.includes("SKIPPED")) return "⏭️";
     if (text.includes("COMPLETE")) return "🎉";
     if (text.includes("ERROR")) return "❌";
+    if (text.includes("SKIPPED")) return "⏭️";
     if (text.includes("limit")) return "✅";
     if (text.includes("halted")) return "⚠️";
     if (text.includes("No more chapters")) return "🏁";
@@ -243,15 +243,8 @@ export default function UpdatesScreen() {
 
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
-      // Always save — even if halted — so partial downloads are kept
-      if (downloaded > 0) {
-        const updatedNovel: Novel = {
-          ...selectedNovel,
-          chapters: newChapters,
-        };
-        await updateNovel(updatedNovel);
-        setSelectedNovel(updatedNovel);
-      }
+      // ✅ FIX: Correctly update the novel using its id and the new chapters
+      await updateNovel(selectedNovel.id, { chapters: newChapters });
 
       setProgress(100);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -262,6 +255,9 @@ export default function UpdatesScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setIsUpdating(false);
+      stopTimer();
+      // ✅ FIX: Clear the selected novel after the update finishes
+      setSelectedNovel(null);
     }
   };
 
@@ -317,7 +313,7 @@ export default function UpdatesScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <View style={[styles.header, { paddingTop: topPad + 12, borderBottomColor: colors.border }]}>
-        <Ionicons name="update" size={22} color={colors.accent} />
+        <Ionicons name="refresh-circle" size={22} color={colors.accent} />
         <Text style={[styles.headerTitle, { color: colors.text }]}>Novel Updates</Text>
       </View>
 
