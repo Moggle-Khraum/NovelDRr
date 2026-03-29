@@ -13,6 +13,8 @@ export type Chapter = {
   content?: string;
 };
 
+export type NovelStatus = "unread" | "reading" | "completed";
+
 export type Novel = {
   id: string;
   title: string;
@@ -22,6 +24,7 @@ export type Novel = {
   sourceUrl: string;
   chapters: Chapter[];
   dateAdded: number;
+  status: NovelStatus;
   lastRead?: {
     chapterIndex: number;
     chapterTitle: string;
@@ -38,6 +41,7 @@ type LibraryContextType = {
   removeNovel: (id: string) => Promise<void>;
   getNovel: (id: string) => Novel | undefined;
   saveReadingProgress: (novelId: string, chapterIndex: number, chapterTitle: string) => Promise<void>;
+  setNovelStatus: (novelId: string, status: NovelStatus) => Promise<void>;
 };
 
 const LibraryContext = createContext<LibraryContextType>({
@@ -48,6 +52,7 @@ const LibraryContext = createContext<LibraryContextType>({
   removeNovel: async () => {},
   getNovel: () => undefined,
   saveReadingProgress: async () => {},
+  setNovelStatus: async () => {},
 });
 
 export function LibraryProvider({ children }: { children: React.ReactNode }) {
@@ -58,7 +63,13 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.getItem(LIBRARY_KEY).then((data) => {
       if (data) {
         try {
-          setNovels(JSON.parse(data));
+          const parsed: Novel[] = JSON.parse(data);
+          // migrate older novels that don't have status yet
+          const migrated = parsed.map((n) => ({
+            ...n,
+            status: n.status ?? (n.lastRead ? "reading" : "unread"),
+          }));
+          setNovels(migrated);
         } catch {}
       }
       setLoading(false);
@@ -109,6 +120,13 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     [updateNovel]
   );
 
+  const setNovelStatus = useCallback(
+    async (novelId: string, status: NovelStatus) => {
+      await updateNovel(novelId, { status });
+    },
+    [updateNovel]
+  );
+
   return (
     <LibraryContext.Provider
       value={{
@@ -119,6 +137,7 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
         removeNovel,
         getNovel,
         saveReadingProgress,
+        setNovelStatus,
       }}
     >
       {children}
