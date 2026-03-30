@@ -85,8 +85,11 @@ export default function UpdatesScreen() {
   const [progress, setProgress] = useState(0);
   const [progressLabel, setProgressLabel] = useState("");
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [elapsedTime, setElapsedTime] = useState("00:00:00");
   const stopRef = useRef(false);
   const logScrollRef = useRef<ScrollView>(null);
+  const startTimeRef = useRef<number>(0);
+  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const addLog = (text: string, type: LogEntry["type"] = "info") => {
     const entry: LogEntry = { id: Date.now().toString() + Math.random(), text, type };
@@ -98,7 +101,43 @@ export default function UpdatesScreen() {
     setLogs([]);
     setProgress(0);
     setProgressLabel("");
+    setElapsedTime("00:00:00");
     setMaxChStr("");
+  };
+
+ const clearAll = () => {
+    setLogs([]);
+    setProgress(0);
+    setProgressLabel("");
+    setElapsedTime("00:00:00");
+    setMaxChStr("");
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+  };
+
+  const formatTime = (seconds: number): string => {
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const startTimer = () => {
+    startTimeRef.current = Date.now();
+    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    timerIntervalRef.current = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
+      setElapsedTime(formatTime(elapsed));
+    }, 1000);
+  };
+
+  const stopTimer = () => {
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
   };
 
   const handleUpdate = async () => {
@@ -114,6 +153,10 @@ export default function UpdatesScreen() {
     setIsUpdating(true);
     setLogs([]);
     setProgress(0);
+    setProgressLabel("");
+    setElapsedTime("00:00:00");
+    startTimer();
+    
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
@@ -150,6 +193,7 @@ export default function UpdatesScreen() {
 
       if (!meta.firstChapterUrl) {
         addLog("Could not find chapter links on this page", "error");
+        stopTimer();
         return;
       }
 
@@ -256,7 +300,6 @@ export default function UpdatesScreen() {
     } finally {
       setIsUpdating(false);
       stopTimer();
-      // ✅ FIX: Clear the selected novel after the update finishes
       setSelectedNovel(null);
     }
   };
@@ -419,6 +462,17 @@ export default function UpdatesScreen() {
           </Animated.View>
         )}
 
+        {/* Timer Section - Always Visible during update */}
+        {(isUpdating || elapsedTime !== "00:00:00") && (
+          <View style={styles.timerSection}>
+            <View style={styles.timerHeader}>
+              <Ionicons name="time-outline" size={15} color={colors.accent} />
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>Elapsed Time</Text>
+              <Text style={[styles.timerValue, { color: colors.accent }]}>{elapsedTime}</Text>
+            </View>
+          </View>
+        )}
+
         {/* Activity Log Section */}
         <View style={styles.logSection}>
           <View style={styles.logHeader}>
@@ -559,11 +613,28 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   progressSection: { gap: 8 },
+  
   progressHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
   },
+
+  timerSection: {
+    gap: 8,
+    marginBottom: 16,
+  },
+  timerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  timerValue: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 16,
+    marginLeft: "auto",
+  },
+
   sectionTitle: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 14,
