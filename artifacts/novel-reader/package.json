@@ -5,7 +5,9 @@
   "main": "expo-router/entry",
   "dependencies": {
     "axios": "^1.6.0",
-    "entities": "^4.5.0"
+    "entities": "^4.5.0",
+    "expo-file-system": "~18.0.0",
+    "expo-sharing": "~13.0.0"
   },
   "scripts": {
     "dev": "EXPO_PACKAGER_PROXY_URL=https://$REPLIT_EXPO_DEV_DOMAIN EXPO_PUBLIC_DOMAIN=$REPLIT_DEV_DOMAIN EXPO_PUBLIC_REPL_ID=$REPL_ID REACT_NATIVE_PACKAGER_HOSTNAME=$REPLIT_DEV_DOMAIN pnpm exec expo start --localhost --port $PORT",
