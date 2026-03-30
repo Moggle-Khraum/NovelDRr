@@ -97,14 +97,6 @@ export default function UpdatesScreen() {
     setTimeout(() => logScrollRef.current?.scrollToEnd({ animated: true }), 100);
   };
 
-  const clearAll = () => {
-    setLogs([]);
-    setProgress(0);
-    setProgressLabel("");
-    setElapsedTime("00:00:00");
-    setMaxChStr("");
-  };
-
  const clearAll = () => {
     setLogs([]);
     setProgress(0);
