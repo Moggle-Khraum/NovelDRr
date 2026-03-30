@@ -266,6 +266,7 @@ export default function AddNovelScreen() {
         chapters: newChapters,
         dateAdded: existingNovel?.dateAdded || Date.now(),
         lastRead: existingNovel?.lastRead,
+        status: existingNovel?.status ?? "unread",
       };
       await addNovel(novel);
       setProgress(100);
