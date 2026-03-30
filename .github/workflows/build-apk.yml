@@ -1,0 +1,57 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.26.1
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Install Expo packages
+        working-directory: artifacts/novel-reader
+        run: pnpm add expo-file-system expo-sharing
+
+      - name: Setup Expo and EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Initialize EAS project
+        working-directory: artifacts/novel-reader
+        run: eas init --non-interactive --force
+
+      - name: Build Android APK
+        working-directory: artifacts/novel-reader
+        run: eas build --platform android --profile preview --non-interactive --local
+        
+      - name: Find and upload APK
+        run: |
+          echo "Searching for APK files..."
+          find . -name "*.apk" -type f
+          # Copy any found APK to a known location
+          mkdir -p artifacts
+          find . -name "*.apk" -type f -exec cp {} artifacts/ \;
+          
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: novel-reader-apk
+          path: artifacts/*.apk
+          if-no-files-found: error
