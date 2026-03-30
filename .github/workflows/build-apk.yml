@@ -25,7 +25,7 @@ jobs:
 
       - name: Install Expo packages
         working-directory: artifacts/novel-reader
-        run: pnpm add expo-file-system expo-sharing
+        run: pnpm add expo-file-system expo-sharing && pnpm install --no-frozen-lockfile
 
       - name: Setup Expo and EAS
         uses: expo/expo-github-action@v8
@@ -55,3 +55,4 @@ jobs:
           name: novel-reader-apk
           path: artifacts/*.apk
           if-no-files-found: error
+          
