@@ -353,6 +353,7 @@ export default function UpdatesScreen() {
       </View>
 
       <ScrollView
+        style={{ flex: 1 }}
         contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 20 }]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
