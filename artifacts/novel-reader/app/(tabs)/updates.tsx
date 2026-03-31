@@ -626,7 +626,12 @@ const styles = StyleSheet.create({
     height: "100%",
     borderRadius: 3,
   },
-  logSection: { gap: 8 },
+  
+  logSection: { 
+    gap: 8,
+    // Add this to ensure the box itself stays away from the screen edge
+    marginBottom: 22, 
+  },
   logHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -640,11 +645,11 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: StyleSheet.hairlineWidth,
     padding: 10,
-    maxHeight: 350, 
+    maxHeight: 350,
     minHeight: 150,
   },
   logContent: {
-    paddingBottom: 24, 
+    paddingBottom: 38,
   },
   logLine: {
     fontFamily: "Inter_400Regular",
@@ -652,6 +657,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginBottom: 4,
     paddingHorizontal: 4,
-  },
+  }
 });
 
