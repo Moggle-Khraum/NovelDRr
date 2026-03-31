@@ -14,7 +14,6 @@ import {
 } from "react-native";
 import Animated, { FadeIn } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
 import { useLibrary, Novel, Chapter } from "@/context/LibraryContext";
 import { useTheme } from "@/context/ThemeContext";
 import { fetchNovelMeta, fetchChapter } from "@/hooks/useApi";
@@ -35,7 +34,7 @@ function LogLine({ entry }: { entry: LogEntry }) {
     error: Colors.error,
     warning: Colors.amber,
   };
-  
+
   const getIcon = (text: string) => {
     if (text.includes("CONNECTING")) return "🔍";
     if (text.includes("Source Domain")) return "📡";
@@ -61,10 +60,10 @@ function LogLine({ entry }: { entry: LogEntry }) {
     if (text.includes("Update finished")) return "✨";
     return "";
   };
-  
+
   const icon = getIcon(entry.text);
   const displayText = icon ? `${icon} ${entry.text}` : entry.text;
-  
+
   return (
     <Text style={[styles.logLine, { color: colorMap[entry.type] }]}>
       {displayText}
@@ -94,10 +93,14 @@ export default function UpdatesScreen() {
   const addLog = (text: string, type: LogEntry["type"] = "info") => {
     const entry: LogEntry = { id: Date.now().toString() + Math.random(), text, type };
     setLogs((prev) => [...prev.slice(-200), entry]);
-    setTimeout(() => logScrollRef.current?.scrollToEnd({ animated: true }), 100);
+    
+    // Auto-scroll fix with slight delay
+    setTimeout(() => {
+      logScrollRef.current?.scrollToEnd({ animated: true });
+    }, 200); 
   };
 
- const clearAll = () => {
+  const clearAll = () => {
     setLogs([]);
     setProgress(0);
     setProgressLabel("");
@@ -152,7 +155,6 @@ export default function UpdatesScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      // Extract domain from URL
       let domain = "";
       try {
         const urlObj = new URL(selectedNovel.sourceUrl);
@@ -176,13 +178,11 @@ export default function UpdatesScreen() {
       addLog(`Author: ${meta.author}`, "info");
       addLog(`Current chapters in library: ${selectedNovel.chapters.length}`, "info");
       addLog(`Starting from chapter ${startCh}...`, "info");
-      
       if (maxCh) {
         addLog(`Max chapters to download: ${maxCh}`, "info");
       }
       
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-
       if (!meta.firstChapterUrl) {
         addLog("Could not find chapter links on this page", "error");
         stopTimer();
@@ -197,10 +197,6 @@ export default function UpdatesScreen() {
       const newChapters: Chapter[] = [...selectedNovel.chapters];
       let downloaded = 0;
 
-      // Single unified loop — mirrors add.tsx exactly:
-      // • chapterNum < startCh  → navigate forward (cheap skip)
-      // • alreadyExists         → navigate forward (skip duplicate)
-      // • otherwise             → download and push
       while (currentUrl && !stopRef.current) {
         if (chapterNum < startCh) {
           const data = await fetchChapter(currentUrl, chapterNum);
@@ -219,7 +215,6 @@ export default function UpdatesScreen() {
 
         const alreadyExists = newChapters.some((c) => c.url === currentUrl);
         if (alreadyExists) {
-          // Must fetch to get nextUrl — same fix as updates fix from before
           const data = await fetchChapter(currentUrl, chapterNum);
           if (!data.nextUrl) break;
           currentUrl = data.nextUrl;
@@ -231,13 +226,11 @@ export default function UpdatesScreen() {
         addLog(`Downloading Chapter ${chapterNum}...`, "downloading");
 
         const data = await fetchChapter(currentUrl, chapterNum);
-
         newChapters.push({
           title: data.title,
           url: currentUrl,
           content: data.content,
         });
-
         downloaded++;
 
         if (downloaded % 5 === 0) {
@@ -258,12 +251,10 @@ export default function UpdatesScreen() {
         }
         currentUrl = data.nextUrl;
         chapterNum++;
-
         await new Promise((r) => setTimeout(r, 200));
       }
 
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-
       if (stopRef.current) {
         addLog(`Update halted by user.`, "warning");
         addLog(`Downloaded ${downloaded} new chapters before stop.`, "info");
@@ -278,10 +269,7 @@ export default function UpdatesScreen() {
       }
 
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-
-      // ✅ FIX: Correctly update the novel using its id and the new chapters
       await updateNovel(selectedNovel.id, { chapters: newChapters });
-
       setProgress(100);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
@@ -354,11 +342,10 @@ export default function UpdatesScreen() {
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 20 }]}
+        contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 40 }]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Select Novel Section */}
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.cardLabel, { color: colors.textSecondary }]}>SELECT NOVEL</Text>
           <View style={styles.novelListContainer}>
@@ -427,7 +414,6 @@ export default function UpdatesScreen() {
           </View>
         </View>
 
-        {/* Progress Section */}
         {(isUpdating || progress > 0) && (
           <Animated.View entering={FadeIn}>
             <View style={styles.progressSection}>
@@ -455,7 +441,6 @@ export default function UpdatesScreen() {
           </Animated.View>
         )}
 
-        {/* Timer Section - Always Visible during update */}
         {(isUpdating || elapsedTime !== "00:00:00") && (
           <View style={styles.timerSection}>
             <View style={styles.timerHeader}>
@@ -466,7 +451,6 @@ export default function UpdatesScreen() {
           </View>
         )}
 
-        {/* Activity Log Section */}
         <View style={styles.logSection}>
           <View style={styles.logHeader}>
             <Ionicons name="sync" size={15} color={colors.accent} />
@@ -577,7 +561,6 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 14,
   },
-  row: { flexDirection: "row", gap: 12 },
   buttons: { flexDirection: "row", gap: 10, flexWrap: "wrap" },
   primaryBtn: {
     flexDirection: "row",
@@ -606,13 +589,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   progressSection: { gap: 8 },
-  
   progressHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
   },
-
   timerSection: {
     gap: 8,
     marginBottom: 16,
@@ -627,7 +608,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginLeft: "auto",
   },
-
   sectionTitle: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 14,
@@ -660,11 +640,11 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: StyleSheet.hairlineWidth,
     padding: 10,
-    maxHeight: 280,
+    maxHeight: 350, 
     minHeight: 150,
   },
   logContent: {
-    paddingBottom: 8,
+    paddingBottom: 24, 
   },
   logLine: {
     fontFamily: "Inter_400Regular",
@@ -674,5 +654,4 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
 });
-
 
