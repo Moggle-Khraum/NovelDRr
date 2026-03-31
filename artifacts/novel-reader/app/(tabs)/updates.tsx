@@ -467,11 +467,15 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     fontSize: 22,
   },
+  
   scroll: { 
     padding: 16, 
     gap: 16,
     flexGrow: 1,
+    // Add this line below:
+    paddingBottom: 100, // This is the spacer that pushes the box up
   },
+  
   card: {
     borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
@@ -582,7 +586,13 @@ const styles = StyleSheet.create({
     height: "100%",
     borderRadius: 3,
   },
-  logSection: { gap: 8 },
+  
+  logSection: { 
+    gap: 8,
+    // Add this to ensure the box itself stays away from the screen edge
+    marginBottom: 22, 
+  },
+  
   logHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -596,11 +606,11 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: StyleSheet.hairlineWidth,
     padding: 10,
-    maxHeight: 280,
+    maxHeight: 350,
     minHeight: 150,
   },
   logContent: {
-    paddingBottom: 8,
+    paddingBottom: 38,
   },
   logLine: {
     fontFamily: "Inter_400Regular",
