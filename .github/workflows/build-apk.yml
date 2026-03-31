@@ -3,6 +3,10 @@ name: Build Android APK
 on:
   workflow_dispatch:
 
+# Add this to remove the deprecation warnings and use Node 24
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -13,7 +17,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24 # Updated to Node 24 to match the runner
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -46,17 +50,16 @@ jobs:
       - name: Rename and Move APK
         working-directory: artifacts/novel-reader
         run: |
-          # 1. Get version from the package.json in the current working directory
+          # 1. Get version from package.json
           VERSION=$(node -p "require('./package.json').version")
           
-          # 2. Get the GitHub Run Number (rev)
+          # 2. Get the build count
           REV=${{ github.run_number }}
           
-          # 3. Create a final output folder at the root
+          # 3. Create final output folder
           mkdir -p ../../dist
           
-          # 4. Find the local build APK and copy it to the root with the new name
-          # Using quotes to handle the space in "NovelDR v1.0.5..."
+          # 4. Find and rename the APK
           APK_FILE=$(find . -maxdepth 1 -name "*.apk" -type f | head -n 1)
           cp "$APK_FILE" "../../dist/NovelDR v${VERSION}rev${REV}.apk"
           
