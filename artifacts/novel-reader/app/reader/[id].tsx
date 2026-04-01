@@ -18,6 +18,8 @@ import { useTheme } from "@/context/ThemeContext";
 
 const FONT_SIZES = [13, 15, 17, 19, 22];
 const LINE_SPACINGS = [1.4, 1.6, 1.8, 2.0];
+const SCROLL_SPEEDS = [0.5, 1, 1.5, 2.5, 4]; // px per tick at 16ms interval
+const SCROLL_SPEED_LABELS = ["Slow", "Normal", "Fast", "Faster", "Max"];
 
 export default function ReaderScreen() {
   const { id, chapterIndex: indexParam } = useLocalSearchParams<{
@@ -32,7 +34,48 @@ export default function ReaderScreen() {
   const [lineSpacingIdx, setLineSpacingIdx] = useState(1);
   const [showControls, setShowControls] = useState(false);
   const [chapterIndex, setChapterIndex] = useState(parseInt(indexParam) || 0);
+  const [autoScroll, setAutoScroll] = useState(false);
+  const [scrollSpeedIdx, setScrollSpeedIdx] = useState(1);
   const scrollRef = useRef<ScrollView>(null);
+  const autoScrollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const scrollYRef = useRef(0);
+
+  const startAutoScroll = () => {
+    if (autoScrollRef.current) clearInterval(autoScrollRef.current);
+    autoScrollRef.current = setInterval(() => {
+      scrollYRef.current += SCROLL_SPEEDS[scrollSpeedIdx];
+      scrollRef.current?.scrollTo({ y: scrollYRef.current, animated: false });
+    }, 16);
+  };
+
+  const stopAutoScroll = () => {
+    if (autoScrollRef.current) {
+      clearInterval(autoScrollRef.current);
+      autoScrollRef.current = null;
+    }
+    setAutoScroll(false);
+  };
+
+  const toggleAutoScroll = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (autoScroll) {
+      stopAutoScroll();
+    } else {
+      setAutoScroll(true);
+      startAutoScroll();
+    }
+  };
+
+  // restart interval when speed changes while scrolling
+  useEffect(() => {
+    if (autoScroll) startAutoScroll();
+  }, [scrollSpeedIdx]);
+
+  // stop auto-scroll on chapter change
+  useEffect(() => {
+    stopAutoScroll();
+    scrollYRef.current = 0;
+  }, [chapterIndex]);
 
   const novel = getNovel(id);
   const chapter = novel?.chapters[chapterIndex];
@@ -95,6 +138,13 @@ export default function ReaderScreen() {
         >
           <Ionicons name="text" size={20} color={colors.text} />
         </Pressable>
+
+        <Pressable
+          style={[styles.navBtn, autoScroll && { backgroundColor: colors.accent + "33", borderRadius: 10 }]}
+          onPress={toggleAutoScroll}
+        >
+          <Ionicons name={autoScroll ? "pause-circle" : "play-circle"} size={22} color={autoScroll ? colors.accent : colors.text} />
+        </Pressable>
       </View>
 
       {showControls && (
@@ -135,6 +185,26 @@ export default function ReaderScreen() {
               </Pressable>
             </View>
           </View>
+          <View style={styles.controlRow}>
+            <Text style={[styles.controlLabel, { color: colors.textSecondary }]}>Scroll</Text>
+            <View style={styles.controlBtns}>
+              <Pressable
+                style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
+                onPress={() => setScrollSpeedIdx((i) => Math.max(0, i - 1))}
+              >
+                <Ionicons name="remove" size={16} color={colors.text} />
+              </Pressable>
+              <Text style={[styles.controlValue, { color: colors.text, width: 52 }]}>
+                {SCROLL_SPEED_LABELS[scrollSpeedIdx]}
+              </Text>
+              <Pressable
+                style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
+                onPress={() => setScrollSpeedIdx((i) => Math.min(SCROLL_SPEEDS.length - 1, i + 1))}
+              >
+                <Ionicons name="add" size={16} color={colors.text} />
+              </Pressable>
+            </View>
+          </View>
         </View>
       )}
 
@@ -146,6 +216,9 @@ export default function ReaderScreen() {
           { paddingBottom: bottomPad + 100 },
         ]}
         showsVerticalScrollIndicator={false}
+        onScrollBeginDrag={stopAutoScroll}
+        onScroll={(e) => { scrollYRef.current = e.nativeEvent.contentOffset.y; }}
+        scrollEventThrottle={16}
       >
         <Text style={[styles.chapterHeader, { color: colors.accent }]}>
           {chapter.title}
