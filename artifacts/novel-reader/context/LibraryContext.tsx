@@ -28,7 +28,7 @@ export type Novel = {
   lastRead?: {
     chapterIndex: number;
     chapterTitle: string;
-    scrollOffset: number; // Add this
+    scrollOffset: number; // New field to store vertical position
   };
 };
 
@@ -41,7 +41,13 @@ type LibraryContextType = {
   updateNovel: (id: string, updates: Partial<Novel>) => Promise<void>;
   removeNovel: (id: string) => Promise<void>;
   getNovel: (id: string) => Novel | undefined;
-  saveReadingProgress: (novelId: string, chapterIndex: number, chapterTitle: string) => Promise<void>;
+  // Updated signature to include scrollOffset
+  saveReadingProgress: (
+    novelId: string, 
+    chapterIndex: number, 
+    chapterTitle: string, 
+    scrollOffset: number
+  ) => Promise<void>;
   setNovelStatus: (novelId: string, status: NovelStatus) => Promise<void>;
 };
 
@@ -65,7 +71,7 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
       if (data) {
         try {
           const parsed: Novel[] = JSON.parse(data);
-          // migrate older novels that don't have status yet
+          // Migrate older novels that don't have status yet
           const migrated = parsed.map((n) => ({
             ...n,
             status: n.status ?? (n.lastRead ? "reading" : "unread"),
@@ -112,10 +118,25 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     [novels]
   );
 
+  /**
+   * Updated to save the exact scroll position (scrollOffset) 
+   * so the reader can jump back to the last point.
+   */
   const saveReadingProgress = useCallback(
-    async (novelId: string, chapterIndex: number, chapterTitle: string) => {
+    async (
+      novelId: string, 
+      chapterIndex: number, 
+      chapterTitle: string, 
+      scrollOffset: number
+    ) => {
       await updateNovel(novelId, {
-        lastRead: { chapterIndex, chapterTitle,  },
+        lastRead: { 
+          chapterIndex, 
+          chapterTitle, 
+          scrollOffset 
+        },
+        // Automatically switch status to 'reading' if progress is saved
+        status: "reading",
       });
     },
     [updateNovel]
@@ -149,3 +170,4 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
 export function useLibrary() {
   return useContext(LibraryContext);
 }
+
