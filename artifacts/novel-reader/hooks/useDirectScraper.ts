@@ -153,7 +153,6 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
                           domainLower.includes('novelcool');
     
     const isFreeWebNovel = domainLower.includes('freewebnovel');
-    const isNovelBin = domainLower.includes('novelbin');
     
     // Fetch HTML with appropriate method
     const html = await fetchWithFallback(url, isFreeWebNovel);
@@ -264,47 +263,6 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
             synopsis = paragraphs.map(p => decodeEntities(stripTags(p))).filter(t => t.length > 0).join('\n\n');
           }
         }
-      }
-    }
-    
-    // --- NOVELBIN ---
-    if (isNovelBin) {
-      console.log('[Scraper] NovelBin detected');
-      
-      // TITLE
-      const titleMatch = safeMatch(html, /<h3[^>]*class="title"[^>]*>([^<]+)<\/h3>/i);
-      if (titleMatch) title = decodeEntities(titleMatch);
-      
-      // AUTHOR
-      const authorMatch = safeMatch(html, /<li[^>]*>[\s\S]*?<h3[^>]*>Author:<\/h3>[\s\S]*?<a[^>]*>([^<]+)<\/a>/i);
-      if (authorMatch) author = decodeEntities(authorMatch);
-      
-      // SYNOPSIS
-      const descMatch = safeMatch(html, /<div[^>]*class="desc-text"[^>]*itemprop="description"[^>]*>([\s\S]*?)<\/div>/i);
-      if (descMatch) {
-        const paragraphs = descMatch.match(/<p[^>]*>(.*?)<\/p>/gis);
-        if (paragraphs) {
-          synopsis = paragraphs.map(p => decodeEntities(stripTags(p))).join('\n\n');
-        } else {
-          synopsis = decodeEntities(stripTags(descMatch));
-        }
-      }
-      
-      // COVER
-      const coverMatch = safeMatch(html, /<div[^>]*class="book"[^>]*>.*?<img[^>]*src="([^"]+)"[^>]*>/i);
-      if (coverMatch) coverUrl = makeAbsoluteUrl(coverMatch, url);
-      
-      // FIRST CHAPTER
-      const chapterListMatch = safeMatch(html, /<ul[^>]*class="list-chapter"[^>]*>([\s\S]*?)<\/ul>/i);
-      if (chapterListMatch) {
-        const firstLinkMatch = safeMatch(chapterListMatch, /<a[^>]*href="([^"]+)"[^>]*>/i);
-        if (firstLinkMatch) firstChapterUrl = makeAbsoluteUrl(firstLinkMatch, url);
-      }
-      
-      // Fallback
-      if (!firstChapterUrl) {
-        const fallbackMatch = safeMatch(html, /<a[^>]*href="([^"]*chapter-1[^"]*)"[^>]*>/i);
-        if (fallbackMatch) firstChapterUrl = makeAbsoluteUrl(fallbackMatch, url);
       }
     }
 
