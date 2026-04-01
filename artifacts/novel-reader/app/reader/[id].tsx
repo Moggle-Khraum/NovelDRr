@@ -487,7 +487,7 @@ const styles = StyleSheet.create({
   controlLabel: {
     fontFamily: "Inter_500Medium",
     fontSize: 13,
-    width: 60,
+    width: 80,
   },
   controlBtns: {
     flexDirection: "row",
