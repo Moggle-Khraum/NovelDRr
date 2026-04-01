@@ -28,6 +28,7 @@ export type Novel = {
   lastRead?: {
     chapterIndex: number;
     chapterTitle: string;
+    scrollOffset: number; // Add this
   };
 };
 
@@ -114,7 +115,7 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
   const saveReadingProgress = useCallback(
     async (novelId: string, chapterIndex: number, chapterTitle: string) => {
       await updateNovel(novelId, {
-        lastRead: { chapterIndex, chapterTitle },
+        lastRead: { chapterIndex, chapterTitle,  },
       });
     },
     [updateNovel]
