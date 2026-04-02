@@ -18,9 +18,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLibrary } from "@/context/LibraryContext";
 import { useTheme } from "@/context/ThemeContext";
 
-const FONT_SIZES = [12, 13, 14, 15, 16, 17, 18, 19, 20];
-const LINE_SPACINGS = [1.2, 1.3, 1.4, 1.5, 1.6, 1.8, 2.0];
-const AUTO_SCROLL_SPEEDS = [0.5, 0.8, 1, 1.5, 1.8, 2];
+const FONT_SIZES = [14, 15, 16, 17, 18, 19, 20, 22];
+const LINE_SPACINGS = [1.2, 1.3, 1.5, 1.8, 2.0, 2.5];
+const AUTO_SCROLL_SPEEDS = [0.5, 1, 1.5, 1.8, 2, 2.5];
 
 // Storage keys for persistent settings
 const STORAGE_KEYS = {
@@ -59,6 +59,8 @@ export default function ReaderScreen() {
   const hasRestoredScrollRef = useRef(false);
   // Track the chapter we restored for
   const restoredChapterRef = useRef<number>(-1);
+  // Force top scroll after manual navigation
+  const forceTopRef = useRef(false);
 
   const novel = getNovel(id);
   const chapter = novel?.chapters[chapterIndex];
@@ -113,7 +115,6 @@ export default function ReaderScreen() {
 
   // Save progress when unmounting or when chapter changes
   useEffect(() => {
-    // Save current chapter's scroll position before changing
     return () => {
       if (novel && chapter) {
         saveReadingProgress(
@@ -129,18 +130,27 @@ export default function ReaderScreen() {
   // Restore scroll position when chapter changes or component mounts
   useEffect(() => {
     if (!settingsLoaded) return;
-    
+
+    // If we forced a top scroll for this chapter, don't restore anything
+    if (forceTopRef.current) {
+      forceTopRef.current = false;
+      return;
+    }
+
     // Only restore if this is a different chapter than the last restored one
     if (restoredChapterRef.current !== chapterIndex) {
       hasRestoredScrollRef.current = false;
     }
-    
-    const savedOffset = novel?.lastRead?.scrollOffset || 0;
-    
+
+    // Get saved progress - but only use it if it's for THIS chapter
+    const savedLastRead = novel?.lastRead;
+    const savedOffset = (savedLastRead?.chapterIndex === chapterIndex) 
+      ? savedLastRead.scrollOffset 
+      : 0;
+
     // Only restore if we haven't restored for this chapter yet
     if (!hasRestoredScrollRef.current) {
       if (savedOffset > 0) {
-        // Small delay to ensure the ScrollView has rendered
         const timer = setTimeout(() => {
           scrollRef.current?.scrollTo({
             y: savedOffset,
@@ -148,17 +158,16 @@ export default function ReaderScreen() {
           });
           hasRestoredScrollRef.current = true;
           restoredChapterRef.current = chapterIndex;
-        }, 150);
-        
+        }, 200);
         return () => clearTimeout(timer);
       } else {
-        // No saved position, scroll to top
+        // No saved position for this chapter, scroll to top
         scrollRef.current?.scrollTo({ y: 0, animated: false });
         hasRestoredScrollRef.current = true;
         restoredChapterRef.current = chapterIndex;
       }
     }
-  }, [chapterIndex, novel?.lastRead?.scrollOffset, settingsLoaded]);
+  }, [chapterIndex, novel?.lastRead, settingsLoaded]);
 
   // Calculate reading progress
   const updateReadingProgress = useCallback(() => {
@@ -236,8 +245,13 @@ export default function ReaderScreen() {
         scrollYRef.current
       );
     }
-    // Reset the restore flag for the new chapter
+    
+    // Reset everything for the new chapter
+    scrollYRef.current = 0;
     hasRestoredScrollRef.current = false;
+    forceTopRef.current = true;
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+    
     setChapterIndex(index);
     setShowTOC(false);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -272,8 +286,11 @@ export default function ReaderScreen() {
       );
     }
     
-    // Reset the restore flag for the new chapter
+    // Reset everything for the new chapter
+    scrollYRef.current = 0;
     hasRestoredScrollRef.current = false;
+    forceTopRef.current = true;
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
     
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setChapterIndex(next);
@@ -357,7 +374,7 @@ export default function ReaderScreen() {
         scrollEventThrottle={16}
       >
         <Text style={[styles.chapterHeader, { color: colors.accent }]}>{chapter.title}</Text>
-        <Text style={[styles.content, { color: colors.text, fontSize, lineHeight: fontSize * lineSpacing }]} >
+        <Text style={[styles.content, { color: colors.text, fontSize, lineHeight: fontSize * lineSpacing }]}>
           {chapter.content || "Content not available for this chapter."}
         </Text>
       </ScrollView>
@@ -562,4 +579,3 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 });
-
