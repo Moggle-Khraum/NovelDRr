@@ -13,14 +13,20 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useLibrary } from "@/context/LibraryContext";
 import { useTheme } from "@/context/ThemeContext";
-import { useReaderSettings } from "@/context/ReaderSettingsContext";
 
-const FONT_SIZES = [14, 16, 18, 20, 22, 24];
-const LINE_SPACINGS = [1, 1.3, 1.5, 1.7, 1.8, 2.0];
-const AUTO_SCROLL_SPEEDS = [0.8, 1, 1.5, 1.8, 2, 2.5, 2.8];
+const FONT_SIZES = [12, 13, 14, 15, 16, 17, 18, 19, 20];
+const LINE_SPACINGS = [1.2, 1.3, 1.4, 1.5, 1.6, 1.8, 2.0];
+const AUTO_SCROLL_SPEEDS = [0.5, 0.8, 1, 1.5, 1.8, 2];
+
+// Storage keys for persistent settings
+const STORAGE_KEYS = {
+  FONT_SIZE_IDX: 'reader_font_size_idx',
+  LINE_SPACING_IDX: 'reader_line_spacing_idx',
+};
 
 export default function ReaderScreen() {
   const { id, chapterIndex: indexParam } = useLocalSearchParams<{
@@ -30,8 +36,10 @@ export default function ReaderScreen() {
   const { getNovel, saveReadingProgress } = useLibrary();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const { fontSizeIdx, lineSpacingIdx, updateFontSize, updateLineSpacing } = useReaderSettings();
 
+  const [fontSizeIdx, setFontSizeIdx] = useState(1);
+  const [lineSpacingIdx, setLineSpacingIdx] = useState(1);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [showControls, setShowControls] = useState(false);
   const [showTOC, setShowTOC] = useState(false);
   const [chapterIndex, setChapterIndex] = useState(parseInt(indexParam) || 0);
@@ -49,12 +57,59 @@ export default function ReaderScreen() {
   
   // Track if we've already restored scroll position for current chapter
   const hasRestoredScrollRef = useRef(false);
+  // Track the chapter we restored for
+  const restoredChapterRef = useRef<number>(-1);
 
   const novel = getNovel(id);
   const chapter = novel?.chapters[chapterIndex];
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
+
+  // Load saved settings on mount
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const [savedFontSize, savedLineSpacing] = await Promise.all([
+          AsyncStorage.getItem(STORAGE_KEYS.FONT_SIZE_IDX),
+          AsyncStorage.getItem(STORAGE_KEYS.LINE_SPACING_IDX),
+        ]);
+        
+        if (savedFontSize !== null) {
+          setFontSizeIdx(parseInt(savedFontSize));
+        }
+        if (savedLineSpacing !== null) {
+          setLineSpacingIdx(parseInt(savedLineSpacing));
+        }
+      } catch (error) {
+        console.error('Failed to load reader settings:', error);
+      } finally {
+        setSettingsLoaded(true);
+      }
+    };
+    
+    loadSettings();
+  }, []);
+
+  // Save font size when changed
+  const handleFontSizeChange = async (newIdx: number) => {
+    setFontSizeIdx(newIdx);
+    try {
+      await AsyncStorage.setItem(STORAGE_KEYS.FONT_SIZE_IDX, newIdx.toString());
+    } catch (error) {
+      console.error('Failed to save font size:', error);
+    }
+  };
+
+  // Save line spacing when changed
+  const handleLineSpacingChange = async (newIdx: number) => {
+    setLineSpacingIdx(newIdx);
+    try {
+      await AsyncStorage.setItem(STORAGE_KEYS.LINE_SPACING_IDX, newIdx.toString());
+    } catch (error) {
+      console.error('Failed to save line spacing:', error);
+    }
+  };
 
   // Save progress when unmounting or when chapter changes
   useEffect(() => {
@@ -65,7 +120,7 @@ export default function ReaderScreen() {
           novel.id,
           chapterIndex,
           chapter.title,
-          scrollYRef.current // Save the current scroll position
+          scrollYRef.current
         );
       }
     };
@@ -73,30 +128,37 @@ export default function ReaderScreen() {
 
   // Restore scroll position when chapter changes or component mounts
   useEffect(() => {
-    // Reset the restore flag when chapter changes
-    hasRestoredScrollRef.current = false;
+    if (!settingsLoaded) return;
     
-    // Get saved offset for this specific chapter
+    // Only restore if this is a different chapter than the last restored one
+    if (restoredChapterRef.current !== chapterIndex) {
+      hasRestoredScrollRef.current = false;
+    }
+    
     const savedOffset = novel?.lastRead?.scrollOffset || 0;
     
-    // Only restore if there's a saved position and we haven't restored yet
-    if (savedOffset > 0 && !hasRestoredScrollRef.current) {
-      // Small delay to ensure the ScrollView has rendered
-      const timer = setTimeout(() => {
-        scrollRef.current?.scrollTo({
-          y: savedOffset,
-          animated: false,
-        });
+    // Only restore if we haven't restored for this chapter yet
+    if (!hasRestoredScrollRef.current) {
+      if (savedOffset > 0) {
+        // Small delay to ensure the ScrollView has rendered
+        const timer = setTimeout(() => {
+          scrollRef.current?.scrollTo({
+            y: savedOffset,
+            animated: false,
+          });
+          hasRestoredScrollRef.current = true;
+          restoredChapterRef.current = chapterIndex;
+        }, 150);
+        
+        return () => clearTimeout(timer);
+      } else {
+        // No saved position, scroll to top
+        scrollRef.current?.scrollTo({ y: 0, animated: false });
         hasRestoredScrollRef.current = true;
-      }, 150);
-      
-      return () => clearTimeout(timer);
-    } else {
-      // No saved position, scroll to top
-      scrollRef.current?.scrollTo({ y: 0, animated: false });
-      hasRestoredScrollRef.current = true;
+        restoredChapterRef.current = chapterIndex;
+      }
     }
-  }, [chapterIndex, novel?.lastRead?.scrollOffset]);
+  }, [chapterIndex, novel?.lastRead?.scrollOffset, settingsLoaded]);
 
   // Calculate reading progress
   const updateReadingProgress = useCallback(() => {
@@ -174,15 +236,17 @@ export default function ReaderScreen() {
         scrollYRef.current
       );
     }
+    // Reset the restore flag for the new chapter
+    hasRestoredScrollRef.current = false;
     setChapterIndex(index);
     setShowTOC(false);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
-  if (!novel || !chapter) {
+  if (!novel || !chapter || !settingsLoaded) {
     return (
       <View style={[styles.center, { backgroundColor: colors.background }]}>
-        <Text style={{ color: colors.text }}>Chapter not found</Text>
+        <Text style={{ color: colors.text }}>Loading...</Text>
       </View>
     );
   }
@@ -208,6 +272,9 @@ export default function ReaderScreen() {
       );
     }
     
+    // Reset the restore flag for the new chapter
+    hasRestoredScrollRef.current = false;
+    
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setChapterIndex(next);
     setReadingProgress(0);
@@ -232,13 +299,13 @@ export default function ReaderScreen() {
             <View style={styles.controlBtns}>
               <Pressable 
                 style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} 
-                onPress={() => updateFontSize(Math.max(0, fontSizeIdx - 1))}>
+                onPress={() => handleFontSizeChange(Math.max(0, fontSizeIdx - 1))}>
                 <Text style={[styles.controlBtnText, { color: colors.text, fontSize: 12 }]}>A</Text>
               </Pressable>
               <Text style={[styles.controlValue, { color: colors.text }]}>{fontSize}pt</Text>
               <Pressable 
                 style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} 
-                onPress={() => updateFontSize(Math.min(FONT_SIZES.length - 1, fontSizeIdx + 1))}>
+                onPress={() => handleFontSizeChange(Math.min(FONT_SIZES.length - 1, fontSizeIdx + 1))}>
                 <Text style={[styles.controlBtnText, { color: colors.text, fontSize: 18 }]}>A</Text>
               </Pressable>
             </View>
@@ -249,13 +316,13 @@ export default function ReaderScreen() {
             <View style={styles.controlBtns}>
               <Pressable 
                 style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} 
-                onPress={() => updateLineSpacing(Math.max(0, lineSpacingIdx - 1))}>
+                onPress={() => handleLineSpacingChange(Math.max(0, lineSpacingIdx - 1))}>
                 <Ionicons name="remove" size={16} color={colors.text} />
               </Pressable>
               <Text style={[styles.controlValue, { color: colors.text }]}>{lineSpacing.toFixed(1)}x</Text>
               <Pressable 
                 style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} 
-                onPress={() => updateLineSpacing(Math.min(LINE_SPACINGS.length - 1, lineSpacingIdx + 1))}>
+                onPress={() => handleLineSpacingChange(Math.min(LINE_SPACINGS.length - 1, lineSpacingIdx + 1))}>
                 <Ionicons name="add" size={16} color={colors.text} />
               </Pressable>
             </View>
@@ -495,3 +562,4 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 });
+
