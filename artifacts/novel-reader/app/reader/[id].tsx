@@ -357,7 +357,7 @@ export default function ReaderScreen() {
         scrollEventThrottle={16}
       >
         <Text style={[styles.chapterHeader, { color: colors.accent }]}>{chapter.title}</Text>
-        <Text style={[styles.content, { color: colors.text, fontSize, lineHeight: fontSize * lineSpacing }]} selectable>
+        <Text style={[styles.content, { color: colors.text, fontSize, lineHeight: fontSize * lineSpacing }]} >
           {chapter.content || "Content not available for this chapter."}
         </Text>
       </ScrollView>
