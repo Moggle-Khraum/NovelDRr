@@ -187,27 +187,9 @@ export default function ReaderScreen() {
           <Ionicons name="close" size={22} color={colors.text} />
         </Pressable>
         <Text style={[styles.chapterTitle, { color: colors.text }]} numberOfLines={1}>{chapter.title}</Text>
-        <View style={styles.topBarRight}>
-          <Pressable style={styles.navBtn} onPress={() => setShowTOC(true)}>
-            <Ionicons name="list-outline" size={22} color={colors.text} />
-          </Pressable>
-          <Pressable style={styles.navBtn} onPress={() => setShowControls((v) => !v)}>
-            <Ionicons name="settings-outline" size={20} color={colors.text} />
-          </Pressable>
-        </View>
-      </View>
-
-      {/* Progress Bar */}
-      <View style={[styles.progressBarContainer, { backgroundColor: colors.border }]}>
-        <View 
-          style={[
-            styles.progressBar, 
-            { 
-              backgroundColor: colors.accent,
-              width: `${readingProgress}%`
-            }
-          ]} 
-        />
+        <Pressable style={styles.navBtn} onPress={() => setShowControls((v) => !v)}>
+          <Ionicons name="settings-outline" size={20} color={colors.text} />
+        </Pressable>
       </View>
 
       {showControls && (
@@ -269,12 +251,33 @@ export default function ReaderScreen() {
         </Text>
       </ScrollView>
 
+      {/* Progress Bar placed above bottom navigation */}
+      <View style={[styles.progressBarContainer, { backgroundColor: colors.border }]}>
+        <View 
+          style={[
+            styles.progressBar, 
+            { 
+              backgroundColor: colors.accent,
+              width: `${readingProgress}%`
+            }
+          ]} 
+        />
+      </View>
+
       <View style={[styles.bottomNav, { backgroundColor: colors.surface, borderTopColor: colors.border, paddingBottom: bottomPad + 8 }]}>
         <Pressable style={[styles.navChBtn, { backgroundColor: chapterIndex === 0 ? colors.border : colors.card, borderColor: colors.border }]} onPress={() => goChapter(-1)} disabled={chapterIndex === 0}>
           <Ionicons name="chevron-back" size={18} color={chapterIndex === 0 ? colors.textMuted : colors.text} />
           <Text style={[styles.navChText, { color: chapterIndex === 0 ? colors.textMuted : colors.text }]}>Previous</Text>
         </Pressable>
+
+        {/* TOC Button */}
+        <Pressable style={[styles.navChBtn, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={() => setShowTOC(true)}>
+          <Ionicons name="list-outline" size={20} color={colors.text} />
+          <Text style={[styles.navChText, { color: colors.text }]}>TOC</Text>
+        </Pressable>
+
         <Text style={[styles.chapNum, { color: colors.textSecondary }]}>{chapterIndex + 1} / {novel.chapters.length}</Text>
+
         <Pressable style={[styles.navChBtn, { backgroundColor: chapterIndex === novel.chapters.length - 1 ? colors.border : colors.accent, borderColor: chapterIndex === novel.chapters.length - 1 ? colors.border : colors.accent }]} onPress={() => goChapter(1)} disabled={chapterIndex === novel.chapters.length - 1}>
           <Text style={[styles.navChText, { color: chapterIndex === novel.chapters.length - 1 ? colors.textMuted : "#fff" }]}>Next</Text>
           <Ionicons name="chevron-forward" size={18} color={chapterIndex === novel.chapters.length - 1 ? colors.textMuted : "#fff"} />
@@ -344,10 +347,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth, 
     gap: 4 
   },
-  topBarRight: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
   navBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   chapterTitle: { fontFamily: "Inter_600SemiBold", fontSize: 14, flex: 1, textAlign: "center" },
   
@@ -373,7 +372,7 @@ const styles = StyleSheet.create({
   textContainer: { paddingHorizontal: 22, paddingTop: 20 },
   chapterHeader: { fontFamily: "Inter_700Bold", fontSize: 18, marginBottom: 20, lineHeight: 26 },
   content: { fontFamily: "Inter_400Regular" },
-  bottomNav: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, gap: 12 },
+  bottomNav: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, gap: 12 },
   navChBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, borderWidth: 1 },
   navChText: { fontFamily: "Inter_600SemiBold", fontSize: 13 },
   chapNum: { fontFamily: "Inter_400Regular", fontSize: 13, flex: 1, textAlign: "center" },
@@ -434,4 +433,3 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 });
-
