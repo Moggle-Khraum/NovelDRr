@@ -4,6 +4,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -32,14 +33,15 @@ export default function ReaderScreen() {
   const [fontSizeIdx, setFontSizeIdx] = useState(1);
   const [lineSpacingIdx, setLineSpacingIdx] = useState(1);
   const [showControls, setShowControls] = useState(false);
-  const [showTOC, setShowTOC] = useState(false); // New: TOC state
+  const [showTOC, setShowTOC] = useState(false);
   const [chapterIndex, setChapterIndex] = useState(parseInt(indexParam) || 0);
-  const [readingProgress, setReadingProgress] = useState(0); // New: Progress state
   const scrollRef = useRef<ScrollView>(null);
 
   const [autoScrollActive, setAutoScrollActive] = useState(false);
   const [autoScrollSpeedIdx, setAutoScrollSpeedIdx] = useState(1);
-
+  
+  // Progress tracking
+  const [readingProgress, setReadingProgress] = useState(0);
   const scrollYRef = useRef(0);
   const contentHeightRef = useRef(0);
   const scrollViewHeightRef = useRef(0);
@@ -53,14 +55,13 @@ export default function ReaderScreen() {
 
   // 1. SAVE PROGRESS ON UNMOUNT OR CHAPTER CHANGE
   useEffect(() => {
-    // This cleanup function runs when the component unmounts or chapterIndex changes
     return () => {
       if (novel && chapter) {
         saveReadingProgress(
           novel.id,
           chapterIndex,
           chapter.title,
-          scrollYRef.current // Pass the current Y offset to context
+          scrollYRef.current
         );
       }
     };
@@ -71,22 +72,31 @@ export default function ReaderScreen() {
     const savedOffset = novel?.lastRead?.scrollOffset || 0;
     
     if (savedOffset > 0) {
-      // Small timeout ensures the ScrollView has rendered the text layout
       const timer = setTimeout(() => {
         scrollRef.current?.scrollTo({
           y: savedOffset,
-          animated: false, // Instant jump for better UX
+          animated: false,
         });
       }, 150);
       
       return () => clearTimeout(timer);
     } else {
-      // If no saved offset, ensure we start at the top
       scrollRef.current?.scrollTo({ y: 0, animated: false });
     }
   }, [chapterIndex]);
 
-  // ----- Auto‑scroll logic (Original) -----
+  // Calculate reading progress
+  const updateReadingProgress = useCallback(() => {
+    if (contentHeightRef.current > scrollViewHeightRef.current) {
+      const maxScroll = contentHeightRef.current - scrollViewHeightRef.current;
+      const progress = (scrollYRef.current / maxScroll) * 100;
+      setReadingProgress(Math.min(100, Math.max(0, progress)));
+    } else {
+      setReadingProgress(0);
+    }
+  }, []);
+
+  // Auto-scroll logic
   const stopAutoScroll = useCallback(() => {
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
@@ -123,7 +133,8 @@ export default function ReaderScreen() {
   }, [autoScrollActive, startAutoScroll]);
 
   const handleScroll = (event: any) => {
-    scrollYRef.current = event.nativeEvent.contentOffset.y; // Already tracking Y
+    scrollYRef.current = event.nativeEvent.contentOffset.y;
+    updateReadingProgress();
   };
 
   const handleScrollBeginDrag = () => {
@@ -132,10 +143,18 @@ export default function ReaderScreen() {
 
   const handleContentSizeChange = (_width: number, height: number) => {
     contentHeightRef.current = height;
+    updateReadingProgress();
   };
 
   const handleScrollViewLayout = (event: any) => {
     scrollViewHeightRef.current = event.nativeEvent.layout.height;
+    updateReadingProgress();
+  };
+
+  const handleChapterSelect = (index: number) => {
+    setChapterIndex(index);
+    setShowTOC(false);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
   if (!novel || !chapter) {
@@ -158,6 +177,7 @@ export default function ReaderScreen() {
     }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setChapterIndex(next);
+    setReadingProgress(0);
   };
 
   return (
@@ -167,9 +187,27 @@ export default function ReaderScreen() {
           <Ionicons name="close" size={22} color={colors.text} />
         </Pressable>
         <Text style={[styles.chapterTitle, { color: colors.text }]} numberOfLines={1}>{chapter.title}</Text>
-        <Pressable style={styles.navBtn} onPress={() => setShowControls((v) => !v)}>
-          <Ionicons name="settings-outline" size={20} color={colors.text} />
-        </Pressable>
+        <View style={styles.topBarRight}>
+          <Pressable style={styles.navBtn} onPress={() => setShowTOC(true)}>
+            <Ionicons name="list-outline" size={22} color={colors.text} />
+          </Pressable>
+          <Pressable style={styles.navBtn} onPress={() => setShowControls((v) => !v)}>
+            <Ionicons name="settings-outline" size={20} color={colors.text} />
+          </Pressable>
+        </View>
+      </View>
+
+      {/* Progress Bar */}
+      <View style={[styles.progressBarContainer, { backgroundColor: colors.border }]}>
+        <View 
+          style={[
+            styles.progressBar, 
+            { 
+              backgroundColor: colors.accent,
+              width: `${readingProgress}%`
+            }
+          ]} 
+        />
       </View>
 
       {showControls && (
@@ -242,6 +280,55 @@ export default function ReaderScreen() {
           <Ionicons name="chevron-forward" size={18} color={chapterIndex === novel.chapters.length - 1 ? colors.textMuted : "#fff"} />
         </Pressable>
       </View>
+
+      {/* Table of Contents Modal */}
+      <Modal
+        visible={showTOC}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowTOC(false)}
+      >
+        <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+          <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>Table of Contents</Text>
+              <Pressable onPress={() => setShowTOC(false)} style={styles.modalCloseBtn}>
+                <Ionicons name="close" size={24} color={colors.text} />
+              </Pressable>
+            </View>
+            <ScrollView style={styles.modalScrollView}>
+              {novel.chapters.map((ch, idx) => (
+                <Pressable
+                  key={idx}
+                  style={[
+                    styles.tocItem,
+                    idx === chapterIndex && [styles.tocItemActive, { backgroundColor: colors.accent + '20' }]
+                  ]}
+                  onPress={() => handleChapterSelect(idx)}
+                >
+                  <View style={styles.tocItemContent}>
+                    <Text style={[
+                      styles.tocChapterNum,
+                      { color: idx === chapterIndex ? colors.accent : colors.textSecondary }
+                    ]}>
+                      Chapter {idx + 1}
+                    </Text>
+                    <Text style={[
+                      styles.tocChapterTitle,
+                      { color: idx === chapterIndex ? colors.accent : colors.text }
+                    ]}>
+                      {ch.title}
+                    </Text>
+                  </View>
+                  {idx === chapterIndex && (
+                    <Ionicons name="checkmark-circle" size={20} color={colors.accent} />
+                  )}
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -249,9 +336,32 @@ export default function ReaderScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  topBar: { flexDirection: "row", alignItems: "center", paddingHorizontal: 4, paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth, gap: 4 },
+  topBar: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    paddingHorizontal: 4, 
+    paddingBottom: 10, 
+    borderBottomWidth: StyleSheet.hairlineWidth, 
+    gap: 4 
+  },
+  topBarRight: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
   navBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   chapterTitle: { fontFamily: "Inter_600SemiBold", fontSize: 14, flex: 1, textAlign: "center" },
+  
+  // Progress Bar Styles
+  progressBarContainer: {
+    height: 3,
+    width: '100%',
+    overflow: 'hidden',
+  },
+  progressBar: {
+    height: '100%',
+    width: '0%',
+  },
+  
   controls: { paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, gap: 10 },
   controlRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   controlLabel: { fontFamily: "Inter_500Medium", fontSize: 13, width: 80 },
@@ -267,5 +377,61 @@ const styles = StyleSheet.create({
   navChBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, borderWidth: 1 },
   navChText: { fontFamily: "Inter_600SemiBold", fontSize: 13 },
   chapNum: { fontFamily: "Inter_400Regular", fontSize: 13, flex: 1, textAlign: "center" },
+  
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '80%',
+    minHeight: '50%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e0e0e0',
+  },
+  modalTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 18,
+  },
+  modalCloseBtn: {
+    padding: 4,
+  },
+  modalScrollView: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+  },
+  tocItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e0e0e0',
+  },
+  tocItemActive: {
+    borderRadius: 8,
+  },
+  tocItemContent: {
+    flex: 1,
+  },
+  tocChapterNum: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  tocChapterTitle: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+  },
 });
 
