@@ -32,7 +32,9 @@ export default function ReaderScreen() {
   const [fontSizeIdx, setFontSizeIdx] = useState(1);
   const [lineSpacingIdx, setLineSpacingIdx] = useState(1);
   const [showControls, setShowControls] = useState(false);
+  const [showTOC, setShowTOC] = useState(false); // New: TOC state
   const [chapterIndex, setChapterIndex] = useState(parseInt(indexParam) || 0);
+  const [readingProgress, setReadingProgress] = useState(0); // New: Progress state
   const scrollRef = useRef<ScrollView>(null);
 
   const [autoScrollActive, setAutoScrollActive] = useState(false);
