@@ -16,9 +16,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLibrary } from "@/context/LibraryContext";
 import { useTheme } from "@/context/ThemeContext";
 
-const FONT_SIZES = [13, 15, 17, 19, 22];
-const LINE_SPACINGS = [1.4, 1.6, 1.8, 2.0];
-const AUTO_SCROLL_SPEEDS = [0.5, 1, 1.5, 2];
+const FONT_SIZES = [12, 13, 14, 15, 16, 17, 18, 19, 20];
+const LINE_SPACINGS = [1.2, 1.3, 1.4, 1.5, 1.6, 1.8, 2.0];
+const AUTO_SCROLL_SPEEDS = [0.5, 0.8, 1, 1.5, 1.8, 2];
 
 export default function ReaderScreen() {
   const { id, chapterIndex: indexParam } = useLocalSearchParams<{
