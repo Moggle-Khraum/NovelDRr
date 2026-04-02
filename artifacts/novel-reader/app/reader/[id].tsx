@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useLibrary } from "@/context/LibraryContext";
 import { useTheme } from "@/context/ThemeContext";
+import { useReaderSettings } from "@/context/ReaderSettingsContext";
 
 const FONT_SIZES = [12, 13, 14, 15, 16, 17, 18, 19, 20];
 const LINE_SPACINGS = [1.2, 1.3, 1.4, 1.5, 1.6, 1.8, 2.0];
@@ -29,9 +30,8 @@ export default function ReaderScreen() {
   const { getNovel, saveReadingProgress } = useLibrary();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const { fontSizeIdx, lineSpacingIdx, updateFontSize, updateLineSpacing } = useReaderSettings();
 
-  const [fontSizeIdx, setFontSizeIdx] = useState(1);
-  const [lineSpacingIdx, setLineSpacingIdx] = useState(1);
   const [showControls, setShowControls] = useState(false);
   const [showTOC, setShowTOC] = useState(false);
   const [chapterIndex, setChapterIndex] = useState(parseInt(indexParam) || 0);
@@ -46,6 +46,9 @@ export default function ReaderScreen() {
   const contentHeightRef = useRef(0);
   const scrollViewHeightRef = useRef(0);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Track if we've already restored scroll position for current chapter
+  const hasRestoredScrollRef = useRef(false);
 
   const novel = getNovel(id);
   const chapter = novel?.chapters[chapterIndex];
@@ -53,37 +56,47 @@ export default function ReaderScreen() {
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
-  // 1. SAVE PROGRESS ON UNMOUNT OR CHAPTER CHANGE
+  // Save progress when unmounting or when chapter changes
   useEffect(() => {
+    // Save current chapter's scroll position before changing
     return () => {
       if (novel && chapter) {
         saveReadingProgress(
           novel.id,
           chapterIndex,
           chapter.title,
-          scrollYRef.current
+          scrollYRef.current // Save the current scroll position
         );
       }
     };
-  }, [chapterIndex, novel?.id]);
+  }, [chapterIndex, novel?.id, novel, chapter, saveReadingProgress]);
 
-  // 2. RESTORE SCROLL POSITION ON LOAD
+  // Restore scroll position when chapter changes or component mounts
   useEffect(() => {
+    // Reset the restore flag when chapter changes
+    hasRestoredScrollRef.current = false;
+    
+    // Get saved offset for this specific chapter
     const savedOffset = novel?.lastRead?.scrollOffset || 0;
     
-    if (savedOffset > 0) {
+    // Only restore if there's a saved position and we haven't restored yet
+    if (savedOffset > 0 && !hasRestoredScrollRef.current) {
+      // Small delay to ensure the ScrollView has rendered
       const timer = setTimeout(() => {
         scrollRef.current?.scrollTo({
           y: savedOffset,
           animated: false,
         });
+        hasRestoredScrollRef.current = true;
       }, 150);
       
       return () => clearTimeout(timer);
     } else {
+      // No saved position, scroll to top
       scrollRef.current?.scrollTo({ y: 0, animated: false });
+      hasRestoredScrollRef.current = true;
     }
-  }, [chapterIndex]);
+  }, [chapterIndex, novel?.lastRead?.scrollOffset]);
 
   // Calculate reading progress
   const updateReadingProgress = useCallback(() => {
@@ -152,6 +165,15 @@ export default function ReaderScreen() {
   };
 
   const handleChapterSelect = (index: number) => {
+    // Save current chapter progress before switching
+    if (novel && chapter) {
+      saveReadingProgress(
+        novel.id,
+        chapterIndex,
+        chapter.title,
+        scrollYRef.current
+      );
+    }
     setChapterIndex(index);
     setShowTOC(false);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -175,6 +197,17 @@ export default function ReaderScreen() {
       Alert.alert("Navigation", dir === -1 ? "First chapter reached" : "Last chapter reached");
       return;
     }
+    
+    // Save current chapter progress before navigating
+    if (novel && chapter) {
+      saveReadingProgress(
+        novel.id,
+        chapterIndex,
+        chapter.title,
+        scrollYRef.current
+      );
+    }
+    
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setChapterIndex(next);
     setReadingProgress(0);
@@ -197,11 +230,15 @@ export default function ReaderScreen() {
           <View style={styles.controlRow}>
             <Text style={[styles.controlLabel, { color: colors.textSecondary }]}>Font</Text>
             <View style={styles.controlBtns}>
-              <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => setFontSizeIdx((i) => Math.max(0, i - 1))}>
+              <Pressable 
+                style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} 
+                onPress={() => updateFontSize(Math.max(0, fontSizeIdx - 1))}>
                 <Text style={[styles.controlBtnText, { color: colors.text, fontSize: 12 }]}>A</Text>
               </Pressable>
               <Text style={[styles.controlValue, { color: colors.text }]}>{fontSize}pt</Text>
-              <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => setFontSizeIdx((i) => Math.min(FONT_SIZES.length - 1, i + 1))}>
+              <Pressable 
+                style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} 
+                onPress={() => updateFontSize(Math.min(FONT_SIZES.length - 1, fontSizeIdx + 1))}>
                 <Text style={[styles.controlBtnText, { color: colors.text, fontSize: 18 }]}>A</Text>
               </Pressable>
             </View>
@@ -210,11 +247,15 @@ export default function ReaderScreen() {
           <View style={styles.controlRow}>
             <Text style={[styles.controlLabel, { color: colors.textSecondary }]}>Spacing</Text>
             <View style={styles.controlBtns}>
-              <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => setLineSpacingIdx((i) => Math.max(0, i - 1))}>
+              <Pressable 
+                style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} 
+                onPress={() => updateLineSpacing(Math.max(0, lineSpacingIdx - 1))}>
                 <Ionicons name="remove" size={16} color={colors.text} />
               </Pressable>
               <Text style={[styles.controlValue, { color: colors.text }]}>{lineSpacing.toFixed(1)}x</Text>
-              <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => setLineSpacingIdx((i) => Math.min(LINE_SPACINGS.length - 1, i + 1))}>
+              <Pressable 
+                style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} 
+                onPress={() => updateLineSpacing(Math.min(LINE_SPACINGS.length - 1, lineSpacingIdx + 1))}>
                 <Ionicons name="add" size={16} color={colors.text} />
               </Pressable>
             </View>
