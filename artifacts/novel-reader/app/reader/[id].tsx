@@ -226,6 +226,9 @@ export default function ReaderScreen() {
               <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => setAutoScrollActive((prev) => !prev)}>
                 <Ionicons name={autoScrollActive ? "pause" : "play"} size={16} color={colors.text} />
               </Pressable>
+              <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => setAutoScrollSpeedIdx((i) => Math.max(0, i - 1))}>
+                <Ionicons name="remove" size={16} color={colors.text} />
+              </Pressable>
               <Text style={[styles.controlValue, { color: colors.text }]}>{currentSpeed.toFixed(1)}x</Text>
               <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => setAutoScrollSpeedIdx((i) => Math.min(AUTO_SCROLL_SPEEDS.length - 1, i + 1))}>
                 <Ionicons name="add" size={16} color={colors.text} />
@@ -270,13 +273,12 @@ export default function ReaderScreen() {
           <Text style={[styles.navChText, { color: chapterIndex === 0 ? colors.textMuted : colors.text }]}>Previous</Text>
         </Pressable>
 
-        {/* TOC Button */}
-        <Pressable style={[styles.navChBtn, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={() => setShowTOC(true)}>
-          <Ionicons name="list-outline" size={20} color={colors.text} />
-          <Text style={[styles.navChText, { color: colors.text }]}>TOC</Text>
+        {/* TOC Button - using chapter count */}
+        <Pressable style={[styles.tocButton, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={() => setShowTOC(true)}>
+          <Text style={[styles.tocButtonText, { color: colors.text }]}>
+            {chapterIndex + 1} / {novel.chapters.length}
+          </Text>
         </Pressable>
-
-        <Text style={[styles.chapNum, { color: colors.textSecondary }]}>{chapterIndex + 1} / {novel.chapters.length}</Text>
 
         <Pressable style={[styles.navChBtn, { backgroundColor: chapterIndex === novel.chapters.length - 1 ? colors.border : colors.accent, borderColor: chapterIndex === novel.chapters.length - 1 ? colors.border : colors.accent }]} onPress={() => goChapter(1)} disabled={chapterIndex === novel.chapters.length - 1}>
           <Text style={[styles.navChText, { color: chapterIndex === novel.chapters.length - 1 ? colors.textMuted : "#fff" }]}>Next</Text>
@@ -372,10 +374,29 @@ const styles = StyleSheet.create({
   textContainer: { paddingHorizontal: 22, paddingTop: 20 },
   chapterHeader: { fontFamily: "Inter_700Bold", fontSize: 18, marginBottom: 20, lineHeight: 26 },
   content: { fontFamily: "Inter_400Regular" },
-  bottomNav: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, gap: 12 },
+  bottomNav: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    justifyContent: "space-between", 
+    paddingHorizontal: 16, 
+    paddingTop: 10, 
+    borderTopWidth: StyleSheet.hairlineWidth, 
+    gap: 12 
+  },
   navChBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, borderWidth: 1 },
   navChText: { fontFamily: "Inter_600SemiBold", fontSize: 13 },
-  chapNum: { fontFamily: "Inter_400Regular", fontSize: 13, flex: 1, textAlign: "center" },
+  tocButton: { 
+    paddingHorizontal: 16, 
+    paddingVertical: 10, 
+    borderRadius: 10, 
+    borderWidth: 1,
+    minWidth: 70,
+    alignItems: "center",
+  },
+  tocButtonText: { 
+    fontFamily: "Inter_600SemiBold", 
+    fontSize: 14,
+  },
   
   // Modal Styles
   modalOverlay: {
