@@ -426,8 +426,11 @@ export default function ReaderScreen() {
                 <Ionicons name="close" size={24} color={colors.text} />
               </Pressable>
             </View>
-            <ScrollView style={styles.modalScrollView}>
-              {novel.chapters.map((ch, idx) => (
+            
+            <FlatList
+              data={novel.chapters}
+              keyExtractor={(_, idx) => idx.toString()}
+              renderItem={({ item: ch, index: idx }) => (
                 <Pressable
                   key={idx}
                   style={[
@@ -454,8 +457,13 @@ export default function ReaderScreen() {
                     <Ionicons name="checkmark-circle" size={20} color={colors.accent} />
                   )}
                 </Pressable>
-              ))}
-            </ScrollView>
+              )}
+              showsVerticalScrollIndicator={true}
+              contentContainerStyle={styles.modalScrollViewContent}
+              initialNumToRender={30}
+              maxToRenderPerBatch={50}
+              windowSize={10}
+            />
           </View>
         </View>
       </Modal>
@@ -550,10 +558,13 @@ const styles = StyleSheet.create({
   modalCloseBtn: {
     padding: 4,
   },
-  modalScrollView: {
+
+  // Replace the modalScrollView style with:
+  modalScrollViewContent: {
     paddingHorizontal: 20,
     paddingVertical: 12,
   },
+  
   tocItem: {
     flexDirection: 'row',
     alignItems: 'center',
