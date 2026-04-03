@@ -435,8 +435,9 @@ export default function LibraryScreen() {
             <Ionicons name="alert-circle" size={48} color={colors.text} style={styles.modalIcon} />
             <Text style={[styles.modalTitle, { color: colors.text }]}>Confirm Deletion</Text>
             <Text style={[styles.modalMessage, { color: colors.textSecondary }]}>
-              This will permanently delete {selectedNovels.length} novel(s) and all their chapters.
-              Are you sure about this? If YES, click the 'DELETE' button.
+              This will permanently delete {selectedNovels.length} novel(s) and all their chapters.{"\n\n"}
+              Are you sure about this? {"\n\n"}
+              If YES, click the 'DELETE' button.
             </Text>
             
             <View style={styles.modalButtons}>
