@@ -198,7 +198,7 @@ export default function LibraryScreen() {
       </Text>
       {selectedNovels.length > 0 && (
         <Pressable onPress={showFirstConfirmation} style={styles.selectionDelete}>
-          <Ionicons name="trash-outline" size={24} color={colors.error} />
+          <Ionicons name="trash-outline" size={24} color={colors.text} />
         </Pressable>
       )}
     </View>
@@ -294,7 +294,7 @@ export default function LibraryScreen() {
             <Text style={[styles.modalMessage, { color: colors.textSecondary }]}>
               This will permanently delete {selectedNovels.length} novel(s) and all their chapters.
             </Text>
-            <Text style={[styles.modalWarning, { color: colors.error }]}>
+            <Text style={[styles.modalWarning, { color: colors.text }]}>
               Type "DELETE" to confirm.
             </Text>
             <TextInput
