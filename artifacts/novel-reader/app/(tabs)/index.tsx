@@ -314,7 +314,7 @@ export default function LibraryScreen() {
       </Text>
       {selectedNovels.length > 0 && (
         <Pressable onPress={showFirstConfirmation} style={styles.selectionDelete}>
-          <Ionicons name="trash-outline" size={24} color={colors.error} />
+          <Ionicons name="trash-outline" size={24} color={colors.text} />
         </Pressable>
       )}
     </View>
