@@ -229,7 +229,7 @@ export default function LibraryScreen() {
       prev.includes(novelId) ? prev.filter((id) => id !== novelId) : [...prev, novelId]
     );
   };
-
+  
   const showFirstConfirmation = () => {
     if (selectedNovels.length === 0) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -242,12 +242,8 @@ export default function LibraryScreen() {
       ]
     );
   };
-
+ 
   const performBatchDelete = async () => {
-    if (confirmText.toUpperCase() !== "DELETE") {
-      Alert.alert("Confirmation Failed", 'Type "DELETE" to confirm deletion.');
-      return;
-    }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     setConfirmDeleteVisible(false);
     for (const novelId of selectedNovels) {
@@ -256,8 +252,8 @@ export default function LibraryScreen() {
     setSelectionMode(false);
     setSelectedNovels([]);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    setConfirmText("");
   };
+
 
   const handleNovelPress = (novel: Novel) => {
     if (selectionMode) {
@@ -425,38 +421,35 @@ export default function LibraryScreen() {
       )}
 
       {/* Batch Delete Confirmation Modal */}
+   
       <Modal
         visible={confirmDeleteVisible}
-        transparent
+        transparent={true}
         animationType="fade"
-        onRequestClose={() => { setConfirmDeleteVisible(false); setConfirmText(""); }}
+        onRequestClose={() => {
+          setConfirmDeleteVisible(false);
+        }}
       >
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-            <Ionicons name="alert-circle" size={48} color={colors.error} style={styles.modalIcon} />
+            <Ionicons name="alert-circle" size={48} color={colors.text} style={styles.modalIcon} />
             <Text style={[styles.modalTitle, { color: colors.text }]}>Confirm Deletion</Text>
             <Text style={[styles.modalMessage, { color: colors.textSecondary }]}>
               This will permanently delete {selectedNovels.length} novel(s) and all their chapters.
+              Are you sure about this? If YES, click the 'DELETE' button.
             </Text>
-            <Text style={[styles.modalWarning, { color: colors.error }]}>Type "DELETE" to confirm.</Text>
-            <TextInput
-              style={[styles.modalInput, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
-              value={confirmText}
-              onChangeText={setConfirmText}
-              placeholder="DELETE"
-              placeholderTextColor={colors.textMuted}
-              autoCapitalize="characters"
-              autoFocus
-            />
+            
             <View style={styles.modalButtons}>
               <Pressable
                 style={[styles.modalButton, styles.modalCancelButton, { borderColor: colors.border }]}
-                onPress={() => { setConfirmDeleteVisible(false); setConfirmText(""); }}
+                onPress={() => {
+                  setConfirmDeleteVisible(false);
+                }}
               >
                 <Text style={[styles.modalButtonText, { color: colors.textSecondary }]}>Cancel</Text>
               </Pressable>
               <Pressable
-                style={[styles.modalButton, styles.modalDeleteButton, { backgroundColor: colors.error }]}
+                style={[styles.modalButton, styles.modalDeleteButton, { backgroundColor: "#FF4444" }]}
                 onPress={performBatchDelete}
               >
                 <Text style={[styles.modalButtonText, { color: "#fff" }]}>DELETE</Text>
@@ -465,6 +458,7 @@ export default function LibraryScreen() {
           </View>
         </View>
       </Modal>
+     
 
       {/* Status Picker Sheet */}
       <StatusSheet
