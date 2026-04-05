@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useMemo } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -85,10 +85,23 @@ export default function UpdatesScreen() {
   const [progressLabel, setProgressLabel] = useState("");
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [elapsedTime, setElapsedTime] = useState("00:00:00");
+  const [novelSearchQuery, setNovelSearchQuery] = useState("");
+  const [showNovelSearch, setShowNovelSearch] = useState(false);
+  
   const stopRef = useRef(false);
   const logScrollRef = useRef<ScrollView>(null);
   const startTimeRef = useRef<number>(0);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Filter novels based on search query
+  const filteredNovels = useMemo(() => {
+    if (!novelSearchQuery.trim()) return novels;
+    const query = novelSearchQuery.toLowerCase().trim();
+    return novels.filter(
+      (n) => n.title.toLowerCase().includes(query) || 
+             n.author.toLowerCase().includes(query)
+    );
+  }, [novels, novelSearchQuery]);
 
   const addLog = (text: string, type: LogEntry["type"] = "info") => {
     const entry: LogEntry = { id: Date.now().toString() + Math.random(), text, type };
@@ -106,6 +119,8 @@ export default function UpdatesScreen() {
     setProgressLabel("");
     setElapsedTime("00:00:00");
     setMaxChStr("");
+    setNovelSearchQuery("");
+    setShowNovelSearch(false);
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current);
       timerIntervalRef.current = null;
@@ -280,7 +295,6 @@ export default function UpdatesScreen() {
     } finally {
       setIsUpdating(false);
       stopTimer();
-      setSelectedNovel(null);
     }
   };
 
@@ -303,7 +317,11 @@ export default function UpdatesScreen() {
           borderColor: colors.border,
         },
       ]}
-      onPress={() => setSelectedNovel(novel)}
+      onPress={() => {
+        setSelectedNovel(novel);
+        setShowNovelSearch(false);
+        setNovelSearchQuery("");
+      }}
     >
       <View style={styles.novelItemContent}>
         <Text
@@ -347,14 +365,68 @@ export default function UpdatesScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.cardLabel, { color: colors.textSecondary }]}>SELECT NOVEL</Text>
+          <View style={styles.cardHeader}>
+            <Text style={[styles.cardLabel, { color: colors.textSecondary }]}>SELECT NOVEL</Text>
+            {novels.length > 3 && (
+              <Pressable 
+                onPress={() => setShowNovelSearch(!showNovelSearch)}
+                style={styles.searchToggle}
+              >
+                <Ionicons 
+                  name={showNovelSearch ? "close" : "search"} 
+                  size={18} 
+                  color={colors.accent} 
+                />
+                <Text style={[styles.searchToggleText, { color: colors.accent }]}>
+                  {showNovelSearch ? "Close" : "Search"}
+                </Text>
+              </Pressable>
+            )}
+          </View>
+
+          {showNovelSearch && novels.length > 3 && (
+            <Animated.View entering={FadeIn} style={styles.searchContainer}>
+              <View style={[styles.searchInputContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                <Ionicons name="search" size={18} color={colors.textSecondary} />
+                <TextInput
+                  style={[styles.novelSearchInput, { color: colors.text }]}
+                  placeholder="Search by title or author..."
+                  placeholderTextColor={colors.textMuted}
+                  value={novelSearchQuery}
+                  onChangeText={setNovelSearchQuery}
+                  autoFocus
+                />
+                {novelSearchQuery.length > 0 && (
+                  <Pressable onPress={() => setNovelSearchQuery("")}>
+                    <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
+                  </Pressable>
+                )}
+              </View>
+              <Text style={[styles.searchResultText, { color: colors.textSecondary }]}>
+                {filteredNovels.length} novel{filteredNovels.length !== 1 ? "s" : ""} found
+              </Text>
+            </Animated.View>
+          )}
+
           <View style={styles.novelListContainer}>
             {novels.length === 0 ? (
               <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
                 No novels in library. Add some first!
               </Text>
+            ) : filteredNovels.length === 0 ? (
+              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+                No novels matching "{novelSearchQuery}"
+              </Text>
             ) : (
-              novels.map((novel) => renderNovelItem(novel))
+              <ScrollView 
+                style={styles.novelScrollView}
+                showsVerticalScrollIndicator={true}
+                nestedScrollEnabled={true}
+              >
+                <View style={styles.novelListInner}>
+                  {filteredNovels.map((novel) => renderNovelItem(novel))}
+                </View>
+              </ScrollView>
             )}
           </View>
         </View>
@@ -508,13 +580,60 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     padding: 14,
   },
+  cardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
   cardLabel: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 10,
     letterSpacing: 0.8,
+  },
+  searchToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  searchToggleText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+  },
+  searchContainer: {
     marginBottom: 12,
+    gap: 6,
+  },
+  searchInputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  novelSearchInput: {
+    flex: 1,
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    paddingVertical: 4,
+  },
+  searchResultText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    paddingLeft: 4,
   },
   novelListContainer: {
+    minHeight: 0,
+  },
+  novelScrollView: {
+    maxHeight: 320,
+  },
+  novelListInner: {
     gap: 8,
   },
   novelItem: {
@@ -626,10 +745,8 @@ const styles = StyleSheet.create({
     height: "100%",
     borderRadius: 3,
   },
-  
   logSection: { 
     gap: 8,
-    // Add this to ensure the box itself stays away from the screen edge
     marginBottom: 22, 
   },
   logHeader: {
@@ -659,4 +776,3 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   }
 });
-
