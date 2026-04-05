@@ -512,6 +512,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 20,
     borderWidth: 1,
+    flexShrink: 0,
   },
   filterTabText: { fontFamily: "Inter_600SemiBold", fontSize: 13 },
   filterCount: { minWidth: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", paddingHorizontal: 5 },
