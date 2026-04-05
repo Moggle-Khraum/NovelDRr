@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   Alert,
   FlatList,
@@ -205,18 +205,45 @@ export default function LibraryScreen() {
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
   const [activeFilter, setActiveFilter] = useState<NovelStatus | "all">("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showSearch, setShowSearch] = useState(false);
 
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedNovels, setSelectedNovels] = useState<string[]>([]);
   const [confirmDeleteVisible, setConfirmDeleteVisible] = useState(false);
-  const [confirmText, setConfirmText] = useState("");
 
   const [statusSheetNovel, setStatusSheetNovel] = useState<Novel | null>(null);
+
+  // Filter novels based on status AND search query
+  const filteredNovels = useMemo(() => {
+    let result = activeFilter === "all"
+      ? novels
+      : novels.filter((n) => (n.status ?? "unread") === activeFilter);
+    
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      result = result.filter(
+        (n) => n.title.toLowerCase().includes(query) || 
+               n.author.toLowerCase().includes(query)
+      );
+    }
+    
+    return result;
+  }, [novels, activeFilter, searchQuery]);
+
+  const counts = {
+    all:       novels.length,
+    unread:    novels.filter((n) => (n.status ?? "unread") === "unread").length,
+    reading:   novels.filter((n) => (n.status ?? "unread") === "reading").length,
+    completed: novels.filter((n) => (n.status ?? "unread") === "completed").length,
+  };
 
   const enterSelectionMode = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setSelectionMode(true);
     setSelectedNovels([]);
+    setShowSearch(false);
+    setSearchQuery("");
   };
 
   const exitSelectionMode = () => {
@@ -254,7 +281,6 @@ export default function LibraryScreen() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
-
   const handleNovelPress = (novel: Novel) => {
     if (selectionMode) {
       toggleNovelSelection(novel.id);
@@ -278,16 +304,12 @@ export default function LibraryScreen() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
-  const filteredNovels =
-    activeFilter === "all"
-      ? novels
-      : novels.filter((n) => (n.status ?? "unread") === activeFilter);
-
-  const counts = {
-    all:       novels.length,
-    unread:    novels.filter((n) => (n.status ?? "unread") === "unread").length,
-    reading:   novels.filter((n) => (n.status ?? "unread") === "reading").length,
-    completed: novels.filter((n) => (n.status ?? "unread") === "completed").length,
+  const toggleSearch = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setShowSearch(!showSearch);
+    if (!showSearch) {
+      setSearchQuery("");
+    }
   };
 
   const renderHeader = () => (
@@ -295,25 +317,55 @@ export default function LibraryScreen() {
       <View>
         <Text style={[styles.headerTitle, { color: colors.text }]}>Novel DR</Text>
         <Text style={[styles.headerSub, { color: colors.textSecondary }]}>
-          {novels.length} {novels.length === 1 ? "novel" : "novels"}
+          {filteredNovels.length} {filteredNovels.length === 1 ? "novel" : "novels"} 
+          {searchQuery ? ` (filtered from ${novels.length})` : ""}
         </Text>
       </View>
-      <Pressable onPress={enterSelectionMode} style={styles.menuButton}>
-        <Ionicons name="ellipsis-vertical" size={24} color={colors.text} />
-      </Pressable>
+      <View style={styles.headerButtons}>
+        <Pressable onPress={toggleSearch} style={styles.iconButton}>
+          <Ionicons name={showSearch ? "close" : "search"} size={24} color={colors.text} />
+        </Pressable>
+        <Pressable onPress={enterSelectionMode} style={styles.iconButton}>
+          <Ionicons name="ellipsis-vertical" size={24} color={colors.text} />
+        </Pressable>
+      </View>
     </View>
+  );
+
+  const renderSearchBar = () => (
+    <Animated.View entering={FadeIn} style={[styles.searchContainer, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+      <View style={[styles.searchInputContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
+        <Ionicons name="search" size={20} color={colors.textSecondary} />
+        <TextInput
+          style={[styles.searchInput, { color: colors.text }]}
+          placeholder="Search by title or author..."
+          placeholderTextColor={colors.textMuted}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          autoFocus
+        />
+        {searchQuery.length > 0 && (
+          <Pressable onPress={() => setSearchQuery("")}>
+            <Ionicons name="close-circle" size={20} color={colors.textSecondary} />
+          </Pressable>
+        )}
+      </View>
+      <Text style={[styles.searchResultText, { color: colors.textSecondary }]}>
+        Found {filteredNovels.length} result{filteredNovels.length !== 1 ? "s" : ""}
+      </Text>
+    </Animated.View>
   );
 
   const renderSelectionHeader = () => (
     <View style={[styles.selectionHeader, { backgroundColor: colors.surface, borderBottomColor: colors.border, paddingTop: topPad + 12 }]}>
-      <Pressable onPress={exitSelectionMode} style={styles.selectionBack}>
+      <Pressable onPress={exitSelectionMode} style={styles.iconButton}>
         <Ionicons name="arrow-back" size={24} color={colors.text} />
       </Pressable>
       <Text style={[styles.selectionTitle, { color: colors.text }]}>
         Selected: {selectedNovels.length}
       </Text>
       {selectedNovels.length > 0 && (
-        <Pressable onPress={showFirstConfirmation} style={styles.selectionDelete}>
+        <Pressable onPress={showFirstConfirmation} style={styles.iconButton}>
           <Ionicons name="trash-outline" size={24} color={colors.text} />
         </Pressable>
       )}
@@ -356,50 +408,70 @@ export default function LibraryScreen() {
     </ScrollView>
   );
 
+  const renderEmptyState = () => {
+    const isFiltered = searchQuery || activeFilter !== "all";
+    
+    if (novels.length === 0) {
+      return (
+        <View style={styles.emptyState}>
+          <Image
+            source={require("@/assets/images/shook.png")}
+            style={styles.shookImg}
+            contentFit="contain"
+          />
+          <Text style={[styles.emptyTitle, { color: colors.text }]}>Your library is empty</Text>
+          <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
+            Head to the Download tab to add your first novel
+          </Text>
+          <Pressable
+            style={[styles.addBtn, { backgroundColor: colors.accent }]}
+            onPress={() => router.push("/(tabs)/add")}
+          >
+            <Ionicons name="add" size={18} color="#fff" />
+            <Text style={styles.addBtnText}>Add Novel</Text>
+          </Pressable>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.emptyState}>
+        <Image
+          source={require("@/assets/images/shook.png")}
+          style={styles.shookImg}
+          contentFit="contain"
+        />
+        <Text style={[styles.emptyTitle, { color: colors.text }]}>No novels found</Text>
+        <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
+          {searchQuery 
+            ? `No novels matching "${searchQuery}"`
+            : `No novels marked as "${FILTER_TABS.find((t) => t.key === activeFilter)?.label}" yet.`
+          }
+        </Text>
+        {isFiltered && (
+          <Pressable
+            style={[styles.clearBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            onPress={() => {
+              setSearchQuery("");
+              setActiveFilter("all");
+              setShowSearch(false);
+            }}
+          >
+            <Text style={[styles.clearBtnText, { color: colors.text }]}>Clear Filters</Text>
+          </Pressable>
+        )}
+      </View>
+    );
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {selectionMode ? renderSelectionHeader() : renderHeader()}
+      {showSearch && !selectionMode && renderSearchBar()}
       {!selectionMode && renderFilterTabs()}
 
       {!loading && filteredNovels.length === 0 ? (
-        novels.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Image
-              source={require("@/assets/images/shook.png")}
-              style={styles.shookImg}
-              contentFit="contain"
-            />
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>Your library is empty</Text>
-            <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-              Head to the Download tab to add your first novel
-            </Text>
-            <Pressable
-              style={[styles.addBtn, { backgroundColor: colors.accent }]}
-              onPress={() => router.push("/(tabs)/add")}
-            >
-              <Ionicons name="add" size={18} color="#fff" />
-              <Text style={styles.addBtnText}>Add Novel</Text>
-            </Pressable>
-          </View>
-        ) : (
-          <View style={styles.emptyState}>
-            <Image
-              source={require("@/assets/images/shook.png")}
-              style={styles.shookImg}
-              contentFit="contain"
-            />
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>No novels here</Text>
-            <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-              No novels marked as "{FILTER_TABS.find((t) => t.key === activeFilter)?.label}" yet.
-            </Text>
-            <Pressable
-              style={[styles.addBtn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }]}
-              onPress={() => setActiveFilter("all")}
-            >
-              <Text style={[styles.addBtnText, { color: colors.text }]}>Show All</Text>
-            </Pressable>
-          </View>
-        )
+        renderEmptyState()
       ) : (
         <FlatList
           data={filteredNovels}
@@ -421,14 +493,11 @@ export default function LibraryScreen() {
       )}
 
       {/* Batch Delete Confirmation Modal */}
-   
       <Modal
         visible={confirmDeleteVisible}
         transparent={true}
         animationType="fade"
-        onRequestClose={() => {
-          setConfirmDeleteVisible(false);
-        }}
+        onRequestClose={() => setConfirmDeleteVisible(false)}
       >
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
@@ -443,9 +512,7 @@ export default function LibraryScreen() {
             <View style={styles.modalButtons}>
               <Pressable
                 style={[styles.modalButton, styles.modalCancelButton, { borderColor: colors.border }]}
-                onPress={() => {
-                  setConfirmDeleteVisible(false);
-                }}
+                onPress={() => setConfirmDeleteVisible(false)}
               >
                 <Text style={[styles.modalButtonText, { color: colors.textSecondary }]}>Cancel</Text>
               </Pressable>
@@ -459,7 +526,6 @@ export default function LibraryScreen() {
           </View>
         </View>
       </Modal>
-     
 
       {/* Status Picker Sheet */}
       <StatusSheet
@@ -486,7 +552,12 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontFamily: "Inter_700Bold", fontSize: 28 },
   headerSub: { fontFamily: "Inter_400Regular", fontSize: 13, marginTop: 2 },
-  menuButton: { padding: 8 },
+  headerButtons: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  iconButton: { padding: 8 },
 
   // selection header
   selectionHeader: {
@@ -497,9 +568,35 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
     borderBottomWidth: 1,
   },
-  selectionBack: { padding: 8 },
   selectionTitle: { fontFamily: "Inter_600SemiBold", fontSize: 18 },
-  selectionDelete: { padding: 8 },
+
+  // search bar
+  searchContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: 8,
+  },
+  searchInputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  searchInput: {
+    flex: 1,
+    fontFamily: "Inter_400Regular",
+    fontSize: 16,
+    paddingVertical: 4,
+  },
+  searchResultText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    paddingLeft: 4,
+  },
 
   // filter bar
   filterBar: { borderBottomWidth: StyleSheet.hairlineWidth, flexGrow: 0 },
@@ -512,7 +609,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 20,
     borderWidth: 1,
-    flexShrink: 0,
+    flexShrink: 0, // Prevents button compression
   },
   filterTabText: { fontFamily: "Inter_600SemiBold", fontSize: 13 },
   filterCount: { minWidth: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", paddingHorizontal: 5 },
@@ -552,6 +649,8 @@ const styles = StyleSheet.create({
   emptySubtitle: { fontFamily: "Inter_400Regular", fontSize: 14, textAlign: "center", lineHeight: 20 },
   addBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12, marginTop: 8 },
   addBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: "#fff" },
+  clearBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12, marginTop: 8, borderWidth: 1 },
+  clearBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 15 },
 
   // batch delete modal
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" },
@@ -559,8 +658,6 @@ const styles = StyleSheet.create({
   modalIcon: { marginBottom: 8 },
   modalTitle: { fontFamily: "Inter_700Bold", fontSize: 20 },
   modalMessage: { fontFamily: "Inter_400Regular", fontSize: 14, textAlign: "center" },
-  modalWarning: { fontFamily: "Inter_600SemiBold", fontSize: 14, marginTop: 8 },
-  modalInput: { width: "100%", height: 48, borderWidth: 1, borderRadius: 8, paddingHorizontal: 16, fontFamily: "Inter_400Regular", fontSize: 16, textAlign: "center", marginTop: 8 },
   modalButtons: { flexDirection: "row", gap: 12, marginTop: 16, width: "100%" },
   modalButton: { flex: 1, height: 44, borderRadius: 8, justifyContent: "center", alignItems: "center" },
   modalCancelButton: { borderWidth: 1 },
@@ -578,3 +675,4 @@ const styles = StyleSheet.create({
   sheetCancel: { marginTop: 4, padding: 14, borderRadius: 12, borderWidth: 1, alignItems: "center" },
   sheetCancelText: { fontFamily: "Inter_600SemiBold", fontSize: 15 },
 });
+
