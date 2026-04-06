@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import React, { useRef, useState, useMemo } from "react";
+import React, { useRef, useState, useMemo, useCallback, useEffect } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -13,6 +13,8 @@ import {
 } from "react-native";
 import Animated, { FadeIn } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Audio } from "expo-av";
+
 import { useLibrary, Novel, Chapter } from "@/context/LibraryContext";
 import { useTheme } from "@/context/ThemeContext";
 import { fetchNovelMeta, fetchChapter } from "@/hooks/useApi";
@@ -86,30 +88,53 @@ export default function UpdatesScreen() {
   const [elapsedTime, setElapsedTime] = useState("00:00:00");
   const [novelSearchQuery, setNovelSearchQuery] = useState("");
   const [showNovelSearch, setShowNovelSearch] = useState(false);
-  
+
   const stopRef = useRef(false);
   const logScrollRef = useRef<ScrollView>(null);
   const startTimeRef = useRef<number>(0);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Audio setup
+  useEffect(() => {
+    Audio.setAudioModeAsync({
+      allowsRecordingIOS: false,
+      playsInSilentModeIOS: true,
+      shouldDuckAndroid: true,
+      playThroughEarpieceAndroid: false,
+    });
+  }, []);
+
+  const playSound = useCallback(async (soundFile: string) => {
+    try {
+      const { sound } = await Audio.Sound.createAsync(
+        require(`@/assets/sounds/${soundFile}`)
+      );
+      await sound.playAsync();
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (status.didJustFinish) sound.unloadAsync();
+      });
+    } catch (error) {
+      console.warn(`Failed to play ${soundFile}`, error);
+    }
+  }, []);
+
+  const playStartSound = () => playSound("start.mp3");
+  const playSuccessSound = () => playSound("success.mp3");
+  const playFailSound = () => playSound("fail.mp3");
 
   // Filter novels based on search query
   const filteredNovels = useMemo(() => {
     if (!novelSearchQuery.trim()) return novels;
     const query = novelSearchQuery.toLowerCase().trim();
     return novels.filter(
-      (n) => n.title.toLowerCase().includes(query) || 
-             n.author.toLowerCase().includes(query)
+      (n) => n.title.toLowerCase().includes(query) || n.author.toLowerCase().includes(query)
     );
   }, [novels, novelSearchQuery]);
 
   const addLog = (text: string, type: LogEntry["type"] = "info") => {
     const entry: LogEntry = { id: Date.now().toString() + Math.random(), text, type };
     setLogs((prev) => [...prev.slice(-200), entry]);
-    
-    // Auto-scroll fix with slight delay
-    setTimeout(() => {
-      logScrollRef.current?.scrollToEnd({ animated: true });
-    }, 200); 
+    setTimeout(() => logScrollRef.current?.scrollToEnd({ animated: true }), 200);
   };
 
   const clearAll = () => {
@@ -165,6 +190,7 @@ export default function UpdatesScreen() {
     setProgressLabel("");
     setElapsedTime("00:00:00");
     startTimer();
+    await playStartSound();
 
     try {
       let domain = "";
@@ -174,14 +200,14 @@ export default function UpdatesScreen() {
       } catch {
         domain = "Unknown";
       }
-      
+
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
       addLog(`CONNECTING TO SOURCE...`, "downloading");
       addLog(`Source Domain: ${domain}`, "info");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
       const meta = await fetchNovelMeta(selectedNovel.sourceUrl);
-      
+
       addLog(`Connection successful!`, "success");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
       addLog(`NOVEL INFORMATION`, "downloading");
@@ -193,7 +219,7 @@ export default function UpdatesScreen() {
       if (maxCh) {
         addLog(`Max chapters to download: ${maxCh}`, "info");
       }
-      
+
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
       if (!meta.firstChapterUrl) {
         addLog("Could not find chapter links on this page", "error");
@@ -282,8 +308,10 @@ export default function UpdatesScreen() {
 
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
       await updateNovel(selectedNovel.id, { chapters: newChapters });
+      await playSuccessSound();
       setProgress(100);
     } catch (e: any) {
+      await playFailSound();
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "error");
       addLog(`ERROR: ${e.message || "Update failed"}`, "error");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "error");
@@ -348,7 +376,12 @@ export default function UpdatesScreen() {
       style={[styles.container, { backgroundColor: colors.background }]}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <View style={[styles.header, { paddingTop: topPad + 12, borderBottomColor: colors.border }]}>
+      <View
+        style={[
+          styles.header,
+          { paddingTop: topPad + 12, borderBottomColor: colors.border },
+        ]}
+      >
         <Ionicons name="refresh-circle" size={22} color={colors.accent} />
         <Text style={[styles.headerTitle, { color: colors.text }]}>Novel Updates</Text>
       </View>
@@ -359,18 +392,25 @@ export default function UpdatesScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
           <View style={styles.cardHeader}>
-            <Text style={[styles.cardLabel, { color: colors.textSecondary }]}>SELECT NOVEL</Text>
+            <Text style={[styles.cardLabel, { color: colors.textSecondary }]}>
+              SELECT NOVEL
+            </Text>
             {novels.length > 3 && (
-              <Pressable 
+              <Pressable
                 onPress={() => setShowNovelSearch(!showNovelSearch)}
                 style={styles.searchToggle}
               >
-                <Ionicons 
-                  name={showNovelSearch ? "close" : "search"} 
-                  size={18} 
-                  color={colors.accent} 
+                <Ionicons
+                  name={showNovelSearch ? "close" : "search"}
+                  size={18}
+                  color={colors.accent}
                 />
                 <Text style={[styles.searchToggleText, { color: colors.accent }]}>
                   {showNovelSearch ? "Close" : "Search"}
@@ -381,7 +421,12 @@ export default function UpdatesScreen() {
 
           {showNovelSearch && novels.length > 3 && (
             <Animated.View entering={FadeIn} style={styles.searchContainer}>
-              <View style={[styles.searchInputContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
+              <View
+                style={[
+                  styles.searchInputContainer,
+                  { backgroundColor: colors.background, borderColor: colors.border },
+                ]}
+              >
                 <Ionicons name="search" size={18} color={colors.textSecondary} />
                 <TextInput
                   style={[styles.novelSearchInput, { color: colors.text }]}
@@ -413,7 +458,7 @@ export default function UpdatesScreen() {
                 No novels matching "{novelSearchQuery}"
               </Text>
             ) : (
-              <ScrollView 
+              <ScrollView
                 style={styles.novelScrollView}
                 showsVerticalScrollIndicator={true}
                 nestedScrollEnabled={true}
@@ -444,7 +489,9 @@ export default function UpdatesScreen() {
             <Pressable
               style={[
                 styles.primaryBtn,
-                { backgroundColor: isUpdating || !selectedNovel ? colors.border : colors.accent },
+                {
+                  backgroundColor: isUpdating || !selectedNovel ? colors.border : colors.accent,
+                },
               ]}
               onPress={isUpdating ? undefined : handleUpdate}
               disabled={isUpdating || !selectedNovel}
@@ -462,7 +509,9 @@ export default function UpdatesScreen() {
             {isUpdating && (
               <Pressable
                 style={[styles.outlineBtn, { borderColor: Colors.error }]}
-                onPress={() => { stopRef.current = true; }}
+                onPress={() => {
+                  stopRef.current = true;
+                }}
               >
                 <Ionicons name="stop" size={16} color={Colors.error} />
                 <Text style={[styles.outlineBtnText, { color: Colors.error }]}>Halt</Text>
@@ -475,7 +524,9 @@ export default function UpdatesScreen() {
                 onPress={clearAll}
               >
                 <Ionicons name="trash-outline" size={16} color={colors.textSecondary} />
-                <Text style={[styles.outlineBtnText, { color: colors.textSecondary }]}>Clear</Text>
+                <Text style={[styles.outlineBtnText, { color: colors.textSecondary }]}>
+                  Clear
+                </Text>
               </Pressable>
             )}
           </View>
@@ -528,21 +579,22 @@ export default function UpdatesScreen() {
           </View>
           <ScrollView
             ref={logScrollRef}
-            style={[styles.logBox, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            style={[
+              styles.logBox,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+            ]}
             contentContainerStyle={styles.logContent}
             showsVerticalScrollIndicator={true}
             nestedScrollEnabled={true}
           >
             {logs.length === 0 ? (
               <Text style={[styles.logLine, { color: colors.textMuted }]}>
-                {selectedNovel 
-                  ? `Ready to check for updates in "${selectedNovel.title}"` 
+                {selectedNovel
+                  ? `Ready to check for updates in "${selectedNovel.title}"`
                   : "Select a novel to check for updates"}
               </Text>
             ) : (
-              logs.map((entry) => (
-                <LogLine key={entry.id} entry={entry} />
-              ))
+              logs.map((entry) => <LogLine key={entry.id} entry={entry} />)
             )}
           </ScrollView>
         </View>
@@ -565,8 +617,8 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     fontSize: 22,
   },
-  scroll: { 
-    padding: 16, 
+  scroll: {
+    padding: 16,
     gap: 16,
     flexGrow: 1,
   },
@@ -740,9 +792,9 @@ const styles = StyleSheet.create({
     height: "100%",
     borderRadius: 3,
   },
-  logSection: { 
+  logSection: {
     gap: 8,
-    marginBottom: 22, 
+    marginBottom: 22,
   },
   logHeader: {
     flexDirection: "row",
@@ -769,5 +821,5 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginBottom: 4,
     paddingHorizontal: 4,
-  }
+  },
 });
