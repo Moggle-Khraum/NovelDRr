@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useCallback, useEffect } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Audio } from "expo-av";
 
 import { useLibrary, Novel, Chapter } from "@/context/LibraryContext";
 import { useTheme } from "@/context/ThemeContext";
@@ -34,7 +35,7 @@ function LogLine({ entry }: { entry: LogEntry }) {
     error: Colors.error,
     warning: Colors.amber,
   };
-  
+
   const getIcon = (text: string) => {
     if (text.includes("CONNECTING")) return "🔍";
     if (text.includes("Source Domain")) return "📡";
@@ -54,10 +55,10 @@ function LogLine({ entry }: { entry: LogEntry }) {
     if (text.includes("━━━━")) return "";
     return "";
   };
-  
+
   const icon = getIcon(entry.text);
   const displayText = icon ? `${icon} ${entry.text}` : entry.text;
-  
+
   return (
     <Text style={[styles.logLine, { color: colorMap[entry.type] }]}>
       {displayText}
@@ -81,6 +82,34 @@ export default function AddNovelScreen() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const stopRef = useRef(false);
   const logScrollRef = useRef<ScrollView>(null);
+
+  // Audio setup
+  useEffect(() => {
+    Audio.setAudioModeAsync({
+      allowsRecordingIOS: false,
+      playsInSilentModeIOS: true,
+      shouldDuckAndroid: true,
+      playThroughEarpieceAndroid: false,
+    });
+  }, []);
+
+  const playSound = useCallback(async (soundFile: string) => {
+    try {
+      const { sound } = await Audio.Sound.createAsync(
+        require(`@/assets/sounds/${soundFile}`)
+      );
+      await sound.playAsync();
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (status.didJustFinish) sound.unloadAsync();
+      });
+    } catch (error) {
+      console.warn(`Failed to play ${soundFile}`, error);
+    }
+  }, []);
+
+  const playStartSound = () => playSound("start.mp3");
+  const playSuccessSound = () => playSound("success.mp3");
+  const playFailSound = () => playSound("fail.mp3");
 
   const addLog = (text: string, type: LogEntry["type"] = "info") => {
     const entry: LogEntry = { id: Date.now().toString() + Math.random(), text, type };
@@ -115,6 +144,7 @@ export default function AddNovelScreen() {
     setIsDownloading(true);
     setLogs([]);
     setProgress(0);
+    await playStartSound();
 
     try {
       let domain = "";
@@ -124,32 +154,33 @@ export default function AddNovelScreen() {
       } catch {
         domain = "Unknown";
       }
-      
+
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
       addLog(`CONNECTING TO SOURCE...`, "downloading");
       addLog(`Source Domain: ${domain}`, "info");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
       const meta = await fetchNovelMeta(trimmedUrl);
-      
+
       addLog(`Connection successful!`, "success");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
       addLog(`NOVEL INFORMATION`, "downloading");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
       addLog(`Title: ${meta.title}`, "success");
       addLog(`Author: ${meta.author}`, "info");
-      
+
       if (meta.synopsis && meta.synopsis !== "No summary available.") {
-        const shortSynopsis = meta.synopsis.length > 100 
-          ? meta.synopsis.substring(0, 100) + "..." 
-          : meta.synopsis;
+        const shortSynopsis =
+          meta.synopsis.length > 100
+            ? meta.synopsis.substring(0, 100) + "..."
+            : meta.synopsis;
         addLog(`Synopsis: ${shortSynopsis}`, "info");
       }
-      
+
       if (meta.coverUrl) {
         addLog(`Cover found`, "info");
       }
-      
+
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
       if (!meta.firstChapterUrl) {
@@ -162,7 +193,10 @@ export default function AddNovelScreen() {
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
       const existingNovel = novels.find((n) => n.title === meta.title);
-      const safeId = meta.title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "") + "-" + Date.now();
+      const safeId =
+        meta.title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "") +
+        "-" +
+        Date.now();
       const novelId = existingNovel?.id || safeId;
 
       const existingChapters: Chapter[] = existingNovel?.chapters || [];
@@ -172,7 +206,7 @@ export default function AddNovelScreen() {
         addLog(`Existing chapters in library: ${existingCount}`, "info");
         addLog(`Will skip already downloaded chapters`, "info");
       }
-      
+
       addLog(`Starting from chapter ${startCh}...`, "downloading");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
@@ -216,9 +250,12 @@ export default function AddNovelScreen() {
         });
 
         downloaded++;
-        
+
         if (downloaded % 10 === 0) {
-          addLog(`Saved: ${data.title} [${downloaded} chapters downloaded so far]`, "success");
+          addLog(
+            `Saved: ${data.title} [${downloaded} chapters downloaded so far]`,
+            "success"
+          );
         } else {
           addLog(`Saved: ${data.title}`, "info");
         }
@@ -240,7 +277,7 @@ export default function AddNovelScreen() {
       }
 
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-      
+
       if (stopRef.current) {
         addLog(`Download halted by user.`, "warning");
         addLog(`Downloaded ${downloaded} chapters before stop.`, "info");
@@ -251,7 +288,7 @@ export default function AddNovelScreen() {
           addLog(`Novel saved to your library`, "success");
         }
       }
-      
+
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
       const novel: Novel = {
@@ -267,8 +304,10 @@ export default function AddNovelScreen() {
         status: existingNovel?.status ?? "unread",
       };
       await addNovel(novel);
+      await playSuccessSound();
       setProgress(100);
     } catch (e: any) {
+      await playFailSound();
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "error");
       addLog(`ERROR: ${e.message || "Download failed"}`, "error");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "error");
@@ -291,19 +330,34 @@ export default function AddNovelScreen() {
       style={[styles.container, { backgroundColor: colors.background }]}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <View style={[styles.header, { paddingTop: topPad + 12, borderBottomColor: colors.border }]}>
+      <View
+        style={[
+          styles.header,
+          { paddingTop: topPad + 12, borderBottomColor: colors.border },
+        ]}
+      >
         <Ionicons name="cloud-download" size={22} color={colors.accent} />
         <Text style={[styles.headerTitle, { color: colors.text }]}>Download Novel</Text>
       </View>
 
       <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomPad + 20 }]}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: bottomPad + 20 },
+        ]}
         showsVerticalScrollIndicator={true}
         alwaysBounceVertical={true}
       >
         {/* Supported Sites Card */}
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.cardLabel, { color: colors.textSecondary }]}>SUPPORTED SITES</Text>
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <Text style={[styles.cardLabel, { color: colors.textSecondary }]}>
+            SUPPORTED SITES
+          </Text>
           <Text style={[styles.cardValue, { color: colors.text }]}>
             ReadNovelFull · NovelFull · FreeWebNovel
           </Text>
@@ -328,7 +382,9 @@ export default function AddNovelScreen() {
 
           <View style={styles.row}>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.label, { color: colors.textSecondary }]}>Start Chapter</Text>
+              <Text style={[styles.label, { color: colors.textSecondary }]}>
+                Start Chapter
+              </Text>
               <TextInput
                 style={inputStyle}
                 value={startChStr}
@@ -340,7 +396,9 @@ export default function AddNovelScreen() {
               />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.label, { color: colors.textSecondary }]}>Max Chapters</Text>
+              <Text style={[styles.label, { color: colors.textSecondary }]}>
+                Max Chapters
+              </Text>
               <TextInput
                 style={inputStyle}
                 value={maxChStr}
@@ -375,7 +433,9 @@ export default function AddNovelScreen() {
             {isDownloading && (
               <Pressable
                 style={[styles.outlineBtn, { borderColor: Colors.error }]}
-                onPress={() => { stopRef.current = true; }}
+                onPress={() => {
+                  stopRef.current = true;
+                }}
               >
                 <Ionicons name="stop" size={16} color={Colors.error} />
                 <Text style={[styles.outlineBtnText, { color: Colors.error }]}>Halt</Text>
@@ -388,7 +448,9 @@ export default function AddNovelScreen() {
                 onPress={clearAll}
               >
                 <Ionicons name="trash-outline" size={16} color={colors.textSecondary} />
-                <Text style={[styles.outlineBtnText, { color: colors.textSecondary }]}>Clear</Text>
+                <Text style={[styles.outlineBtnText, { color: colors.textSecondary }]}>
+                  Clear
+                </Text>
               </Pressable>
             )}
           </View>
@@ -429,7 +491,10 @@ export default function AddNovelScreen() {
           </View>
           <ScrollView
             ref={logScrollRef}
-            style={[styles.logBox, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            style={[
+              styles.logBox,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+            ]}
             contentContainerStyle={styles.logContent}
             showsVerticalScrollIndicator={true}
             nestedScrollEnabled={true}
@@ -439,9 +504,7 @@ export default function AddNovelScreen() {
                 Ready to download...
               </Text>
             ) : (
-              logs.map((entry) => (
-                <LogLine key={entry.id} entry={entry} />
-              ))
+              logs.map((entry) => <LogLine key={entry.id} entry={entry} />)
             )}
           </ScrollView>
         </View>
@@ -467,7 +530,7 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     fontSize: 22,
   },
-  scrollContent: { 
+  scrollContent: {
     paddingHorizontal: 16,
     paddingTop: 16,
   },
@@ -487,7 +550,7 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     fontSize: 13,
   },
-  form: { 
+  form: {
     gap: 14,
     marginBottom: 16,
   },
@@ -532,7 +595,7 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     fontSize: 14,
   },
-  progressSection: { 
+  progressSection: {
     gap: 8,
     marginBottom: 16,
   },
@@ -559,7 +622,7 @@ const styles = StyleSheet.create({
     height: "100%",
     borderRadius: 3,
   },
-  logSection: { 
+  logSection: {
     gap: 8,
     marginBottom: 16,
   },
