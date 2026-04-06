@@ -94,6 +94,13 @@ export default function UpdatesScreen() {
   const startTimeRef = useRef<number>(0);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Pre‑require sound files (static, required by Metro)
+  const sounds = {
+    start: require("@/assets/sounds/start.mp3"),
+    success: require("@/assets/sounds/success.mp3"),
+    fail: require("@/assets/sounds/fail.mp3"),
+  };
+
   // Audio setup
   useEffect(() => {
     Audio.setAudioModeAsync({
@@ -104,23 +111,17 @@ export default function UpdatesScreen() {
     });
   }, []);
 
-  const playSound = useCallback(async (soundFile: string) => {
+  const playSound = useCallback(async (soundKey: keyof typeof sounds) => {
     try {
-      const { sound } = await Audio.Sound.createAsync(
-        require(`@/assets/sounds/${soundFile}`)
-      );
+      const { sound } = await Audio.Sound.createAsync(sounds[soundKey]);
       await sound.playAsync();
       sound.setOnPlaybackStatusUpdate((status) => {
         if (status.didJustFinish) sound.unloadAsync();
       });
     } catch (error) {
-      console.warn(`Failed to play ${soundFile}`, error);
+      console.warn(`Failed to play ${soundKey} sound`, error);
     }
   }, []);
-
-  const playStartSound = () => playSound("start.mp3");
-  const playSuccessSound = () => playSound("success.mp3");
-  const playFailSound = () => playSound("fail.mp3");
 
   // Filter novels based on search query
   const filteredNovels = useMemo(() => {
@@ -190,7 +191,7 @@ export default function UpdatesScreen() {
     setProgressLabel("");
     setElapsedTime("00:00:00");
     startTimer();
-    await playStartSound();
+    await playSound("start");
 
     try {
       let domain = "";
@@ -308,10 +309,10 @@ export default function UpdatesScreen() {
 
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
       await updateNovel(selectedNovel.id, { chapters: newChapters });
-      await playSuccessSound();
+      await playSound("success");
       setProgress(100);
     } catch (e: any) {
-      await playFailSound();
+      await playSound("fail");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "error");
       addLog(`ERROR: ${e.message || "Update failed"}`, "error");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "error");
