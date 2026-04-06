@@ -83,6 +83,13 @@ export default function AddNovelScreen() {
   const stopRef = useRef(false);
   const logScrollRef = useRef<ScrollView>(null);
 
+  // Pre‑require sound files (static, required by Metro)
+  const sounds = {
+    start: require("@/assets/sounds/start.mp3"),
+    success: require("@/assets/sounds/success.mp3"),
+    fail: require("@/assets/sounds/fail.mp3"),
+  };
+
   // Audio setup
   useEffect(() => {
     Audio.setAudioModeAsync({
@@ -93,23 +100,17 @@ export default function AddNovelScreen() {
     });
   }, []);
 
-  const playSound = useCallback(async (soundFile: string) => {
+  const playSound = useCallback(async (soundKey: keyof typeof sounds) => {
     try {
-      const { sound } = await Audio.Sound.createAsync(
-        require(`@/assets/sounds/${soundFile}`)
-      );
+      const { sound } = await Audio.Sound.createAsync(sounds[soundKey]);
       await sound.playAsync();
       sound.setOnPlaybackStatusUpdate((status) => {
         if (status.didJustFinish) sound.unloadAsync();
       });
     } catch (error) {
-      console.warn(`Failed to play ${soundFile}`, error);
+      console.warn(`Failed to play ${soundKey} sound`, error);
     }
   }, []);
-
-  const playStartSound = () => playSound("start.mp3");
-  const playSuccessSound = () => playSound("success.mp3");
-  const playFailSound = () => playSound("fail.mp3");
 
   const addLog = (text: string, type: LogEntry["type"] = "info") => {
     const entry: LogEntry = { id: Date.now().toString() + Math.random(), text, type };
@@ -144,7 +145,7 @@ export default function AddNovelScreen() {
     setIsDownloading(true);
     setLogs([]);
     setProgress(0);
-    await playStartSound();
+    await playSound("start");
 
     try {
       let domain = "";
@@ -304,10 +305,10 @@ export default function AddNovelScreen() {
         status: existingNovel?.status ?? "unread",
       };
       await addNovel(novel);
-      await playSuccessSound();
+      await playSound("success");
       setProgress(100);
     } catch (e: any) {
-      await playFailSound();
+      await playSound("fail");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "error");
       addLog(`ERROR: ${e.message || "Download failed"}`, "error");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "error");
