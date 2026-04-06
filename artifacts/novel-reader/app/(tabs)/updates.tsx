@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import React, { useRef, useState, useMemo } from "react";
 import {
   ActivityIndicator,
@@ -166,8 +165,6 @@ export default function UpdatesScreen() {
     setProgressLabel("");
     setElapsedTime("00:00:00");
     startTimer();
-    
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
       let domain = "";
@@ -286,12 +283,10 @@ export default function UpdatesScreen() {
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
       await updateNovel(selectedNovel.id, { chapters: newChapters });
       setProgress(100);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "error");
       addLog(`ERROR: ${e.message || "Update failed"}`, "error");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "error");
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setIsUpdating(false);
       stopTimer();
