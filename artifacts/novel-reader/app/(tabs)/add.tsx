@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
 import React, { useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -116,7 +115,6 @@ export default function AddNovelScreen() {
     setIsDownloading(true);
     setLogs([]);
     setProgress(0);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
       let domain = "";
@@ -270,12 +268,10 @@ export default function AddNovelScreen() {
       };
       await addNovel(novel);
       setProgress(100);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "error");
       addLog(`ERROR: ${e.message || "Download failed"}`, "error");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "error");
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setIsDownloading(false);
     }
