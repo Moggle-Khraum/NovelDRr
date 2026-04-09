@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as FileSystem from "expo-file-system"; // ✅ added
 import React, { useRef, useState, useMemo } from "react";
 import {
   ActivityIndicator,
@@ -102,14 +103,32 @@ export default function UpdatesScreen() {
     );
   }, [novels, novelSearchQuery]);
 
+  // ✅ Helper: download cover to local file system (same as in add.tsx)
+  const downloadAndSaveCover = async (coverUrl: string, novelId: string): Promise<string> => {
+    if (!coverUrl) return '';
+    
+    const coverDir = `${FileSystem.documentDirectory}covers/`;
+    const coverPath = `${coverDir}${novelId}.jpg`;
+    
+    try {
+      const dirInfo = await FileSystem.getInfoAsync(coverDir);
+      if (!dirInfo.exists) {
+        await FileSystem.makeDirectoryAsync(coverDir, { intermediates: true });
+      }
+      const downloadResult = await FileSystem.downloadAsync(coverUrl, coverPath);
+      addLog(`Cover image saved locally`, "success");
+      return downloadResult.uri;
+    } catch (err) {
+      console.warn('Failed to download cover:', err);
+      addLog(`Cover download failed, using remote URL`, "warning");
+      return coverUrl;
+    }
+  };
+
   const addLog = (text: string, type: LogEntry["type"] = "info") => {
     const entry: LogEntry = { id: Date.now().toString() + Math.random(), text, type };
     setLogs((prev) => [...prev.slice(-200), entry]);
-    
-    // Auto-scroll fix with slight delay
-    setTimeout(() => {
-      logScrollRef.current?.scrollToEnd({ animated: true });
-    }, 200); 
+    setTimeout(() => logScrollRef.current?.scrollToEnd({ animated: true }), 200);
   };
 
   const clearAll = () => {
@@ -195,6 +214,17 @@ export default function UpdatesScreen() {
       }
       
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
+
+      // ✅ Download cover if needed (if cover is missing or remote)
+      let finalCoverUrl = selectedNovel.coverUrl;
+      if (meta.coverUrl && (!selectedNovel.coverUrl || selectedNovel.coverUrl.startsWith("http"))) {
+        addLog(`Downloading cover image...`, "info");
+        const localCover = await downloadAndSaveCover(meta.coverUrl, selectedNovel.id);
+        if (localCover && localCover !== meta.coverUrl) {
+          finalCoverUrl = localCover;
+        }
+      }
+
       if (!meta.firstChapterUrl) {
         addLog("Could not find chapter links on this page", "error");
         stopTimer();
@@ -281,7 +311,12 @@ export default function UpdatesScreen() {
       }
 
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-      await updateNovel(selectedNovel.id, { chapters: newChapters });
+      
+      // ✅ Update both chapters and coverUrl if changed
+      await updateNovel(selectedNovel.id, { 
+        chapters: newChapters,
+        ...(finalCoverUrl !== selectedNovel.coverUrl ? { coverUrl: finalCoverUrl } : {})
+      });
       setProgress(100);
     } catch (e: any) {
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "error");
