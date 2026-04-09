@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as FileSystem from "expo-file-system"; // ✅ added
 import React, { useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -97,6 +98,31 @@ export default function AddNovelScreen() {
     setProgressLabel("");
   };
 
+  // ✅ New: download cover image to local file system
+  const downloadAndSaveCover = async (coverUrl: string, novelId: string): Promise<string> => {
+    if (!coverUrl) return '';
+    
+    const coverDir = `${FileSystem.documentDirectory}covers/`;
+    const coverPath = `${coverDir}${novelId}.jpg`;
+    
+    try {
+      // Ensure directory exists
+      const dirInfo = await FileSystem.getInfoAsync(coverDir);
+      if (!dirInfo.exists) {
+        await FileSystem.makeDirectoryAsync(coverDir, { intermediates: true });
+      }
+      
+      // Download the image
+      const downloadResult = await FileSystem.downloadAsync(coverUrl, coverPath);
+      addLog(`Cover image saved locally`, "success");
+      return downloadResult.uri; // local file URI
+    } catch (err) {
+      console.warn('Failed to download cover:', err);
+      addLog(`Cover download failed, using remote URL`, "warning");
+      return coverUrl; // fallback to remote URL
+    }
+  };
+
   const handleDownload = async () => {
     const trimmedUrl = url.trim();
     if (!trimmedUrl) {
@@ -147,7 +173,7 @@ export default function AddNovelScreen() {
       }
       
       if (meta.coverUrl) {
-        addLog(`Cover found`, "info");
+        addLog(`Cover found, downloading...`, "info");
       }
       
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
@@ -164,6 +190,12 @@ export default function AddNovelScreen() {
       const existingNovel = novels.find((n) => n.title === meta.title);
       const safeId = meta.title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "") + "-" + Date.now();
       const novelId = existingNovel?.id || safeId;
+
+      // ✅ Download cover image now (before chapters)
+      let localCoverUrl = "";
+      if (meta.coverUrl) {
+        localCoverUrl = await downloadAndSaveCover(meta.coverUrl, novelId);
+      }
 
       const existingChapters: Chapter[] = existingNovel?.chapters || [];
       const existingCount = existingChapters.length;
@@ -254,12 +286,15 @@ export default function AddNovelScreen() {
       
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
+      // ✅ Use local cover URL if available, otherwise fallback to remote
+      const finalCoverUrl = localCoverUrl || meta.coverUrl;
+
       const novel: Novel = {
         id: novelId,
         title: meta.title,
         author: meta.author,
         synopsis: meta.synopsis,
-        coverUrl: meta.coverUrl,
+        coverUrl: finalCoverUrl,   // now points to local file (or remote as fallback)
         sourceUrl: trimmedUrl,
         chapters: newChapters,
         dateAdded: existingNovel?.dateAdded || Date.now(),
