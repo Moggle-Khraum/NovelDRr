@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as FileSystem from "expo-file-system"; // ✅ added
 import React, { useRef, useState, useMemo } from "react";
 import {
   ActivityIndicator,
@@ -23,6 +22,12 @@ type LogEntry = {
   id: string;
   text: string;
   type: "info" | "downloading" | "success" | "error" | "warning";
+};
+
+type ChapterInfo = {
+  url: string;
+  number: number;
+  title?: string;
 };
 
 function LogLine({ entry }: { entry: LogEntry }) {
@@ -50,6 +55,8 @@ function LogLine({ entry }: { entry: LogEntry }) {
     if (text.includes("COMPLETE")) return "🎉";
     if (text.includes("ERROR")) return "❌";
     if (text.includes("SKIPPED")) return "⏭️";
+    if (text.includes("SCANNING")) return "🔍";
+    if (text.includes("Found")) return "📊";
     if (text.includes("limit")) return "✅";
     if (text.includes("halted")) return "⚠️";
     if (text.includes("No more chapters")) return "🏁";
@@ -103,32 +110,13 @@ export default function UpdatesScreen() {
     );
   }, [novels, novelSearchQuery]);
 
-  // ✅ Helper: download cover to local file system (same as in add.tsx)
-  const downloadAndSaveCover = async (coverUrl: string, novelId: string): Promise<string> => {
-    if (!coverUrl) return '';
-    
-    const coverDir = `${FileSystem.documentDirectory}covers/`;
-    const coverPath = `${coverDir}${novelId}.jpg`;
-    
-    try {
-      const dirInfo = await FileSystem.getInfoAsync(coverDir);
-      if (!dirInfo.exists) {
-        await FileSystem.makeDirectoryAsync(coverDir, { intermediates: true });
-      }
-      const downloadResult = await FileSystem.downloadAsync(coverUrl, coverPath);
-      addLog(`Cover image saved locally`, "success");
-      return downloadResult.uri;
-    } catch (err) {
-      console.warn('Failed to download cover:', err);
-      addLog(`Cover download failed, using remote URL`, "warning");
-      return coverUrl;
-    }
-  };
-
   const addLog = (text: string, type: LogEntry["type"] = "info") => {
     const entry: LogEntry = { id: Date.now().toString() + Math.random(), text, type };
     setLogs((prev) => [...prev.slice(-200), entry]);
-    setTimeout(() => logScrollRef.current?.scrollToEnd({ animated: true }), 200);
+    
+    setTimeout(() => {
+      logScrollRef.current?.scrollToEnd({ animated: true });
+    }, 100);
   };
 
   const clearAll = () => {
@@ -168,6 +156,23 @@ export default function UpdatesScreen() {
     }
   };
 
+  // Helper to check if a chapter URL already exists in library
+  const chapterExists = (url: string, existingChapters: Chapter[]): boolean => {
+    return existingChapters.some((c) => c.url === url);
+  };
+
+  // Lightweight function to get only the next chapter URL without full content
+  const getNextChapterUrl = async (url: string, chapterNum: number): Promise<string | null> => {
+    try {
+      // fetchChapter with a flag to only return metadata
+      const data = await fetchChapter(url, chapterNum);
+      return data.nextUrl || null;
+    } catch (error) {
+      addLog(`Failed to get next URL for chapter ${chapterNum}`, "error");
+      return null;
+    }
+  };
+
   const handleUpdate = async () => {
     if (!selectedNovel) {
       addLog("Please select a novel first", "error");
@@ -176,6 +181,7 @@ export default function UpdatesScreen() {
 
     const startCh = selectedNovel.chapters.length + 1;
     const maxCh = parseInt(maxChStr) || null;
+    const existingChapters = [...selectedNovel.chapters];
 
     stopRef.current = false;
     setIsUpdating(true);
@@ -214,113 +220,166 @@ export default function UpdatesScreen() {
       }
       
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-
-      // ✅ Download cover if needed (if cover is missing or remote)
-      let finalCoverUrl = selectedNovel.coverUrl;
-      if (meta.coverUrl && (!selectedNovel.coverUrl || selectedNovel.coverUrl.startsWith("http"))) {
-        addLog(`Downloading cover image...`, "info");
-        const localCover = await downloadAndSaveCover(meta.coverUrl, selectedNovel.id);
-        if (localCover && localCover !== meta.coverUrl) {
-          finalCoverUrl = localCover;
-        }
-      }
-
+      
       if (!meta.firstChapterUrl) {
         addLog("Could not find chapter links on this page", "error");
         stopTimer();
+        setIsUpdating(false);
         return;
       }
 
       addLog(`First chapter URL found`, "success");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
-      let currentUrl: string | null = meta.firstChapterUrl;
-      let chapterNum = 1;
-      const newChapters: Chapter[] = [...selectedNovel.chapters];
+      // ========== PHASE 1: SCAN ==========
+      addLog(`🔍 SCANNING for new chapters...`, "downloading");
+      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
+
+      let scanUrl: string | null = meta.firstChapterUrl;
+      let scanNum = 1;
+      const missingChapters: ChapterInfo[] = [];
+      let skippedCount = 0;
+      let scannedCount = 0;
+
+      while (scanUrl && !stopRef.current) {
+        scannedCount++;
+        
+        // Check if this chapter should be considered (based on start chapter)
+        const isAfterStart = scanNum >= startCh;
+        
+        // Check if chapter already exists
+        const exists = chapterExists(scanUrl, existingChapters);
+        
+        if (exists && isAfterStart) {
+          skippedCount++;
+          addLog(`⏭️ SKIPPED: Chapter ${scanNum} already exists in library`, "warning");
+        } else if (!exists && isAfterStart) {
+          // This chapter is missing and should be downloaded
+          missingChapters.push({ url: scanUrl, number: scanNum });
+          
+          // Optional: Show progress during scan
+          if (missingChapters.length % 10 === 0) {
+            addLog(`📊 Found ${missingChapters.length} new chapters so far...`, "info");
+          }
+        }
+        
+        // Check if we've hit the max limit during scan
+        if (maxCh !== null && missingChapters.length >= maxCh) {
+          addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
+          addLog(`Reached max chapter limit (${maxCh}) during scan`, "success");
+          break;
+        }
+        
+        // Get next URL to continue scanning
+        const nextUrl = await getNextChapterUrl(scanUrl, scanNum);
+        if (!nextUrl) break;
+        
+        scanUrl = nextUrl;
+        scanNum++;
+        
+        // Small delay to avoid rate limiting during scan
+        await new Promise((r) => setTimeout(r, 100));
+      }
+
+      // Trim missing chapters if maxCh was hit
+      const chaptersToDownload = maxCh !== null 
+        ? missingChapters.slice(0, maxCh)
+        : missingChapters;
+
+      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
+      addLog(`📊 SCAN COMPLETE`, "success");
+      addLog(`   • Chapters scanned: ${scannedCount}`, "info");
+      addLog(`   • Chapters skipped (existing): ${skippedCount}`, "warning");
+      addLog(`   • New chapters found: ${missingChapters.length}`, "success");
+      if (maxCh !== null && chaptersToDownload.length < missingChapters.length) {
+        addLog(`   • Limited to: ${chaptersToDownload.length} (max setting)`, "info");
+      }
+      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
+
+      if (chaptersToDownload.length === 0) {
+        addLog(`✨ No new chapters to download! Novel is up to date.`, "success");
+        addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
+        setProgress(100);
+        stopTimer();
+        setIsUpdating(false);
+        return;
+      }
+
+      // ========== PHASE 2: DOWNLOAD ==========
+      addLog(`📥 DOWNLOADING ${chaptersToDownload.length} new chapters...`, "downloading");
+      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
+
+      const newChapters: Chapter[] = [...existingChapters];
       let downloaded = 0;
 
-      while (currentUrl && !stopRef.current) {
-        if (chapterNum < startCh) {
-          const data = await fetchChapter(currentUrl, chapterNum);
-          if (!data.nextUrl) break;
-          currentUrl = data.nextUrl;
-          chapterNum++;
-          continue;
-        }
-
-        if (maxCh !== null && downloaded >= maxCh) {
-          addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-          addLog(`Reached max chapter limit (${maxCh})`, "success");
-          addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
+      for (let i = 0; i < chaptersToDownload.length; i++) {
+        if (stopRef.current) {
+          addLog(`⚠️ Update halted by user`, "warning");
           break;
         }
 
-        const alreadyExists = newChapters.some((c) => c.url === currentUrl);
-        if (alreadyExists) {
-          const data = await fetchChapter(currentUrl, chapterNum);
-          if (!data.nextUrl) break;
-          currentUrl = data.nextUrl;
-          chapterNum++;
+        const { url, number } = chaptersToDownload[i];
+        
+        setProgressLabel(`Chapter ${number}`);
+        setProgress((i / chaptersToDownload.length) * 100);
+        addLog(`📥 Downloading Chapter ${number}...`, "downloading");
+
+        try {
+          const data = await fetchChapter(url, number);
+          
+          newChapters.push({
+            title: data.title,
+            url: url,
+            content: data.content,
+          });
+          
+          downloaded++;
+          
+          // Batch log messages to avoid spam
+          if (downloaded % 5 === 0) {
+            addLog(`💾 Saved ${downloaded}/${chaptersToDownload.length} chapters so far`, "success");
+          } else {
+            addLog(`💾 Saved: ${data.title}`, "success");
+          }
+          
+        } catch (err: any) {
+          addLog(`❌ Failed to download Chapter ${number}: ${err.message}`, "error");
+          // Continue with next chapter instead of stopping entirely
           continue;
         }
-
-        setProgressLabel(`Chapter ${chapterNum}`);
-        addLog(`Downloading Chapter ${chapterNum}...`, "downloading");
-
-        const data = await fetchChapter(currentUrl, chapterNum);
-        newChapters.push({
-          title: data.title,
-          url: currentUrl,
-          content: data.content,
-        });
-        downloaded++;
-
-        if (downloaded % 5 === 0) {
-          addLog(`Saved: ${data.title} [${downloaded} new chapters so far]`, "success");
-        } else {
-          addLog(`Saved: ${data.title}`, "info");
-        }
-
-        if (maxCh) {
-          setProgress((downloaded / maxCh) * 100);
-        }
-
-        if (!data.nextUrl) {
-          addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-          addLog(`No more chapters found.`, "info");
-          addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-          break;
-        }
-        currentUrl = data.nextUrl;
-        chapterNum++;
+        
+        // Delay between downloads to be respectful to the source
         await new Promise((r) => setTimeout(r, 200));
       }
 
+      // ========== FINALIZE ==========
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
+      
       if (stopRef.current) {
-        addLog(`Update halted by user.`, "warning");
-        addLog(`Downloaded ${downloaded} new chapters before stop.`, "info");
+        addLog(`⚠️ Update halted by user.`, "warning");
+        addLog(`📊 Downloaded ${downloaded} new chapters before stop.`, "info");
       } else {
-        addLog(`UPDATE COMPLETE!`, "success");
-        addLog(`Total new chapters added: ${downloaded}`, "success");
+        addLog(`✅ UPDATE COMPLETE!`, "success");
+        addLog(`📊 Total new chapters added: ${downloaded}`, "success");
         if (downloaded === 0) {
-          addLog(`No new chapters found. Novel is up to date!`, "info");
+          addLog(`✨ No new chapters found. Novel is up to date!`, "info");
         } else {
-          addLog(`Novel updated in your library`, "success");
+          addLog(`🎉 Novel updated in your library!`, "success");
         }
       }
 
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
       
-      // ✅ Update both chapters and coverUrl if changed
-      await updateNovel(selectedNovel.id, { 
-        chapters: newChapters,
-        ...(finalCoverUrl !== selectedNovel.coverUrl ? { coverUrl: finalCoverUrl } : {})
-      });
+      // Only update if we actually downloaded anything
+      if (downloaded > 0) {
+        await updateNovel(selectedNovel.id, { chapters: newChapters });
+      }
+      
       setProgress(100);
+      
     } catch (e: any) {
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "error");
-      addLog(`ERROR: ${e.message || "Update failed"}`, "error");
+      addLog(`❌ ERROR: ${e.message || "Update failed"}`, "error");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "error");
     } finally {
       setIsUpdating(false);
