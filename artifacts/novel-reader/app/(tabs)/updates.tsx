@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as Haptics from "expo-haptics";
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useMemo, useCallback, useEffect } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -14,6 +13,7 @@ import {
 } from "react-native";
 import Animated, { FadeIn } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Audio } from "expo-av";
 
 import { useLibrary, Novel, Chapter } from "@/context/LibraryContext";
 import { useTheme } from "@/context/ThemeContext";
@@ -35,7 +35,7 @@ function LogLine({ entry }: { entry: LogEntry }) {
     error: Colors.error,
     warning: Colors.amber,
   };
-  
+
   const getIcon = (text: string) => {
     if (text.includes("CONNECTING")) return "🔍";
     if (text.includes("Source Domain")) return "📡";
@@ -61,10 +61,10 @@ function LogLine({ entry }: { entry: LogEntry }) {
     if (text.includes("Update finished")) return "✨";
     return "";
   };
-  
+
   const icon = getIcon(entry.text);
   const displayText = icon ? `${icon} ${entry.text}` : entry.text;
-  
+
   return (
     <Text style={[styles.logLine, { color: colorMap[entry.type] }]}>
       {displayText}
@@ -85,20 +85,94 @@ export default function UpdatesScreen() {
   const [progress, setProgress] = useState(0);
   const [progressLabel, setProgressLabel] = useState("");
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [elapsedTime, setElapsedTime] = useState("00:00:00");
+  const [novelSearchQuery, setNovelSearchQuery] = useState("");
+  const [showNovelSearch, setShowNovelSearch] = useState(false);
+
   const stopRef = useRef(false);
   const logScrollRef = useRef<ScrollView>(null);
+  const startTimeRef = useRef<number>(0);
+  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Pre‑require sound files (static, required by Metro)
+  const sounds = {
+    start: require("@/assets/sounds/start.mp3"),
+    success: require("@/assets/sounds/success.mp3"),
+    fail: require("@/assets/sounds/fail.mp3"),
+  };
+
+  // Audio setup
+  useEffect(() => {
+    Audio.setAudioModeAsync({
+      allowsRecordingIOS: false,
+      playsInSilentModeIOS: true,
+      shouldDuckAndroid: true,
+      playThroughEarpieceAndroid: false,
+    });
+  }, []);
+
+  const playSound = useCallback(async (soundKey: keyof typeof sounds) => {
+    try {
+      const { sound } = await Audio.Sound.createAsync(sounds[soundKey]);
+      await sound.playAsync();
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (status.didJustFinish) sound.unloadAsync();
+      });
+    } catch (error) {
+      console.warn(`Failed to play ${soundKey} sound`, error);
+    }
+  }, []);
+
+  // Filter novels based on search query
+  const filteredNovels = useMemo(() => {
+    if (!novelSearchQuery.trim()) return novels;
+    const query = novelSearchQuery.toLowerCase().trim();
+    return novels.filter(
+      (n) => n.title.toLowerCase().includes(query) || n.author.toLowerCase().includes(query)
+    );
+  }, [novels, novelSearchQuery]);
 
   const addLog = (text: string, type: LogEntry["type"] = "info") => {
     const entry: LogEntry = { id: Date.now().toString() + Math.random(), text, type };
     setLogs((prev) => [...prev.slice(-200), entry]);
-    setTimeout(() => logScrollRef.current?.scrollToEnd({ animated: true }), 100);
+    setTimeout(() => logScrollRef.current?.scrollToEnd({ animated: true }), 200);
   };
 
   const clearAll = () => {
     setLogs([]);
     setProgress(0);
     setProgressLabel("");
+    setElapsedTime("00:00:00");
     setMaxChStr("");
+    setNovelSearchQuery("");
+    setShowNovelSearch(false);
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+  };
+
+  const formatTime = (seconds: number): string => {
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const startTimer = () => {
+    startTimeRef.current = Date.now();
+    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    timerIntervalRef.current = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
+      setElapsedTime(formatTime(elapsed));
+    }, 1000);
+  };
+
+  const stopTimer = () => {
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
   };
 
   const handleUpdate = async () => {
@@ -114,10 +188,12 @@ export default function UpdatesScreen() {
     setIsUpdating(true);
     setLogs([]);
     setProgress(0);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setProgressLabel("");
+    setElapsedTime("00:00:00");
+    startTimer();
+    await playSound("start");
 
     try {
-      // Extract domain from URL
       let domain = "";
       try {
         const urlObj = new URL(selectedNovel.sourceUrl);
@@ -125,14 +201,14 @@ export default function UpdatesScreen() {
       } catch {
         domain = "Unknown";
       }
-      
+
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
       addLog(`CONNECTING TO SOURCE...`, "downloading");
       addLog(`Source Domain: ${domain}`, "info");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
       const meta = await fetchNovelMeta(selectedNovel.sourceUrl);
-      
+
       addLog(`Connection successful!`, "success");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
       addLog(`NOVEL INFORMATION`, "downloading");
@@ -141,15 +217,14 @@ export default function UpdatesScreen() {
       addLog(`Author: ${meta.author}`, "info");
       addLog(`Current chapters in library: ${selectedNovel.chapters.length}`, "info");
       addLog(`Starting from chapter ${startCh}...`, "info");
-      
       if (maxCh) {
         addLog(`Max chapters to download: ${maxCh}`, "info");
       }
-      
-      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
+      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
       if (!meta.firstChapterUrl) {
         addLog("Could not find chapter links on this page", "error");
+        stopTimer();
         return;
       }
 
@@ -161,10 +236,6 @@ export default function UpdatesScreen() {
       const newChapters: Chapter[] = [...selectedNovel.chapters];
       let downloaded = 0;
 
-      // Single unified loop — mirrors add.tsx exactly:
-      // • chapterNum < startCh  → navigate forward (cheap skip)
-      // • alreadyExists         → navigate forward (skip duplicate)
-      // • otherwise             → download and push
       while (currentUrl && !stopRef.current) {
         if (chapterNum < startCh) {
           const data = await fetchChapter(currentUrl, chapterNum);
@@ -183,7 +254,6 @@ export default function UpdatesScreen() {
 
         const alreadyExists = newChapters.some((c) => c.url === currentUrl);
         if (alreadyExists) {
-          // Must fetch to get nextUrl — same fix as updates fix from before
           const data = await fetchChapter(currentUrl, chapterNum);
           if (!data.nextUrl) break;
           currentUrl = data.nextUrl;
@@ -195,13 +265,11 @@ export default function UpdatesScreen() {
         addLog(`Downloading Chapter ${chapterNum}...`, "downloading");
 
         const data = await fetchChapter(currentUrl, chapterNum);
-
         newChapters.push({
           title: data.title,
           url: currentUrl,
           content: data.content,
         });
-
         downloaded++;
 
         if (downloaded % 5 === 0) {
@@ -222,12 +290,10 @@ export default function UpdatesScreen() {
         }
         currentUrl = data.nextUrl;
         chapterNum++;
-
         await new Promise((r) => setTimeout(r, 200));
       }
 
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-
       if (stopRef.current) {
         addLog(`Update halted by user.`, "warning");
         addLog(`Downloaded ${downloaded} new chapters before stop.`, "info");
@@ -242,22 +308,17 @@ export default function UpdatesScreen() {
       }
 
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-
-      // ✅ FIX: Correctly update the novel using its id and the new chapters
       await updateNovel(selectedNovel.id, { chapters: newChapters });
-
+      await playSound("success");
       setProgress(100);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
+      await playSound("fail");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "error");
       addLog(`ERROR: ${e.message || "Update failed"}`, "error");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "error");
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setIsUpdating(false);
       stopTimer();
-      // ✅ FIX: Clear the selected novel after the update finishes
-      setSelectedNovel(null);
     }
   };
 
@@ -280,7 +341,11 @@ export default function UpdatesScreen() {
           borderColor: colors.border,
         },
       ]}
-      onPress={() => setSelectedNovel(novel)}
+      onPress={() => {
+        setSelectedNovel(novel);
+        setShowNovelSearch(false);
+        setNovelSearchQuery("");
+      }}
     >
       <View style={styles.novelItemContent}>
         <Text
@@ -312,26 +377,97 @@ export default function UpdatesScreen() {
       style={[styles.container, { backgroundColor: colors.background }]}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <View style={[styles.header, { paddingTop: topPad + 12, borderBottomColor: colors.border }]}>
+      <View
+        style={[
+          styles.header,
+          { paddingTop: topPad + 12, borderBottomColor: colors.border },
+        ]}
+      >
         <Ionicons name="refresh-circle" size={22} color={colors.accent} />
         <Text style={[styles.headerTitle, { color: colors.text }]}>Novel Updates</Text>
       </View>
 
       <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 20 }]}
+        style={{ flex: 1 }}
+        contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 40 }]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Select Novel Section */}
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.cardLabel, { color: colors.textSecondary }]}>SELECT NOVEL</Text>
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <View style={styles.cardHeader}>
+            <Text style={[styles.cardLabel, { color: colors.textSecondary }]}>
+              SELECT NOVEL
+            </Text>
+            {novels.length > 3 && (
+              <Pressable
+                onPress={() => setShowNovelSearch(!showNovelSearch)}
+                style={styles.searchToggle}
+              >
+                <Ionicons
+                  name={showNovelSearch ? "close" : "search"}
+                  size={18}
+                  color={colors.accent}
+                />
+                <Text style={[styles.searchToggleText, { color: colors.accent }]}>
+                  {showNovelSearch ? "Close" : "Search"}
+                </Text>
+              </Pressable>
+            )}
+          </View>
+
+          {showNovelSearch && novels.length > 3 && (
+            <Animated.View entering={FadeIn} style={styles.searchContainer}>
+              <View
+                style={[
+                  styles.searchInputContainer,
+                  { backgroundColor: colors.background, borderColor: colors.border },
+                ]}
+              >
+                <Ionicons name="search" size={18} color={colors.textSecondary} />
+                <TextInput
+                  style={[styles.novelSearchInput, { color: colors.text }]}
+                  placeholder="Search by title or author..."
+                  placeholderTextColor={colors.textMuted}
+                  value={novelSearchQuery}
+                  onChangeText={setNovelSearchQuery}
+                  autoFocus
+                />
+                {novelSearchQuery.length > 0 && (
+                  <Pressable onPress={() => setNovelSearchQuery("")}>
+                    <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
+                  </Pressable>
+                )}
+              </View>
+              <Text style={[styles.searchResultText, { color: colors.textSecondary }]}>
+                {filteredNovels.length} novel{filteredNovels.length !== 1 ? "s" : ""} found
+              </Text>
+            </Animated.View>
+          )}
+
           <View style={styles.novelListContainer}>
             {novels.length === 0 ? (
               <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
                 No novels in library. Add some first!
               </Text>
+            ) : filteredNovels.length === 0 ? (
+              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+                No novels matching "{novelSearchQuery}"
+              </Text>
             ) : (
-              novels.map((novel) => renderNovelItem(novel))
+              <ScrollView
+                style={styles.novelScrollView}
+                showsVerticalScrollIndicator={true}
+                nestedScrollEnabled={true}
+              >
+                <View style={styles.novelListInner}>
+                  {filteredNovels.map((novel) => renderNovelItem(novel))}
+                </View>
+              </ScrollView>
             )}
           </View>
         </View>
@@ -354,7 +490,9 @@ export default function UpdatesScreen() {
             <Pressable
               style={[
                 styles.primaryBtn,
-                { backgroundColor: isUpdating || !selectedNovel ? colors.border : colors.accent },
+                {
+                  backgroundColor: isUpdating || !selectedNovel ? colors.border : colors.accent,
+                },
               ]}
               onPress={isUpdating ? undefined : handleUpdate}
               disabled={isUpdating || !selectedNovel}
@@ -372,7 +510,9 @@ export default function UpdatesScreen() {
             {isUpdating && (
               <Pressable
                 style={[styles.outlineBtn, { borderColor: Colors.error }]}
-                onPress={() => { stopRef.current = true; }}
+                onPress={() => {
+                  stopRef.current = true;
+                }}
               >
                 <Ionicons name="stop" size={16} color={Colors.error} />
                 <Text style={[styles.outlineBtnText, { color: Colors.error }]}>Halt</Text>
@@ -385,13 +525,14 @@ export default function UpdatesScreen() {
                 onPress={clearAll}
               >
                 <Ionicons name="trash-outline" size={16} color={colors.textSecondary} />
-                <Text style={[styles.outlineBtnText, { color: colors.textSecondary }]}>Clear</Text>
+                <Text style={[styles.outlineBtnText, { color: colors.textSecondary }]}>
+                  Clear
+                </Text>
               </Pressable>
             )}
           </View>
         </View>
 
-        {/* Progress Section */}
         {(isUpdating || progress > 0) && (
           <Animated.View entering={FadeIn}>
             <View style={styles.progressSection}>
@@ -419,7 +560,16 @@ export default function UpdatesScreen() {
           </Animated.View>
         )}
 
-        {/* Activity Log Section */}
+        {(isUpdating || elapsedTime !== "00:00:00") && (
+          <View style={styles.timerSection}>
+            <View style={styles.timerHeader}>
+              <Ionicons name="time-outline" size={15} color={colors.accent} />
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>Elapsed Time</Text>
+              <Text style={[styles.timerValue, { color: colors.accent }]}>{elapsedTime}</Text>
+            </View>
+          </View>
+        )}
+
         <View style={styles.logSection}>
           <View style={styles.logHeader}>
             <Ionicons name="sync" size={15} color={colors.accent} />
@@ -430,21 +580,22 @@ export default function UpdatesScreen() {
           </View>
           <ScrollView
             ref={logScrollRef}
-            style={[styles.logBox, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            style={[
+              styles.logBox,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+            ]}
             contentContainerStyle={styles.logContent}
             showsVerticalScrollIndicator={true}
             nestedScrollEnabled={true}
           >
             {logs.length === 0 ? (
               <Text style={[styles.logLine, { color: colors.textMuted }]}>
-                {selectedNovel 
-                  ? `Ready to check for updates in "${selectedNovel.title}"` 
+                {selectedNovel
+                  ? `Ready to check for updates in "${selectedNovel.title}"`
                   : "Select a novel to check for updates"}
               </Text>
             ) : (
-              logs.map((entry) => (
-                <LogLine key={entry.id} entry={entry} />
-              ))
+              logs.map((entry) => <LogLine key={entry.id} entry={entry} />)
             )}
           </ScrollView>
         </View>
@@ -467,27 +618,70 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     fontSize: 22,
   },
-  
-  scroll: { 
-    padding: 16, 
+  scroll: {
+    padding: 16,
     gap: 16,
     flexGrow: 1,
-    // Add this line below:
-    paddingBottom: 100, // This is the spacer that pushes the box up
   },
-  
   card: {
     borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
     padding: 14,
   },
+  cardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
   cardLabel: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 10,
     letterSpacing: 0.8,
+  },
+  searchToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  searchToggleText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+  },
+  searchContainer: {
     marginBottom: 12,
+    gap: 6,
+  },
+  searchInputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  novelSearchInput: {
+    flex: 1,
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    paddingVertical: 4,
+  },
+  searchResultText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    paddingLeft: 4,
   },
   novelListContainer: {
+    minHeight: 0,
+  },
+  novelScrollView: {
+    maxHeight: 320,
+  },
+  novelListInner: {
     gap: 8,
   },
   novelItem: {
@@ -534,7 +728,6 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 14,
   },
-  row: { flexDirection: "row", gap: 12 },
   buttons: { flexDirection: "row", gap: 10, flexWrap: "wrap" },
   primaryBtn: {
     flexDirection: "row",
@@ -568,6 +761,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
   },
+  timerSection: {
+    gap: 8,
+    marginBottom: 16,
+  },
+  timerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  timerValue: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 16,
+    marginLeft: "auto",
+  },
   sectionTitle: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 14,
@@ -586,13 +793,10 @@ const styles = StyleSheet.create({
     height: "100%",
     borderRadius: 3,
   },
-  
-  logSection: { 
+  logSection: {
     gap: 8,
-    // Add this to ensure the box itself stays away from the screen edge
-    marginBottom: 22, 
+    marginBottom: 22,
   },
-  
   logHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -620,5 +824,3 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
 });
-
-
