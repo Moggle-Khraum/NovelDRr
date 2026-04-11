@@ -6,6 +6,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true  # Move this here
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -13,7 +15,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -25,7 +27,7 @@ jobs:
 
       - name: Install Expo packages
         working-directory: artifacts/novel-reader
-        run: pnpm add expo-file-system expo-sharing
+        run: pnpm add expo-file-system expo-sharing && pnpm install --no-frozen-lockfile
 
       - name: Setup Expo and EAS
         uses: expo/expo-github-action@v8
@@ -40,18 +42,23 @@ jobs:
       - name: Build Android APK
         working-directory: artifacts/novel-reader
         run: eas build --platform android --profile preview --non-interactive --local
+        env:
+          APP_BUILD_NUMBER: ${{ github.run_number }}
         
-      - name: Find and upload APK
+      - name: Rename and Move APK
+        working-directory: artifacts/novel-reader
         run: |
-          echo "Searching for APK files..."
-          find . -name "*.apk" -type f
-          # Copy any found APK to a known location
-          mkdir -p artifacts
-          find . -name "*.apk" -type f -exec cp {} artifacts/ \;
-          
+          VERSION=$(node -p "require('./package.json').version")
+          REV=${{ github.run_number }}
+          mkdir -p ../../dist
+          APK_FILE=$(find . -maxdepth 1 -name "*.apk" -type f | head -n 1)
+          cp "$APK_FILE" "../../dist/NovelDR v${VERSION}rev${REV}.apk"
+          echo "Build Complete: NovelDR v${VERSION}rev${REV}.apk"
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: novel-reader-apk
-          path: artifacts/*.apk
+          name: NovelDR-Build-${{ github.run_number }}
+          path: dist/*.apk
           if-no-files-found: error
+          
