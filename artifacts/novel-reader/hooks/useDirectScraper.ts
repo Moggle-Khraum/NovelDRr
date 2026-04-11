@@ -153,7 +153,6 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
                           domainLower.includes('novelcool');
     
     const isFreeWebNovel = domainLower.includes('freewebnovel');
-    const isNovelBin = domainLower.includes('novelbin');
     
     // Fetch HTML with appropriate method
     const html = await fetchWithFallback(url, isFreeWebNovel);
@@ -264,47 +263,6 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
             synopsis = paragraphs.map(p => decodeEntities(stripTags(p))).filter(t => t.length > 0).join('\n\n');
           }
         }
-      }
-    }
-    
-    // --- NOVELBIN ---
-    if (isNovelBin) {
-      console.log('[Scraper] NovelBin detected');
-      
-      // TITLE
-      const titleMatch = safeMatch(html, /<h3[^>]*class="title"[^>]*>([^<]+)<\/h3>/i);
-      if (titleMatch) title = decodeEntities(titleMatch);
-      
-      // AUTHOR
-      const authorMatch = safeMatch(html, /<li[^>]*>[\s\S]*?<h3[^>]*>Author:<\/h3>[\s\S]*?<a[^>]*>([^<]+)<\/a>/i);
-      if (authorMatch) author = decodeEntities(authorMatch);
-      
-      // SYNOPSIS
-      const descMatch = safeMatch(html, /<div[^>]*class="desc-text"[^>]*itemprop="description"[^>]*>([\s\S]*?)<\/div>/i);
-      if (descMatch) {
-        const paragraphs = descMatch.match(/<p[^>]*>(.*?)<\/p>/gis);
-        if (paragraphs) {
-          synopsis = paragraphs.map(p => decodeEntities(stripTags(p))).join('\n\n');
-        } else {
-          synopsis = decodeEntities(stripTags(descMatch));
-        }
-      }
-      
-      // COVER
-      const coverMatch = safeMatch(html, /<div[^>]*class="book"[^>]*>.*?<img[^>]*src="([^"]+)"[^>]*>/i);
-      if (coverMatch) coverUrl = makeAbsoluteUrl(coverMatch, url);
-      
-      // FIRST CHAPTER
-      const chapterListMatch = safeMatch(html, /<ul[^>]*class="list-chapter"[^>]*>([\s\S]*?)<\/ul>/i);
-      if (chapterListMatch) {
-        const firstLinkMatch = safeMatch(chapterListMatch, /<a[^>]*href="([^"]+)"[^>]*>/i);
-        if (firstLinkMatch) firstChapterUrl = makeAbsoluteUrl(firstLinkMatch, url);
-      }
-      
-      // Fallback
-      if (!firstChapterUrl) {
-        const fallbackMatch = safeMatch(html, /<a[^>]*href="([^"]*chapter-1[^"]*)"[^>]*>/i);
-        if (fallbackMatch) firstChapterUrl = makeAbsoluteUrl(fallbackMatch, url);
       }
     }
 
@@ -441,3 +399,55 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
     throw new Error(`Failed to fetch chapter: ${error.message}`);
   }
 };
+
+/**
+ * Downloads all chapters of a novel by following the "next chapter" links.
+ * Saves each chapter as soon as it's fetched, allowing incremental progress.
+ *
+ * @param startUrl - URL of the first chapter (e.g., from `firstChapterUrl`)
+ * @param novelId - Unique identifier for the novel (used in the save callback)
+ * @param saveChapter - Async function to store a chapter: (novelId, chapterIndex, title, content) => Promise<void>
+ * @param onProgress - Optional callback for progress updates: (chapterNumber, title) => void
+ * @param delayMs - Milliseconds to wait between chapter requests (default 500)
+ * @returns Promise that resolves when all chapters are downloaded
+ */
+export async function downloadNovelByCrawling(
+  startUrl: string,
+  novelId: string,
+  saveChapter: (novelId: string, chapterIndex: number, title: string, content: string) => Promise<void>,
+  onProgress?: (chapterNumber: number, title: string) => void,
+  delayMs: number = 500
+): Promise<void> {
+  let currentUrl: string | null = startUrl;
+  let chapterNumber = 1;
+
+  while (currentUrl) {
+    console.log(`[Downloader] Fetching chapter ${chapterNumber} from ${currentUrl}`);
+
+    try {
+      const chapter = await directFetchChapter(currentUrl, chapterNumber);
+      // Save the chapter with its extracted title (e.g., "Chapter 1: My Life...")
+      await saveChapter(novelId, chapterNumber, chapter.title, chapter.content);
+
+      if (onProgress) {
+        onProgress(chapterNumber, chapter.title);
+      }
+
+      // Move to the next chapter
+      currentUrl = chapter.nextUrl;
+      chapterNumber++;
+
+      // Be polite: avoid hammering the server
+      if (delayMs > 0 && currentUrl) {
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    } catch (error: any) {
+      console.error(`[Downloader] Failed at chapter ${chapterNumber}:`, error.message);
+      // You could retry or abort; here we throw to let the caller decide
+      throw new Error(`Download failed at chapter ${chapterNumber}: ${error.message}`);
+    }
+  }
+
+  console.log(`[Downloader] Completed. Total chapters: ${chapterNumber - 1}`);
+}
+
