@@ -145,13 +145,6 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
     const domainLower = url.toLowerCase();
     const isReadNovelFull = domainLower.includes('readnovelfull');
     const isNovelFull = domainLower.includes('novelfull') && !isReadNovelFull;
-    
-    // Check for other similar sites (LightNovelWorld, AllNovelFull, LightNovelPub, NovelCool)
-    const isSimilarSite = domainLower.includes('lightnovelworld') || 
-                          domainLower.includes('allnovelfull') ||
-                          domainLower.includes('lightnovelpub') ||
-                          domainLower.includes('novelcool');
-    
     const isFreeWebNovel = domainLower.includes('freewebnovel') || domainLower.includes('bednovel');
     
     // Fetch HTML with appropriate method
