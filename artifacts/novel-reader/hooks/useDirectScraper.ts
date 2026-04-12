@@ -146,13 +146,8 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
     const isReadNovelFull = domainLower.includes('readnovelfull');
     const isNovelFull = domainLower.includes('novelfull') && !isReadNovelFull;
     
-    // Check for other similar sites (LightNovelWorld, AllNovelFull, LightNovelPub, NovelCool)
-    const isSimilarSite = domainLower.includes('lightnovelworld') || 
-                          domainLower.includes('allnovelfull') ||
-                          domainLower.includes('lightnovelpub') ||
-                          domainLower.includes('novelcool');
-    
-    const isFreeWebNovel = domainLower.includes('freewebnovel');
+    const isFreeWebNovel = domainLower.includes('freewebnovel') || domainLower.includes('bednovel');
+    const isNovelBin = domainLower.includes('novelbin');
     
     // Fetch HTML with appropriate method
     const html = await fetchWithFallback(url, isFreeWebNovel);
@@ -265,6 +260,38 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
       }
     }
 
+    // --- NOVELBIN ---
+    if (isNovelBin) {
+      console.log('[Scraper] Novelbin detected');
+
+      // TITLE — h3.title[itemprop="name"]
+      const titleMatch = safeMatch(html, /<h3[^>]*class="title"[^>]*itemprop="name"[^>]*>([^<]+)<\/h3>/i) ||
+                         safeMatch(html, /<h3[^>]*itemprop="name"[^>]*class="title"[^>]*>([^<]+)<\/h3>/i);
+      if (titleMatch) title = decodeEntities(titleMatch);
+
+      // COVER — div.book > img[src]
+      const coverMatch = safeMatch(html, /<div[^>]*class="book"[^>]*>[\s\S]*?<img[^>]*src="([^"]+)"[^>]*>/i);
+      if (coverMatch) coverUrl = makeAbsoluteUrl(coverMatch, url);
+
+      // AUTHOR — ul.info-meta li a[href*='/novelbin-author/']
+      const authorMatch = safeMatch(html, /<a[^>]*href="[^"]*\/novelbin-author\/[^"]*"[^>]*>([^<]+)<\/a>/i);
+      if (authorMatch) author = decodeEntities(authorMatch);
+
+      // SYNOPSIS — div.desc-text[itemprop="description"] > p
+      const descMatch = safeMatch(html, /<div[^>]*class="desc-text"[^>]*itemprop="description"[^>]*>([\s\S]*?)<\/div>/i) ||
+                        safeMatch(html, /<div[^>]*itemprop="description"[^>]*class="desc-text"[^>]*>([\s\S]*?)<\/div>/i);
+      if (descMatch) {
+        const paragraphs = descMatch.match(/<p[^>]*>([\s\S]*?)<\/p>/gi);
+        if (paragraphs) {
+          synopsis = paragraphs.map(p => decodeEntities(stripTags(p))).filter(t => t.length > 0).join('\n\n');
+        }
+      }
+
+      // FIRST CHAPTER
+      const chapterMatch = safeMatch(html, /<a[^>]*href="([^"]*\/chapter-1[^"]*)"[^>]*>/i);
+      if (chapterMatch) firstChapterUrl = makeAbsoluteUrl(chapterMatch, url);
+    }
+
     console.log('[Scraper] Found first chapter:', firstChapterUrl);
     
     return {
@@ -354,26 +381,25 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
     // Find next chapter URL - exact Python translation with safe regex
     let nextUrl: string | null = null;
     
-    const linkRegex = /<a\s+[^>]*href="([^"]+)"[^>]*>.*?<\/a>/gi;
+    const linkRegex = /<a\s+([^>]*)>([\s\S]*?)<\/a>/gi;
     let linkMatch;
     
     while ((linkMatch = linkRegex.exec(html)) !== null) {
-      const fullLink = linkMatch[0];
-      const href = linkMatch[1];
-      
-      // Extract text content safely
-      const textMatch = fullLink.match(/>([^<]*)</);
-      const txt = textMatch ? textMatch[1].toLowerCase() : '';
-      
-      // Extract class attribute safely
-      const classMatch = fullLink.match(/class=["']([^"']*)["']/i);
+      const attrsStr = linkMatch[1];
+      const innerHtml = linkMatch[2];
+
+      const hrefMatch = attrsStr.match(/href=["']([^"']+)["']/i);
+      const href = hrefMatch ? hrefMatch[1] : null;
+
+      const txt = stripTags(innerHtml).toLowerCase();
+
+      const classMatch = attrsStr.match(/class=["']([^"']*)["']/i);
       const classAttr = classMatch ? classMatch[1].toLowerCase() : '';
-      
-      // Extract id attribute safely
-      const idMatch = fullLink.match(/id=["']([^"']*)["']/i);
+
+      const idMatch = attrsStr.match(/id=["']([^"']*)["']/i);
       const idAttr = idMatch ? idMatch[1].toLowerCase() : '';
-      
-      const attrs = classAttr + idAttr;
+
+      const attrs = classAttr + ' ' + idAttr;
       
       if ((txt.includes('next') || txt.includes('next chapter') || 
            attrs.includes('next') || attrs.includes('next_chapter')) && href) {
