@@ -152,7 +152,7 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
                           domainLower.includes('lightnovelpub') ||
                           domainLower.includes('novelcool');
     
-    const isFreeWebNovel = domainLower.includes('freewebnovel');
+    const isFreeWebNovel = domainLower.includes('freewebnovel') || domainLower.includes('bednovel');
     
     // Fetch HTML with appropriate method
     const html = await fetchWithFallback(url, isFreeWebNovel);
