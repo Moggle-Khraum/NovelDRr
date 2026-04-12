@@ -240,25 +240,24 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
       firstChapterUrl = `${baseNovelUrl}/chapter-1`;
       console.log('[Scraper] Constructed first chapter URL:', firstChapterUrl);
       
-      // TITLE
-      const titleMatch = safeMatch(html, /<h1[^>]*class="novel-title"[^>]*>([^<]+)<\/h1>/i) ||
-                         safeMatch(html, /<h1[^>]*class="title"[^>]*>([^<]+)<\/h1>/i);
+      // TITLE — h1.tit inside div.m-desc
+      const titleMatch = safeMatch(html, /<h1[^>]*class="tit"[^>]*>([^<]+)<\/h1>/i);
       if (titleMatch) title = decodeEntities(titleMatch);
       
-      // COVER (div.pic img)
-      const coverMatch = safeMatch(html, /<div[^>]*class="pic"[^>]*>.*?<img[^>]*src="([^"]+)"[^>]*>/i);
+      // COVER — div.m-imgtxt > div.pic > img[src]
+      const coverMatch = safeMatch(html, /<div[^>]*class="pic"[^>]*>[\s\S]*?<img[^>]*src="([^"]+)"[^>]*>/i);
       if (coverMatch) coverUrl = makeAbsoluteUrl(coverMatch, url);
       
-      // AUTHOR
-      const authorMatch = safeMatch(html, /<div[^>]*class="item"[^>]*>.*?<div[^>]*class="right"[^>]*>.*?<a[^>]*class="a1"[^>]*>([^<]+)<\/a>/i);
+      // AUTHOR — div.item > div.right > a.a1
+      const authorMatch = safeMatch(html, /<div[^>]*class="item"[^>]*>[\s\S]*?<div[^>]*class="right"[^>]*>[\s\S]*?<a[^>]*class="a1"[^>]*>([^<]+)<\/a>/i);
       if (authorMatch) author = decodeEntities(authorMatch);
       
-      // SYNOPSIS
-      const descMatch = safeMatch(html, /<div[^>]*class="m-desc"[^>]*>([\s\S]*?)<\/div>/i);
-      if (descMatch) {
-        const innerMatch = safeMatch(descMatch, /<div[^>]*class="inner"[^>]*>([\s\S]*?)<\/div>/i);
+      // SYNOPSIS — div.m-desc > div.txt > div.inner > p
+      const txtMatch = safeMatch(html, /<div[^>]*class="m-desc[^"]*"[^>]*>[\s\S]*?<div[^>]*class="txt"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/i);
+      if (txtMatch) {
+        const innerMatch = safeMatch(txtMatch, /<div[^>]*class="inner"[^>]*>([\s\S]*?)<\/div>/i);
         if (innerMatch) {
-          const paragraphs = innerMatch.match(/<p[^>]*>(.*?)<\/p>/gis);
+          const paragraphs = innerMatch.match(/<p[^>]*>([\s\S]*?)<\/p>/gi);
           if (paragraphs) {
             synopsis = paragraphs.map(p => decodeEntities(stripTags(p))).filter(t => t.length > 0).join('\n\n');
           }
