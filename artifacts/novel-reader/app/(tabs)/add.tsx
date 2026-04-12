@@ -360,7 +360,7 @@ export default function AddNovelScreen() {
             SUPPORTED SITES
           </Text>
           <Text style={[styles.cardValue, { color: colors.text }]}>
-            ReadNovelFull · NovelFull · FreeWebNovel
+            ReadNovelFull · NovelFull · FreeWebNovel · NovelBin 
           </Text>
         </View>
 
