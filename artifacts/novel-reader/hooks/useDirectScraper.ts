@@ -252,12 +252,12 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
       const authorMatch = safeMatch(html, /<div[^>]*class="item"[^>]*>[\s\S]*?<div[^>]*class="right"[^>]*>[\s\S]*?<a[^>]*class="a1"[^>]*>([^<]+)<\/a>/i);
       if (authorMatch) author = decodeEntities(authorMatch);
       
-      // SYNOPSIS — div.m-desc > div.txt > div.inner > p
-      const txtMatch = safeMatch(html, /<div[^>]*class="m-desc[^"]*"[^>]*>[\s\S]*?<div[^>]*class="txt"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/i);
-      if (txtMatch) {
-        const innerMatch = safeMatch(txtMatch, /<div[^>]*class="inner"[^>]*>([\s\S]*?)<\/div>/i);
-        if (innerMatch) {
-          const paragraphs = innerMatch.match(/<p[^>]*>([\s\S]*?)<\/p>/gi);
+      // SYNOPSIS — find h4.abstract, then grab div.txt > div.inner > p immediately after it
+      const afterAbstract = safeMatch(html, /<h4[^>]*class="abstract"[^>]*>[\s\S]*?<\/h4>\s*<div[^>]*class="txt"[^>]*>([\s\S]*?)<\/div>/i);
+      if (afterAbstract) {
+        const innerBlock = safeMatch(afterAbstract, /<div[^>]*class="inner"[^>]*>([\s\S]*?)<\/div>/i);
+        if (innerBlock) {
+          const paragraphs = innerBlock.match(/<p[^>]*>([\s\S]*?)<\/p>/gi);
           if (paragraphs) {
             synopsis = paragraphs.map(p => decodeEntities(stripTags(p))).filter(t => t.length > 0).join('\n\n');
           }
