@@ -167,6 +167,7 @@ export default function UpdatesScreen() {
     return { nextUrl: data.nextUrl || null, title: data.title };
   };
 
+  // ========== BLAZING FAST UPDATE LOGIC ==========
   const handleUpdate = async () => {
     if (!selectedNovel) {
       addLog("Please select a novel first", "error");
@@ -193,14 +194,14 @@ export default function UpdatesScreen() {
       } catch {
         domain = "Unknown";
       }
-      
+
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
       addLog(`CONNECTING TO SOURCE...`, "downloading");
       addLog(`Source Domain: ${domain}`, "info");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
       const meta = await fetchNovelMeta(selectedNovel.sourceUrl);
-      
+
       addLog(`Connection successful!`, "success");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
       addLog(`NOVEL INFORMATION`, "downloading");
@@ -208,13 +209,11 @@ export default function UpdatesScreen() {
       addLog(`Title: ${meta.title}`, "success");
       addLog(`Author: ${meta.author}`, "info");
       addLog(`Current chapters in library: ${existingCount}`, "info");
-      addLog(`Starting from chapter ${existingCount + 1}...`, "info");
       if (maxCh) {
         addLog(`Max chapters to download: ${maxCh}`, "info");
       }
-      
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-      
+
       if (!meta.firstChapterUrl) {
         addLog("Could not find chapter links on this page", "error");
         stopTimer();
@@ -222,81 +221,106 @@ export default function UpdatesScreen() {
         return;
       }
 
-      addLog(`First chapter URL found`, "success");
-      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
+      // ========== SKIP EXISTING CHAPTERS (BATCH LOGGING) ==========
+      if (existingCount > 0) {
+        addLog(`📚 Found ${existingCount} existing chapters in library`, "info");
+        addLog(`⏭️ SKIPPING existing chapters...`, "downloading");
 
-      // ========== PHASE 1: SCAN LOCAL LIBRARY ==========
-      // This just logs what we already have - no network calls
-      addLog(`🔍 SCANNING local library...`, "downloading");
-      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-
-      const scannedCount = existingCount;
-      const skippedCount = existingCount;
-
-      addLog(`📊 SCAN COMPLETE`, "success");
-      addLog(`   • Chapters scanned: ${scannedCount} (from your library)`, "info");
-      addLog(`   • Chapters skipped (existing): ${skippedCount}`, "warning");
-      addLog(`   • Looking for new chapters from #${scannedCount + 1} onward`, "info");
-      addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-
-      // ========== PHASE 2: TRAVERSE TO RESUME POINT ==========
-      // Navigate through chapters WITHOUT downloading content
-      addLog(`🚀 Locating resume point (chapter ${existingCount + 1})...`, "downloading");
-      
-      let currentUrl: string | null = meta.firstChapterUrl;
-      let chapterNum = 1;
-      let chaptersTraversed = 0;
-      let lastTitle = "";
-
-      while (currentUrl && chapterNum < existingCount + 1 && !stopRef.current) {
-        chaptersTraversed++;
-        
-        // Show progress every 10 chapters
-        if (chaptersTraversed % 10 === 0) {
-          addLog(`   Traversing to chapter ${chapterNum}...`, "info");
+        // Log every 30 chapters as requested
+        const batchSize = 30;
+        for (let i = batchSize; i <= existingCount; i += batchSize) {
+          addLog(`[SKIPPED] ${i} chapters`, "warning");
         }
-        
+        if (existingCount % batchSize !== 0) {
+          addLog(`[SKIPPED] ${existingCount} chapters total`, "warning");
+        }
+        addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
+      }
+
+      // ========== RESUME FROM LAST KNOWN CHAPTER (FAST PATH) ==========
+      let currentUrl: string | null = null;
+      let chapterNum = existingCount + 1;
+      let fallbackUsed = false;
+
+      if (existingCount > 0) {
+        const lastChapterUrl = existingChapters[existingCount - 1].url;
+        addLog(`🚀 Resuming from last known chapter (${existingCount})...`, "downloading");
+
         try {
-          const { nextUrl, title } = await getChapterMetadata(currentUrl, chapterNum);
-          lastTitle = title;
-          currentUrl = nextUrl;
-          chapterNum++;
+          // Lightweight fetch - only gets nextUrl and title, no content
+          const { nextUrl } = await getChapterMetadata(lastChapterUrl, existingCount);
+          if (nextUrl) {
+            currentUrl = nextUrl;
+            addLog(`✅ Resume successful. First new chapter: #${chapterNum}`, "success");
+          } else {
+            addLog(`⚠️ Last chapter has no next chapter. Novel may be complete.`, "warning");
+            currentUrl = null;
+          }
         } catch (err: any) {
-          addLog(`⚠️ Failed to traverse past chapter ${chapterNum}: ${err.message}`, "warning");
-          break;
-        }
-        
-        // Small delay to avoid rate limiting
-        await new Promise((r) => setTimeout(r, 50));
-      }
-
-      if (chapterNum < existingCount + 1) {
-        addLog(`⚠️ Could not reach chapter ${existingCount + 1}. Source may have fewer chapters.`, "warning");
-        addLog(`   Last accessible chapter: ${chapterNum - 1}`, "info");
-        
-        if (chapterNum - 1 < existingCount) {
-          addLog(`   Your library has ${existingCount} chapters but source only has ${chapterNum - 1}.`, "warning");
-          addLog(`   Consider removing extra chapters from library.`, "warning");
-          addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-          stopTimer();
-          setIsUpdating(false);
-          return;
+          addLog(`⚠️ Last chapter URL is no longer valid: ${err.message}`, "warning");
+          addLog(`🔄 Falling back to full source scan (this may be slower)...`, "warning");
+          fallbackUsed = true;
         }
       }
 
-      addLog(`✅ Resume point reached at chapter ${chapterNum}`, "success");
-      if (lastTitle) {
-        addLog(`   Last traversed: ${lastTitle}`, "info");
+      // ========== FALLBACK: TRAVERSE FROM START (IF NEEDED) ==========
+      if (fallbackUsed || existingCount === 0) {
+        if (existingCount === 0) {
+          addLog(`No existing chapters. Starting from first chapter...`, "info");
+          currentUrl = meta.firstChapterUrl;
+          chapterNum = 1;
+        } else {
+          // Fast traversal: only fetch metadata, no content, but we still need to find the resume point
+          // This is O(N) but only happens when the last chapter URL is broken (rare)
+          addLog(`Locating resume point (chapter ${existingCount + 1})...`, "downloading");
+          let tempUrl: string | null = meta.firstChapterUrl;
+          let tempNum = 1;
+          let found = false;
+
+          while (tempUrl && tempNum < existingCount + 1 && !stopRef.current) {
+            try {
+              const { nextUrl } = await getChapterMetadata(tempUrl, tempNum);
+              tempUrl = nextUrl;
+              tempNum++;
+              // Log progress every 100 chapters to show it's working
+              if (tempNum % 100 === 0) {
+                addLog(`   Scanning... at chapter ${tempNum}`, "info");
+              }
+            } catch {
+              break;
+            }
+            await new Promise((r) => setTimeout(r, 30));
+          }
+
+          if (tempNum >= existingCount + 1 && tempUrl) {
+            currentUrl = tempUrl;
+            chapterNum = tempNum;
+            addLog(`✅ Resume point found at chapter ${chapterNum}`, "success");
+          } else {
+            addLog(`❌ Could not reach chapter ${existingCount + 1}. Update aborted.`, "error");
+            stopTimer();
+            setIsUpdating(false);
+            return;
+          }
+        }
       }
+
+      if (!currentUrl) {
+        addLog(`No new chapters available. Novel is up to date!`, "success");
+        addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
+        stopTimer();
+        setIsUpdating(false);
+        return;
+      }
+
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
-      // ========== PHASE 3: DOWNLOAD NEW CHAPTERS ==========
+      // ========== DOWNLOAD NEW CHAPTERS ==========
       const newChapters: Chapter[] = [...existingChapters];
       let downloaded = 0;
       let consecutiveErrors = 0;
 
       while (currentUrl && !stopRef.current) {
-        // Check max limit
         if (maxCh !== null && downloaded >= maxCh) {
           addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
           addLog(`Reached max chapter limit (${maxCh})`, "success");
@@ -309,8 +333,8 @@ export default function UpdatesScreen() {
 
         try {
           const data = await fetchChapter(currentUrl, chapterNum);
-          
-          // Verify this chapter isn't a duplicate (safety check)
+
+          // Safety duplicate check (shouldn't happen with this new logic)
           if (!chapterExists(currentUrl, newChapters)) {
             newChapters.push({
               title: data.title,
@@ -319,17 +343,16 @@ export default function UpdatesScreen() {
             });
             downloaded++;
             consecutiveErrors = 0;
-            
+
             if (downloaded % 5 === 0) {
-              addLog(`💾 Saved ${downloaded} new chapter${downloaded !== 1 ? 's' : ''} so far`, "success");
+              addLog(`💾 Saved ${downloaded} new chapter${downloaded !== 1 ? "s" : ""} so far`, "success");
             } else {
               addLog(`💾 Saved: ${data.title}`, "success");
             }
           } else {
             addLog(`⏭️ SKIPPED: Chapter ${chapterNum} already exists (duplicate detected)`, "warning");
           }
-          
-          // Move to next chapter
+
           if (!data.nextUrl) {
             addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
             addLog(`🏁 No more chapters found.`, "info");
@@ -337,16 +360,15 @@ export default function UpdatesScreen() {
           }
           currentUrl = data.nextUrl;
           chapterNum++;
-          
         } catch (err: any) {
           consecutiveErrors++;
           addLog(`❌ Failed to download Chapter ${chapterNum}: ${err.message}`, "error");
-          
+
           if (consecutiveErrors >= 3) {
             addLog(`⚠️ Too many consecutive errors, stopping update.`, "warning");
             break;
           }
-          
+
           // Try to get next URL even if download failed
           try {
             const { nextUrl } = await getChapterMetadata(currentUrl, chapterNum);
@@ -360,14 +382,13 @@ export default function UpdatesScreen() {
             break;
           }
         }
-        
-        // Delay between downloads
+
         await new Promise((r) => setTimeout(r, 200));
       }
 
-      // ========== PHASE 4: FINALIZE ==========
+      // ========== FINALIZE ==========
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-      
+
       if (stopRef.current) {
         addLog(`⚠️ Update halted by user.`, "warning");
         addLog(`📊 Downloaded ${downloaded} new chapters before stop.`, "info");
@@ -381,14 +402,12 @@ export default function UpdatesScreen() {
       }
 
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-      
-      // Only update if we actually downloaded anything
+
       if (downloaded > 0) {
         await updateNovel(selectedNovel.id, { chapters: newChapters });
       }
-      
+
       setProgress(100);
-      
     } catch (e: any) {
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "error");
       addLog(`❌ ERROR: ${e.message || "Update failed"}`, "error");
