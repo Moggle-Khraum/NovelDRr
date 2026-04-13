@@ -466,9 +466,12 @@ export default function LibraryScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {selectionMode ? renderSelectionHeader() : renderHeader()}
-      {showSearch && !selectionMode && renderSearchBar()}
-      {!selectionMode && renderFilterTabs()}
+      {/* Top chrome — flexShrink: 0 prevents it from being squished by the list */}
+      <View style={styles.topChrome}>
+        {selectionMode ? renderSelectionHeader() : renderHeader()}
+        {showSearch && !selectionMode && renderSearchBar()}
+        {!selectionMode && renderFilterTabs()}
+      </View>
 
       {!loading && filteredNovels.length === 0 ? (
         renderEmptyState()
@@ -541,6 +544,9 @@ export default function LibraryScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
 
+  // top chrome wrapper — never shrinks regardless of list content
+  topChrome: { flexShrink: 0 },
+
   // header
   header: {
     flexDirection: "row",
@@ -599,7 +605,7 @@ const styles = StyleSheet.create({
   },
 
   // filter bar
-  filterBar: { borderBottomWidth: StyleSheet.hairlineWidth, flexGrow: 0 },
+  filterBar: { borderBottomWidth: StyleSheet.hairlineWidth, flexGrow: 0, flexShrink: 0 },
   filterBarContent: { paddingHorizontal: 16, paddingVertical: 10, gap: 8, flexDirection: "row" },
   filterTab: {
     flexDirection: "row",
@@ -609,7 +615,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 20,
     borderWidth: 1,
-    flexShrink: 0, // Prevents button compression
+    flexShrink: 0,
   },
   filterTabText: { fontFamily: "Inter_600SemiBold", fontSize: 13 },
   filterCount: { minWidth: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", paddingHorizontal: 5 },
@@ -675,4 +681,3 @@ const styles = StyleSheet.create({
   sheetCancel: { marginTop: 4, padding: 14, borderRadius: 12, borderWidth: 1, alignItems: "center" },
   sheetCancelText: { fontFamily: "Inter_600SemiBold", fontSize: 15 },
 });
-
