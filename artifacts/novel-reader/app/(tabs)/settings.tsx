@@ -533,10 +533,10 @@ export default function SettingsScreen() {
           <View style={styles.aboutRow}>
             <Ionicons name="globe" size={16} color={colors.accent} />
             <Text style={[styles.aboutText, { color: colors.text }]}>
-              Download novels from 3 popular sites
+              Download novels from popular sites!
             </Text>
           </View>
-          {["ReadNovelFull", "NovelFull", "FreeWebNovel"].map((site) => (
+          {["ReadNovelFull", "NovelFull", "FreeWebNovel", "Novelbin"].map((site) => (
             <View key={site} style={styles.aboutRow}>
               <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
               <Text style={[styles.aboutSite, { color: colors.textSecondary }]}>{site}</Text>
