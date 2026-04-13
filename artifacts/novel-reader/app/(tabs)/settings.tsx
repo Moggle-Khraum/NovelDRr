@@ -2,7 +2,6 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
-import * as DocumentPicker from "expo-document-picker";
 import React, { useState } from "react";
 import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -54,7 +53,7 @@ function ThemeButton({
 }
 
 // ── Active panel type ────────────────────────────────────────────────────────
-type ActivePanel = "comment" | "restore" | "import" | null;
+type ActivePanel = "comment" | "restore" | null;
 
 export default function SettingsScreen() {
   const { colors, theme, setTheme } = useTheme();
@@ -70,9 +69,6 @@ export default function SettingsScreen() {
 
   // Single active panel — only one can be open at a time
   const [activePanel, setActivePanel] = useState<ActivePanel>(null);
-
-  // Imported file pending action
-  const [importedFile, setImportedFile] = useState<{ name: string; path: string } | null>(null);
 
   const BACKUP_DIR = FileSystem.documentDirectory + "noveldrr-backups/";
 
@@ -173,48 +169,6 @@ export default function SettingsScreen() {
     } catch (e) {
       Alert.alert("Error", String(e));
     }
-  };
-
-  // ── Import from file picker ───────────────────────────────────────────────
-  const handlePickImport = async () => {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: "application/json",
-        copyToCacheDirectory: true,
-      });
-
-      if (result.canceled) return;
-
-      const file = result.assets[0];
-      setImportedFile({ name: file.name, path: file.uri });
-      openPanel("import");
-    } catch (e) {
-      Alert.alert("Error", String(e));
-    }
-  };
-
-  // ── Save imported file to backup list ─────────────────────────────────────
-  const handleSaveImportToBackups = async () => {
-    if (!importedFile) return;
-    try {
-      await ensureDir();
-      const dest = BACKUP_DIR + importedFile.name;
-      await FileSystem.copyAsync({ from: importedFile.path, to: dest });
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      closePanel();
-      setImportedFile(null);
-      Alert.alert("Saved ✓", `"${importedFile.name}" added to your backups.`);
-    } catch (e) {
-      Alert.alert("Save Failed", String(e));
-    }
-  };
-
-  // ── Restore immediately from imported file ────────────────────────────────
-  const handleRestoreImportNow = async () => {
-    if (!importedFile) return;
-    closePanel();
-    setImportedFile(null);
-    await handleImportFile(importedFile.path, importedFile.name);
   };
 
   // ── Import from a specific file ───────────────────────────────────────────
@@ -350,7 +304,7 @@ export default function SettingsScreen() {
             <Text style={{ fontFamily: "Inter_500Medium" }}>app private storage</Text>.
           </Text>
 
-          {/* Three backup action buttons */}
+          {/* Two backup action buttons (removed Import button) */}
           <View style={styles.backupRow}>
             <Pressable
               style={[
@@ -382,21 +336,6 @@ export default function SettingsScreen() {
             >
               <Ionicons name="folder-open-outline" size={18} color={activePanel === "restore" ? colors.accent : colors.accent} />
               <Text style={[styles.backupBtnText, { color: colors.accent }]}>Restore</Text>
-            </Pressable>
-
-            <Pressable
-              style={[
-                styles.backupBtn,
-                {
-                  backgroundColor: activePanel === "import" ? colors.accent + "18" : colors.surface,
-                  borderWidth: 1,
-                  borderColor: activePanel === "import" ? colors.accent : colors.border,
-                },
-              ]}
-              onPress={handlePickImport}
-            >
-              <Ionicons name="cloud-upload-outline" size={18} color={colors.accent} />
-              <Text style={[styles.backupBtnText, { color: colors.accent }]}>Import</Text>
             </Pressable>
           </View>
 
@@ -489,54 +428,15 @@ export default function SettingsScreen() {
           </View>
         )}
 
-        {/* ── Import Panel ── */}
-        {activePanel === "import" && importedFile && (
-          <View style={[styles.commentCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <View style={styles.importFileRow}>
-              <Ionicons name="document-text-outline" size={28} color={colors.accent} />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.commentTitle, { color: colors.text }]} numberOfLines={1}>
-                  {importedFile.name}
-                </Text>
-                <Text style={[styles.commentSub, { color: colors.textSecondary }]}>
-                  What would you like to do with this backup?
-                </Text>
-              </View>
-            </View>
-            <View style={styles.backupRow}>
-              <Pressable
-                style={[styles.backupBtn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }]}
-                onPress={closePanel}
-              >
-                <Text style={[styles.backupBtnText, { color: colors.textSecondary }]}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.backupBtn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.accent }]}
-                onPress={handleSaveImportToBackups}
-              >
-                <Ionicons name="save-outline" size={16} color={colors.accent} />
-                <Text style={[styles.backupBtnText, { color: colors.accent }]}>Save to Backups</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.backupBtn, { backgroundColor: colors.accent }]}
-                onPress={handleRestoreImportNow}
-              >
-                <Ionicons name="refresh-outline" size={16} color="#fff" />
-                <Text style={styles.backupBtnText}>Restore Now</Text>
-              </Pressable>
-            </View>
-          </View>
-        )}
-
         <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>ABOUT</Text>
         <View style={[styles.aboutCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.aboutRow}>
             <Ionicons name="globe" size={16} color={colors.accent} />
             <Text style={[styles.aboutText, { color: colors.text }]}>
-              Download novels from popular sites!
+              Download novels from 3 popular sites
             </Text>
           </View>
-          {["ReadNovelFull", "NovelFull", "FreeWebNovel", "Novelbin"].map((site) => (
+          {["ReadNovelFull", "NovelFull", "FreeWebNovel"].map((site) => (
             <View key={site} style={styles.aboutRow}>
               <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
               <Text style={[styles.aboutSite, { color: colors.textSecondary }]}>{site}</Text>
@@ -735,10 +635,5 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     fontFamily: "Inter_400Regular",
     fontSize: 14,
-  },
-  importFileRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
   },
 });
