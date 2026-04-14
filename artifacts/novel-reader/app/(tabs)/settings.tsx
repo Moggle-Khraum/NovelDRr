@@ -527,7 +527,7 @@ export default function SettingsScreen() {
         </View>
 
         <View style={[styles.versionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Text style={[styles.versionText, { color: colors.textMuted }]}>Novel DR — v1.3.7rev110</Text>
+          <Text style={[styles.versionText, { color: colors.textMuted }]}>Novel DR — v1.3.8</Text>
         </View>
       </ScrollView>
     </View>
