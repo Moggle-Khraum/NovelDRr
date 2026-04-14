@@ -385,7 +385,7 @@ export default function SettingsScreen() {
                       <Ionicons name="share-outline" size={18} color={colors.accent} />
                     </Pressable>
                     <Pressable onPress={() => handleDeleteBackup(filename)} style={styles.backupItemAction}>
-                      <Ionicons name="trash-outline" size={18} color={colors.error} />
+                      <Ionicons name="trash-outline" size={18} color={colors.accent} />
                     </Pressable>
                   </View>
                 );
@@ -433,10 +433,10 @@ export default function SettingsScreen() {
           <View style={styles.aboutRow}>
             <Ionicons name="globe" size={16} color={colors.accent} />
             <Text style={[styles.aboutText, { color: colors.text }]}>
-              Download novels from 3 popular sites
+              Download novels from popular sites
             </Text>
           </View>
-          {["ReadNovelFull", "NovelFull", "FreeWebNovel"].map((site) => (
+          {["ReadNovelFull.com", "NovelFull.net", "FreeWebNovel.com", "Novelbin.com", "LightNovelWorld.org"].map((site) => (
             <View key={site} style={styles.aboutRow}>
               <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
               <Text style={[styles.aboutSite, { color: colors.textSecondary }]}>{site}</Text>
