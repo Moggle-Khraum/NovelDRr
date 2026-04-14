@@ -6,6 +6,7 @@ import * as DocumentPicker from "expo-document-picker";
 import React, { useState } from "react";
 import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Modal } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+
 import { useLibrary } from "@/context/LibraryContext";
 import { useTheme } from "@/context/ThemeContext";
 import { Theme } from "@/constants/colors";
@@ -52,6 +53,8 @@ function ThemeButton({
   );
 }
 
+type ActivePanel = "comment" | "restore" | null;
+
 export default function SettingsScreen() {
   const { colors, theme, setTheme } = useTheme();
   const { novels, addNovel } = useLibrary();
@@ -62,12 +65,17 @@ export default function SettingsScreen() {
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [backupList, setBackupList] = useState<string[]>([]);
-  const [showBackupList, setShowBackupList] = useState(false);
-  const [commentPromptVisible, setCommentPromptVisible] = useState(false);
   const [pendingComment, setPendingComment] = useState("");
   const [showDevProfile, setShowDevProfile] = useState(false);
+  const [activePanel, setActivePanel] = useState<ActivePanel>(null);
 
   const BACKUP_DIR = FileSystem.documentDirectory + "noveldrr-backups/";
+
+  const openPanel = (panel: ActivePanel) => {
+    setActivePanel((prev) => (prev === panel ? null : panel));
+  };
+
+  const closePanel = () => setActivePanel(null);
 
   const ensureDir = async () => {
     const info = await FileSystem.getInfoAsync(BACKUP_DIR);
@@ -85,7 +93,7 @@ export default function SettingsScreen() {
     return `noveldrr-backup-${formatDateTag()}${tag ? "_" + tag : ""}.json`;
   };
 
-  // ── Logic: Duplicate Check (Title & ID) ──────────────────────────────────
+  // ── Duplicate check (ID + Title) ─────────────────────────────────────────
   const getUniqueNovelsToImport = (backupNovels: any[]) => {
     const existingIds = new Set(novels.map((n) => n.id));
     const existingTitles = new Set(novels.map((n) => n.title.toLowerCase().trim()));
@@ -133,23 +141,24 @@ export default function SettingsScreen() {
               });
             }
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            setShowBackupList(false);
-            Alert.alert("Import Complete", `${toImport.length} novel(s) restored.`);
+            closePanel();
+            Alert.alert("Import Complete", `${toImport.length} novel(s) restored.\nRe-download chapters from the Add tab.`);
           },
         },
       ]
     );
   };
 
+  // ── Export ────────────────────────────────────────────────────────────────
   const handleExport = () => {
     if (novels.length === 0) return;
     setPendingComment("");
-    setCommentPromptVisible(true);
+    openPanel("comment");
   };
 
   const confirmExport = async (comment: string) => {
     try {
-      setCommentPromptVisible(false);
+      closePanel();
       setExporting(true);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       await ensureDir();
@@ -174,39 +183,56 @@ export default function SettingsScreen() {
       const filename = buildFilename(comment);
       const path = BACKUP_DIR + filename;
       await FileSystem.writeAsStringAsync(path, JSON.stringify(backup, null, 2), { encoding: FileSystem.EncodingType.UTF8 });
-      
+
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert("Backup Saved ✓", `Saved to Documents/noveldrr-backups/\n\n${filename}`, [
-        { text: "OK" },
-        {
-          text: "Share",
-          onPress: async () => {
-            if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(path);
+      Alert.alert(
+        "Backup Saved ✓",
+        `Saved to app storage.\n\n${filename}`,
+        [
+          { text: "OK" },
+          {
+            text: "Share",
+            onPress: async () => {
+              const canShare = await Sharing.isAvailableAsync();
+              if (canShare) await Sharing.shareAsync(path, { mimeType: "application/json", dialogTitle: "Share NovelDRr Backup" });
+            },
           },
-        },
-      ]);
-    } catch (e) { Alert.alert("Export Failed", String(e)); }
-    finally { setExporting(false); }
+        ]
+      );
+    } catch (e) {
+      Alert.alert("Export Failed", String(e));
+    } finally {
+      setExporting(false);
+    }
   };
 
+  // ── Load backup list ──────────────────────────────────────────────────────
   const loadBackupList = async () => {
     try {
       await ensureDir();
       const files = await FileSystem.readDirectoryAsync(BACKUP_DIR);
-      setBackupList(files.filter((f) => f.endsWith(".json")).sort().reverse());
-      setShowBackupList(true);
-    } catch (e) { Alert.alert("Error", String(e)); }
+      const jsonFiles = files.filter((f) => f.endsWith(".json")).sort().reverse();
+      setBackupList(jsonFiles);
+      openPanel("restore");
+    } catch (e) {
+      Alert.alert("Error", String(e));
+    }
   };
 
-  const handleImportFile = async (filename: string) => {
+  // ── Import from a specific file (called by restore list) ─────────────────
+  const handleImportFile = async (path: string, filename: string) => {
     try {
       setImporting(true);
-      const raw = await FileSystem.readAsStringAsync(BACKUP_DIR + filename, { encoding: FileSystem.EncodingType.UTF8 });
+      const raw = await FileSystem.readAsStringAsync(path, { encoding: FileSystem.EncodingType.UTF8 });
       await processImport(JSON.parse(raw), filename);
-    } catch (e) { Alert.alert("Import Failed", String(e)); }
-    finally { setImporting(false); }
+    } catch (e) {
+      Alert.alert("Import Failed", String(e));
+    } finally {
+      setImporting(false);
+    }
   };
 
+  // ── Import from external file picker ──────────────────────────────────────
   const handleImportFromPicker = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({ type: "application/json", copyToCacheDirectory: true });
@@ -214,10 +240,14 @@ export default function SettingsScreen() {
       setImporting(true);
       const raw = await FileSystem.readAsStringAsync(result.assets[0].uri, { encoding: FileSystem.EncodingType.UTF8 });
       await processImport(JSON.parse(raw), result.assets[0].name);
-    } catch (e) { Alert.alert("Import Failed", String(e)); }
-    finally { setImporting(false); }
+    } catch (e) {
+      Alert.alert("Import Failed", String(e));
+    } finally {
+      setImporting(false);
+    }
   };
 
+  // ── Delete a backup file ──────────────────────────────────────────────────
   const handleDeleteBackup = (filename: string) => {
     Alert.alert("Delete Backup", `Delete "${filename}"?`, [
       { text: "Cancel", style: "cancel" },
@@ -236,38 +266,44 @@ export default function SettingsScreen() {
   const parseFilename = (filename: string) => {
     const base = filename.replace("noveldrr-backup-", "").replace(".json", "");
     const [datePart, timePart, ...rest] = base.split("_");
-    return { 
-        date: datePart ?? "", 
-        time: timePart ? timePart.replace("-", ":") : "", 
-        tag: rest.join(" ").replace(/-/g, " ") || null 
-    };
+    const date = datePart ?? "";
+    const time = timePart ? timePart.replace("-", ":") : "";
+    const tag = rest.join(" ").replace(/-/g, " ") || null;
+    return { date, time, tag };
   };
 
   const totalChapters = novels.reduce((sum, n) => sum + n.chapters.length, 0);
 
+  const handleThemeChange = (t: Theme) => {
+    setTheme(t);
+    Haptics.selectionAsync();
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header with Dev Icon */}
+      {/* Header with Beer Icon (Developer Modal) */}
       <View style={[styles.header, { paddingTop: topPad + 12, borderBottomColor: colors.border }]}>
         <View style={styles.headerTitleContainer}>
-            <Ionicons name="settings" size={22} color={colors.accent} />
-            <Text style={[styles.headerTitle, { color: colors.text }]}>Settings</Text>
+          <Ionicons name="settings" size={22} color={colors.accent} />
+          <Text style={[styles.headerTitle, { color: colors.text }]}>Settings</Text>
         </View>
         <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowDevProfile(true); }}>
-            <Ionicons name="beer-outline" size={22} color={colors.accent} />
+          <Ionicons name="beer-outline" size={22} color={colors.accent} />
         </Pressable>
       </View>
 
-      <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 100 }]}>
-        
-        {/* System Warning Card */}
+      <ScrollView
+        contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 100 }]}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Android Warning Card (from old file) */}
         <View style={[styles.warningCard, { backgroundColor: colors.surface, borderColor: "#ffb300" }]}>
           <View style={styles.aboutRow}>
             <Ionicons name="warning" size={18} color="#ffb300" />
             <Text style={[styles.warningTitle, { color: colors.text }]}>System Action Required</Text>
           </View>
           <Text style={[styles.warningText, { color: colors.textSecondary }]}>
-            Turn off <Text style={{fontWeight: '700'}}>'Manage unused Apps'</Text> or <Text style={{fontWeight: '700'}}>'Remove permissions and free up space'</Text> in Android Settings for Novel DR to prevent imminent sudden deletion of your library data.
+            Turn off <Text style={{ fontWeight: '700' }}>'Manage unused Apps'</Text> or <Text style={{ fontWeight: '700' }}>'Remove permissions and free up space'</Text> in Android Settings for Novel DR to prevent imminent sudden deletion of your library data.
           </Text>
         </View>
 
@@ -292,34 +328,45 @@ export default function SettingsScreen() {
 
         <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>APP THEME</Text>
         <View style={styles.themeRow}>
-          {(["dark", "light", "sepia"] as Theme[]).map((t) => (
-            <ThemeButton
-              key={t}
-              label={t.charAt(0).toUpperCase() + t.slice(1)}
-              icon={t === "dark" ? "moon" : t === "light" ? "sunny" : "book"}
-              themeKey={t}
-              active={theme === t}
-              onPress={() => { setTheme(t); Haptics.selectionAsync(); }}
-            />
-          ))}
+          <ThemeButton label="Dark" icon="moon" themeKey="dark" active={theme === "dark"} onPress={() => handleThemeChange("dark")} />
+          <ThemeButton label="Light" icon="sunny" themeKey="light" active={theme === "light"} onPress={() => handleThemeChange("light")} />
+          <ThemeButton label="Sepia" icon="book" themeKey="sepia" active={theme === "sepia"} onPress={() => handleThemeChange("sepia")} />
         </View>
 
         <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>BACKUP</Text>
         <View style={[styles.backupCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.backupDesc, { color: colors.textSecondary }]}>
-            Saves progress. Chapters excluded to save space. Persistence in <Text style={{ fontWeight: "500" }}>Documents/noveldrr-backups/</Text>.
+            Saves title, author, cover, synopsis, and reading progress. Chapters are excluded to keep the file small. Backups persist in{" "}
+            <Text style={{ fontFamily: "Inter_500Medium" }}>app private storage</Text>.
           </Text>
+
+          {/* Two primary buttons (New Backup & Restore) */}
           <View style={styles.backupRow}>
             <Pressable
-              style={[styles.backupBtn, { backgroundColor: colors.accent, opacity: exporting || novels.length === 0 ? 0.6 : 1 }]}
+              style={[
+                styles.backupBtn,
+                {
+                  backgroundColor: activePanel === "comment" ? colors.accent + "dd" : colors.accent,
+                  opacity: exporting ? 0.6 : 1,
+                },
+              ]}
               onPress={handleExport}
               disabled={exporting || novels.length === 0}
             >
               <Ionicons name="save-outline" size={18} color="#fff" />
               <Text style={styles.backupBtnText}>{exporting ? "Saving…" : "New Backup"}</Text>
             </Pressable>
+
             <Pressable
-              style={[styles.backupBtn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, opacity: importing ? 0.6 : 1 }]}
+              style={[
+                styles.backupBtn,
+                {
+                  backgroundColor: activePanel === "restore" ? colors.accent + "18" : colors.surface,
+                  borderWidth: 1,
+                  borderColor: activePanel === "restore" ? colors.accent : colors.border,
+                  opacity: importing ? 0.6 : 1,
+                },
+              ]}
               onPress={loadBackupList}
               disabled={importing}
             >
@@ -327,77 +374,88 @@ export default function SettingsScreen() {
               <Text style={[styles.backupBtnText, { color: colors.accent }]}>Restore</Text>
             </Pressable>
           </View>
+
+          {/* Import from File button (restored from old file) */}
           <Pressable
-            style={[styles.backupBtn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, opacity: importing ? 0.6 : 1 }]}
+            style={[
+              styles.backupBtn,
+              {
+                backgroundColor: colors.surface,
+                borderWidth: 1,
+                borderColor: colors.border,
+                opacity: importing ? 0.6 : 1,
+              },
+            ]}
             onPress={handleImportFromPicker}
             disabled={importing}
           >
             <Ionicons name="cloud-upload-outline" size={18} color={colors.accent} />
             <Text style={[styles.backupBtnText, { color: colors.accent }]}>{importing ? "Importing…" : "Import from File"}</Text>
           </Pressable>
+
+          {novels.length === 0 && (
+            <Text style={[styles.backupHint, { color: colors.textMuted }]}>
+              Add novels to your library before creating a backup.
+            </Text>
+          )}
         </View>
 
-        {/* Developer Profile Modal */}
-        <Modal visible={showDevProfile} transparent animationType="fade">
-            <View style={styles.modalOverlay}>
-                <View style={[styles.devCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                    <View style={styles.backupListHeader}>
-                        <Text style={[styles.backupListTitle, { color: colors.text }]}>Developer Profile</Text>
-                        <Pressable onPress={() => setShowDevProfile(false)}><Ionicons name="close" size={24} color={colors.textSecondary} /></Pressable>
-                    </View>
-                    <View style={styles.devContent}>
-                        <View style={styles.devItem}>
-                            <Text style={[styles.statLabel, { color: colors.textMuted }]}>DEVELOPER</Text>
-                            <Text style={[styles.aboutText, { color: colors.text, fontSize: 16 }]}>Moggs (Agent_047)</Text>
-                        </View>
-                        <View style={styles.devItem}>
-                            <Text style={[styles.statLabel, { color: colors.textMuted }]}>OFFICIAL SITE</Text>
-                            <Text style={[styles.aboutSite, { color: colors.accent }]}>noveldrr.app</Text>
-                        </View>
-                        <View style={styles.devItem}>
-                            <Text style={[styles.statLabel, { color: colors.textMuted }]}>TECH STACK</Text>
-                            <Text style={[styles.aboutText, { color: colors.text }]}>React Native, Expo, TypeScript, GitHub Actions</Text>
-                        </View>
-                    </View>
-                </View>
-            </View>
-        </Modal>
-
-        {/* Backup list and comment modals remain largely the same as your source */}
-        {showBackupList && (
+        {/* ── Restore Panel (Backup List) ── */}
+        {activePanel === "restore" && (
           <View style={[styles.backupListCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <View style={styles.backupListHeader}>
               <Text style={[styles.backupListTitle, { color: colors.text }]}>Saved Backups</Text>
-              <Pressable onPress={() => setShowBackupList(false)}><Ionicons name="close" size={20} color={colors.textSecondary} /></Pressable>
+              <Pressable onPress={closePanel}>
+                <Ionicons name="close" size={20} color={colors.textSecondary} />
+              </Pressable>
             </View>
             {backupList.length === 0 ? (
-                <Text style={[styles.backupHint, { color: colors.textMuted }]}>No backups found.</Text>
+              <Text style={[styles.backupHint, { color: colors.textMuted }]}>No backups found in app storage.</Text>
             ) : (
-                backupList.map((filename) => {
-                    const { date, time, tag } = parseFilename(filename);
-                    return (
-                        <View key={filename} style={[styles.backupItem, { borderColor: colors.border }]}>
-                            <Pressable style={styles.backupItemInfo} onPress={() => handleImportFile(filename)}>
-                                <View style={styles.backupItemMeta}>
-                                    <Ionicons name="time-outline" size={13} color={colors.textMuted} />
-                                    <Text style={[styles.backupItemDate, { color: colors.textSecondary }]}>{date} {time}</Text>
-                                </View>
-                                <Text style={[styles.backupItemTag, { color: tag ? colors.text : colors.textMuted }]}>{tag || "No label"}</Text>
-                            </Pressable>
-                            <Pressable onPress={() => handleDeleteBackup(filename)}><Ionicons name="trash-outline" size={18} color={colors.text} /></Pressable>
-                        </View>
-                    );
-                })
+              backupList.map((filename) => {
+                const { date, time, tag } = parseFilename(filename);
+                return (
+                  <View key={filename} style={[styles.backupItem, { borderColor: colors.border }]}>
+                    <Pressable style={styles.backupItemInfo} onPress={() => handleImportFile(BACKUP_DIR + filename, filename)}>
+                      <View style={styles.backupItemMeta}>
+                        <Ionicons name="time-outline" size={13} color={colors.textMuted} />
+                        <Text style={[styles.backupItemDate, { color: colors.textSecondary }]}>{date}  {time}</Text>
+                      </View>
+                      {tag ? (
+                        <Text style={[styles.backupItemTag, { color: colors.text }]}>{tag}</Text>
+                      ) : (
+                        <Text style={[styles.backupItemTag, { color: colors.textMuted }]}>No label</Text>
+                      )}
+                    </Pressable>
+                    <Pressable
+                      onPress={async () => {
+                        const canShare = await Sharing.isAvailableAsync();
+                        if (canShare) await Sharing.shareAsync(BACKUP_DIR + filename, { mimeType: "application/json", dialogTitle: "Share Backup" });
+                      }}
+                      style={styles.backupItemAction}
+                    >
+                      <Ionicons name="share-outline" size={18} color={colors.accent} />
+                    </Pressable>
+                    <Pressable onPress={() => handleDeleteBackup(filename)} style={styles.backupItemAction}>
+                      <Ionicons name="trash-outline" size={18} color={colors.accent} />
+                    </Pressable>
+                  </View>
+                );
+              })
             )}
           </View>
         )}
 
-        {commentPromptVisible && (
+        {/* ── New Backup Comment Panel ── */}
+        {activePanel === "comment" && (
           <View style={[styles.commentCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Text style={[styles.commentTitle, { color: colors.text }]}>Label this backup</Text>
+            <Text style={[styles.commentSub, { color: colors.textSecondary }]}>
+              Optional — helps you identify this backup later (e.g. "before vacation", "50 novels")
+            </Text>
             <TextInput
               style={[styles.commentInput, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
-              placeholder="e.g. 50 novels backup"
+              placeholder="e.g. before vacation"
               placeholderTextColor={colors.textMuted}
               value={pendingComment}
               onChangeText={setPendingComment}
@@ -405,18 +463,92 @@ export default function SettingsScreen() {
               autoFocus
             />
             <View style={styles.backupRow}>
-              <Pressable style={[styles.backupBtn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }]} onPress={() => setCommentPromptVisible(false)}>
+              <Pressable
+                style={[styles.backupBtn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }]}
+                onPress={closePanel}
+              >
                 <Text style={[styles.backupBtnText, { color: colors.textSecondary }]}>Cancel</Text>
               </Pressable>
-              <Pressable style={[styles.backupBtn, { backgroundColor: colors.accent }]} onPress={() => confirmExport(pendingComment)}>
+              <Pressable
+                style={[styles.backupBtn, { backgroundColor: colors.accent }]}
+                onPress={() => confirmExport(pendingComment)}
+              >
+                <Ionicons name="save-outline" size={16} color="#fff" />
                 <Text style={styles.backupBtnText}>Save Backup</Text>
               </Pressable>
             </View>
           </View>
         )}
 
+        {/* Developer Profile Modal (restored from old file) */}
+        <Modal visible={showDevProfile} transparent animationType="fade">
+          <View style={styles.modalOverlay}>
+            <View style={[styles.devCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <View style={styles.backupListHeader}>
+                <Text style={[styles.backupListTitle, { color: colors.text }]}>Developer Profile</Text>
+                <Pressable onPress={() => setShowDevProfile(false)}><Ionicons name="close" size={24} color={colors.textSecondary} /></Pressable>
+              </View>
+              <View style={styles.devContent}>
+                <View style={styles.devItem}>
+                  <Text style={[styles.statLabel, { color: colors.textMuted }]}>DEVELOPER</Text>
+                  <Text style={[styles.aboutText, { color: colors.text, fontSize: 16 }]}>Moggs (Agent_047)</Text>
+                </View>
+                <View style={styles.devItem}>
+                  <Text style={[styles.statLabel, { color: colors.textMuted }]}>OFFICIAL SITE</Text>
+                  <Text style={[styles.aboutSite, { color: colors.accent }]}>noveldrr.app</Text>
+                </View>
+                <View style={styles.devItem}>
+                  <Text style={[styles.statLabel, { color: colors.textMuted }]}>TECH STACK</Text>
+                  <Text style={[styles.aboutText, { color: colors.text }]}>React Native, Expo, TypeScript, GitHub Actions</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>ABOUT</Text>
+        <View style={[styles.aboutCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.aboutRow}>
+            <Ionicons name="globe" size={16} color={colors.accent} />
+            <Text style={[styles.aboutText, { color: colors.text }]}>
+              Download novels from popular sites
+            </Text>
+          </View>
+          {["ReadNovelFull.com", "NovelFull.net", "FreeWebNovel.com", "Novelbin.com", "LightNovelWorld.org"].map((site) => (
+            <View key={site} style={styles.aboutRow}>
+              <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
+              <Text style={[styles.aboutSite, { color: colors.textSecondary }]}>{site}</Text>
+            </View>
+          ))}
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+          <View style={styles.aboutRow}>
+            <Ionicons name="eye" size={16} color={colors.accent} />
+            <Text style={[styles.aboutText, { color: colors.text }]}>
+              Beautiful in-app reading experience
+            </Text>
+          </View>
+          <View style={styles.aboutRow}>
+            <Ionicons name="bookmark" size={16} color={colors.accent} />
+            <Text style={[styles.aboutText, { color: colors.text }]}>
+              Reading progress Tracking & Memory
+            </Text>
+          </View>
+          <View style={styles.aboutRow}>
+            <Ionicons name="phone-portrait" size={16} color={colors.accent} />
+            <Text style={[styles.aboutText, { color: colors.text }]}>
+              Dark, Light, and Sepia themes
+            </Text>
+          </View>
+          <View style={styles.aboutRow}>
+            <Ionicons name="cloud-offline" size={16} color={colors.accent} />
+            <Text style={[styles.aboutText, { color: colors.text }]}>
+              Offline reading capability
+            </Text>
+          </View>
+        </View>
+
         <View style={[styles.versionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Text style={[styles.versionText, { color: colors.textMuted }]}>Novel DR — v1.3.8</Text>
+          <Text style={[styles.versionText, { color: colors.textMuted }]}>Novel DR — v1.3.7</Text>
         </View>
       </ScrollView>
     </View>
@@ -436,42 +568,171 @@ const styles = StyleSheet.create({
   headerTitleContainer: { flexDirection: "row", alignItems: "center", gap: 10 },
   headerTitle: { fontFamily: "Inter_700Bold", fontSize: 22 },
   scroll: { padding: 16, gap: 12 },
-  warningCard: { borderRadius: 14, borderWidth: 1, padding: 14, gap: 6 },
+  sectionLabel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 11,
+    letterSpacing: 0.8,
+    marginTop: 8,
+  },
+  warningCard: { borderRadius: 14, borderWidth: 1, padding: 14, gap: 6, marginBottom: 4 },
   warningTitle: { fontFamily: "Inter_700Bold", fontSize: 14 },
   warningText: { fontFamily: "Inter_400Regular", fontSize: 12, lineHeight: 18 },
-  sectionLabel: { fontFamily: "Inter_600SemiBold", fontSize: 11, letterSpacing: 0.8, marginTop: 8 },
-  statsCard: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, flexDirection: "row", padding: 20 },
+  statsCard: {
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    padding: 20,
+  },
   statItem: { flex: 1, flexDirection: "row", alignItems: "center", gap: 12 },
   statDivider: { width: StyleSheet.hairlineWidth, marginVertical: 4 },
   statValue: { fontFamily: "Inter_700Bold", fontSize: 24 },
   statLabel: { fontFamily: "Inter_400Regular", fontSize: 12, marginTop: 2 },
   themeRow: { flexDirection: "row", gap: 10 },
-  themeBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, borderRadius: 12, borderWidth: 1 },
+  themeBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
   themeBtnLabel: { fontFamily: "Inter_600SemiBold", fontSize: 13 },
-  backupCard: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, padding: 16, gap: 12 },
-  backupDesc: { fontFamily: "Inter_400Regular", fontSize: 13, lineHeight: 19 },
-  backupRow: { flexDirection: "row", gap: 10 },
-  backupBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, borderRadius: 12 },
-  backupBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: "#fff" },
-  backupHint: { fontFamily: "Inter_400Regular", fontSize: 12, textAlign: "center" },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 20 },
-  devCard: { borderRadius: 20, borderWidth: 1, padding: 20, gap: 15 },
-  devContent: { gap: 12 },
-  devItem: { gap: 2 },
-  backupListCard: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, padding: 16, gap: 10 },
-  backupListHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
-  backupListTitle: { fontFamily: "Inter_600SemiBold", fontSize: 15 },
-  backupItem: { flexDirection: "row", alignItems: "center", borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10, gap: 8 },
-  backupItemInfo: { flex: 1, gap: 3 },
-  backupItemMeta: { flexDirection: "row", alignItems: "center", gap: 4 },
-  backupItemDate: { fontFamily: "Inter_400Regular", fontSize: 12 },
-  backupItemTag: { fontFamily: "Inter_600SemiBold", fontSize: 13 },
-  commentCard: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, padding: 16, gap: 12 },
-  commentTitle: { fontFamily: "Inter_600SemiBold", fontSize: 15 },
-  commentInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontFamily: "Inter_400Regular", fontSize: 14 },
-  aboutRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  aboutText: { fontFamily: "Inter_400Regular", fontSize: 13 },
+  aboutCard: {
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 16,
+    gap: 10,
+  },
+  aboutRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  aboutText: { fontFamily: "Inter_400Regular", fontSize: 13, flex: 1 },
   aboutSite: { fontFamily: "Inter_500Medium", fontSize: 13 },
-  versionCard: { borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, padding: 14, alignItems: "center", marginTop: 4 },
+  divider: { height: StyleSheet.hairlineWidth, marginVertical: 4 },
+  versionCard: {
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 14,
+    alignItems: "center",
+    marginTop: 4,
+  },
   versionText: { fontFamily: "Inter_400Regular", fontSize: 12 },
+  backupCard: {
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 16,
+    gap: 12,
+  },
+  backupDesc: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  backupRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  backupBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  backupBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: "#fff",
+  },
+  backupHint: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    textAlign: "center",
+  },
+  backupListCard: {
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 16,
+    gap: 10,
+  },
+  backupListHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  backupListTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
+  },
+  backupItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 10,
+    gap: 8,
+  },
+  backupItemInfo: {
+    flex: 1,
+    gap: 3,
+  },
+  backupItemMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  backupItemDate: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+  },
+  backupItemTag: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+  },
+  backupItemAction: {
+    padding: 6,
+  },
+  commentCard: {
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 16,
+    gap: 12,
+  },
+  commentTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
+  },
+  commentSub: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  commentInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  devCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 20,
+    gap: 15,
+  },
+  devContent: {
+    gap: 12,
+  },
+  devItem: {
+    gap: 2,
+  },
 });
