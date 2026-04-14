@@ -4,7 +4,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import * as DocumentPicker from "expo-document-picker";
 import React, { useState } from "react";
-import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Modal } from "react-native";
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Modal, Linking } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useLibrary } from "@/context/LibraryContext";
@@ -296,7 +296,7 @@ export default function SettingsScreen() {
         contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 100 }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Android Warning Card (from old file) */}
+        {/* Android Warning Card */}
         <View style={[styles.warningCard, { backgroundColor: colors.surface, borderColor: "#ffb300" }]}>
           <View style={styles.aboutRow}>
             <Ionicons name="warning" size={18} color="#ffb300" />
@@ -375,7 +375,7 @@ export default function SettingsScreen() {
             </Pressable>
           </View>
 
-          {/* Import from File button (restored from old file) */}
+          {/* Import from File button */}
           <Pressable
             style={[
               styles.backupBtn,
@@ -480,28 +480,48 @@ export default function SettingsScreen() {
           </View>
         )}
 
-        {/* Developer Profile Modal (restored from old file) */}
+        {/* Developer Profile Modal - New Layout */}
         <Modal visible={showDevProfile} transparent animationType="fade">
           <View style={styles.modalOverlay}>
             <View style={[styles.devCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <View style={styles.backupListHeader}>
-                <Text style={[styles.backupListTitle, { color: colors.text }]}>Developer Profile</Text>
-                <Pressable onPress={() => setShowDevProfile(false)}><Ionicons name="close" size={24} color={colors.textSecondary} /></Pressable>
+              <View style={styles.devHeader}>
+                <Text style={[styles.devTitle, { color: colors.text }]}>About Developer</Text>
+                <Pressable onPress={() => setShowDevProfile(false)}>
+                  <Ionicons name="close" size={24} color={colors.textSecondary} />
+                </Pressable>
               </View>
-              <View style={styles.devContent}>
-                <View style={styles.devItem}>
-                  <Text style={[styles.statLabel, { color: colors.textMuted }]}>DEVELOPER</Text>
-                  <Text style={[styles.aboutText, { color: colors.text, fontSize: 16 }]}>Moggs (Agent_047)</Text>
+
+              <View style={styles.devProfileRow}>
+                <View style={[styles.profileImage, { backgroundColor: colors.accent + "20" }]}>
+                  <Ionicons name="person" size={40} color={colors.accent} />
                 </View>
-                <View style={styles.devItem}>
-                  <Text style={[styles.statLabel, { color: colors.textMuted }]}>OFFICIAL SITE</Text>
-                  <Text style={[styles.aboutSite, { color: colors.accent }]}>noveldrr.app</Text>
-                </View>
-                <View style={styles.devItem}>
-                  <Text style={[styles.statLabel, { color: colors.textMuted }]}>TECH STACK</Text>
-                  <Text style={[styles.aboutText, { color: colors.text }]}>React Native, Expo, TypeScript, GitHub Actions</Text>
+                <View style={styles.devInfo}>
+                  <Text style={[styles.devLabel, { color: colors.textMuted }]}>Name</Text>
+                  <Text style={[styles.devValue, { color: colors.text }]}>Moggs</Text>
                 </View>
               </View>
+
+              <Pressable
+                style={styles.devLinkRow}
+                onPress={() => Linking.openURL("https://moggs.is-a-good.dev")}
+              >
+                <Text style={[styles.devLinkLabel, { color: colors.textSecondary }]}>Website:</Text>
+                <Text style={[styles.devLinkText, { color: colors.accent }]}>moggs.is-a-good.dev</Text>
+                <Ionicons name="open-outline" size={14} color={colors.accent} />
+              </Pressable>
+
+              <Pressable
+                style={styles.devLinkRow}
+                onPress={() => Linking.openURL("https://github.com/Moggle-Khraum/NovelDrr")}
+              >
+                <Text style={[styles.devLinkLabel, { color: colors.textSecondary }]}>GitHub:</Text>
+                <Text style={[styles.devLinkText, { color: colors.accent }]}>Moggle-Khraum/NovelDrr</Text>
+                <Ionicons name="open-outline" size={14} color={colors.accent} />
+              </Pressable>
+
+              <Text style={[styles.devIssueText, { color: colors.textSecondary }]}>
+                For any suggestions / issues / bugs, please write an issue on the GitHub repository.
+              </Text>
             </View>
           </View>
         </Modal>
@@ -536,7 +556,7 @@ export default function SettingsScreen() {
           <View style={styles.aboutRow}>
             <Ionicons name="color-palette-outline" size={16} color={colors.accent} />
             <Text style={[styles.aboutText, { color: colors.text }]}>
-              In-App Thenes: Dark, Light, and Sepia themes
+              In-App Themes: Dark, Light, and Sepia themes
             </Text>
           </View>
           <View style={styles.aboutRow}>
@@ -625,7 +645,6 @@ const styles = StyleSheet.create({
   },
   versionText: { fontFamily: "Inter_400Regular", fontSize: 12 },
   madeByText: { fontFamily: "Inter_400Regular", fontSize: 11, marginTop: 6, textAlign: "center" },
-  
   backupCard: {
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
@@ -736,12 +755,65 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1,
     padding: 20,
-    gap: 15,
+    gap: 16,
   },
-  devContent: {
-    gap: 12,
+  devHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
   },
-  devItem: {
-    gap: 2,
+  devTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 18,
+  },
+  devProfileRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+    marginBottom: 8,
+  },
+  profileImage: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  devInfo: {
+    flex: 1,
+    gap: 4,
+  },
+  devLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    letterSpacing: 0.5,
+  },
+  devValue: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 18,
+  },
+  devLinkRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 6,
+    paddingVertical: 4,
+  },
+  devLinkLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+  },
+  devLinkText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+    textDecorationLine: "underline",
+  },
+  devIssueText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 8,
+    textAlign: "center",
   },
 });
