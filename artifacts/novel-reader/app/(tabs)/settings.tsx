@@ -511,7 +511,7 @@ export default function SettingsScreen() {
           <View style={styles.aboutRow}>
             <Ionicons name="globe" size={16} color={colors.accent} />
             <Text style={[styles.aboutText, { color: colors.text }]}>
-              Download novels from popular sites
+              Download novels from popular supported sites & more to come.
             </Text>
           </View>
           {["ReadNovelFull.com", "NovelFull.net", "FreeWebNovel.com", "Novelbin.com", "LightNovelWorld.org"].map((site) => (
@@ -524,32 +524,39 @@ export default function SettingsScreen() {
           <View style={styles.aboutRow}>
             <Ionicons name="eye" size={16} color={colors.accent} />
             <Text style={[styles.aboutText, { color: colors.text }]}>
-              Beautiful in-app reading experience
+              Easy, Intuitive design & Feature-rich App for comfy reading experience.
             </Text>
           </View>
           <View style={styles.aboutRow}>
             <Ionicons name="bookmark" size={16} color={colors.accent} />
             <Text style={[styles.aboutText, { color: colors.text }]}>
-              Reading progress Tracking & Memory
+              Keeps track of your reading progress & where you left off.
             </Text>
           </View>
           <View style={styles.aboutRow}>
-            <Ionicons name="phone-portrait" size={16} color={colors.accent} />
+            <Ionicons name="color-palette-outline" size={16} color={colors.accent} />
             <Text style={[styles.aboutText, { color: colors.text }]}>
-              Dark, Light, and Sepia themes
+              In-App Thenes: Dark, Light, and Sepia themes
             </Text>
           </View>
           <View style={styles.aboutRow}>
             <Ionicons name="cloud-offline" size={16} color={colors.accent} />
             <Text style={[styles.aboutText, { color: colors.text }]}>
-              Offline reading capability
+              Download once, Read forever and whenever
+            </Text>
+          </View>
+          <View style={styles.aboutRow}>
+            <Ionicons name="newspaper-outline" size={16} color={colors.accent} />
+            <Text style={[styles.aboutText, { color: colors.text }]}>
+              More features awaits, explore the App!
             </Text>
           </View>
         </View>
 
         <View style={[styles.versionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <Text style={[styles.versionText, { color: colors.textMuted }]}>Novel DR — v1.3.7</Text>
-        </View>
+  <Text style={[styles.madeByText, { color: colors.textMuted }]}>Made by Moggs ☕</Text>
+</View>
       </ScrollView>
     </View>
   );
