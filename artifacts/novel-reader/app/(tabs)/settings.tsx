@@ -555,8 +555,8 @@ export default function SettingsScreen() {
 
         <View style={[styles.versionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <Text style={[styles.versionText, { color: colors.textMuted }]}>Novel DR — v1.3.7</Text>
-  <Text style={[styles.madeByText, { color: colors.textMuted }]}>Made by Moggs ☕</Text>
-</View>
+          <Text style={[styles.madeByText, { color: colors.textMuted }]}>Made by Moggs ☕</Text>
+        </View>
       </ScrollView>
     </View>
   );
@@ -624,6 +624,8 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   versionText: { fontFamily: "Inter_400Regular", fontSize: 12 },
+  madeByText: { fontFamily: "Inter_400Regular", fontSize: 11, marginTop: 6, textAlign: "center" },
+  
   backupCard: {
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
