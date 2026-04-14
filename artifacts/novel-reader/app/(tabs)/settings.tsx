@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
+import * as DocumentPicker from "expo-document-picker";
 import React, { useState } from "react";
 import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -52,9 +53,6 @@ function ThemeButton({
   );
 }
 
-// ── Active panel type ────────────────────────────────────────────────────────
-type ActivePanel = "comment" | "restore" | null;
-
 export default function SettingsScreen() {
   const { colors, theme, setTheme } = useTheme();
   const { novels, addNovel } = useLibrary();
@@ -64,19 +62,12 @@ export default function SettingsScreen() {
 
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [backupList, setBackupList] = useState<string[]>([]);
+  const [backupList, setBackupList] = useState<FileSystem.FileInfo[]>([]);
+  const [showBackupList, setShowBackupList] = useState(false);
+  const [commentPromptVisible, setCommentPromptVisible] = useState(false);
   const [pendingComment, setPendingComment] = useState("");
 
-  // Single active panel — only one can be open at a time
-  const [activePanel, setActivePanel] = useState<ActivePanel>(null);
-
   const BACKUP_DIR = FileSystem.documentDirectory + "noveldrr-backups/";
-
-  const openPanel = (panel: ActivePanel) => {
-    setActivePanel((prev) => (prev === panel ? null : panel));
-  };
-
-  const closePanel = () => setActivePanel(null);
 
   const ensureDir = async () => {
     const info = await FileSystem.getInfoAsync(BACKUP_DIR);
@@ -98,12 +89,12 @@ export default function SettingsScreen() {
   const handleExport = () => {
     if (novels.length === 0) return;
     setPendingComment("");
-    openPanel("comment");
+    setCommentPromptVisible(true);
   };
 
   const confirmExport = async (comment: string) => {
     try {
-      closePanel();
+      setCommentPromptVisible(false);
       setExporting(true);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
@@ -123,6 +114,7 @@ export default function SettingsScreen() {
           dateAdded: n.dateAdded,
           lastRead: n.lastRead ?? null,
           chapterCount: n.chapters.length,
+          // chapters intentionally excluded to save space
         })),
       };
 
@@ -136,7 +128,7 @@ export default function SettingsScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert(
         "Backup Saved ✓",
-        `Saved to app storage.\n\n${filename}`,
+        `Saved to Documents/noveldrr-backups/\n\n${filename}`,
         [
           { text: "OK" },
           {
@@ -163,18 +155,19 @@ export default function SettingsScreen() {
       const jsonFiles = files
         .filter((f) => f.endsWith(".json"))
         .sort()
-        .reverse();
-      setBackupList(jsonFiles);
-      openPanel("restore");
+        .reverse(); // newest first
+      setBackupList(jsonFiles as any);
+      setShowBackupList(true);
     } catch (e) {
       Alert.alert("Error", String(e));
     }
   };
 
-  // ── Import from a specific file ───────────────────────────────────────────
-  const handleImportFile = async (path: string, filename: string) => {
+  // ── Import from a specific file (local backup list) ───────────────────────
+  const handleImportFile = async (filename: string) => {
     try {
       setImporting(true);
+      const path = BACKUP_DIR + filename;
       const raw = await FileSystem.readAsStringAsync(path, { encoding: FileSystem.EncodingType.UTF8 });
       const backup = JSON.parse(raw);
 
@@ -214,7 +207,69 @@ export default function SettingsScreen() {
                 });
               }
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              closePanel();
+              setShowBackupList(false);
+              Alert.alert("Import Complete", `${toImport.length} novel(s) restored.\nRe-download chapters from the Add tab.`);
+            },
+          },
+        ]
+      );
+    } catch (e) {
+      Alert.alert("Import Failed", String(e));
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  // ── Import from external file (document picker) ───────────────────────────
+  const handleImportFromPicker = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "application/json",
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled) return;
+
+      setImporting(true);
+      const asset = result.assets[0];
+      const raw = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.UTF8 });
+      const backup = JSON.parse(raw);
+
+      if (!backup.version || !Array.isArray(backup.novels)) {
+        Alert.alert("Invalid Backup", "This file doesn't look like a NovelDRr backup.");
+        return;
+      }
+
+      const existingIds = new Set(novels.map((n) => n.id));
+      const toImport = backup.novels.filter((n: any) => !existingIds.has(n.id));
+      const skipped = backup.novels.length - toImport.length;
+
+      if (toImport.length === 0) {
+        Alert.alert("Nothing to Import", `All ${skipped} novel(s) are already in your library.`);
+        return;
+      }
+
+      Alert.alert(
+        "Confirm Import",
+        `Import ${toImport.length} novel(s) from:\n"${asset.name}"?${skipped > 0 ? `\n\n(${skipped} already in library will be skipped)` : ""}`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Import",
+            onPress: async () => {
+              for (const n of toImport) {
+                await addNovel({
+                  id: n.id,
+                  title: n.title,
+                  author: n.author,
+                  coverUrl: n.coverUrl ?? "",
+                  synopsis: n.synopsis ?? "",
+                  sourceUrl: n.sourceUrl ?? "",
+                  dateAdded: n.dateAdded ?? Date.now(),
+                  lastRead: n.lastRead ?? undefined,
+                  chapters: [],
+                });
+              }
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               Alert.alert("Import Complete", `${toImport.length} novel(s) restored.\nRe-download chapters from the Add tab.`);
             },
           },
@@ -237,7 +292,7 @@ export default function SettingsScreen() {
         onPress: async () => {
           await FileSystem.deleteAsync(BACKUP_DIR + filename, { idempotent: true });
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-          setBackupList((prev) => prev.filter((f) => f !== filename));
+          setBackupList((prev) => (prev as any[]).filter((f) => f !== filename) as any);
         },
       },
     ]);
@@ -245,6 +300,7 @@ export default function SettingsScreen() {
 
   // ── Parse filename into readable label ────────────────────────────────────
   const parseFilename = (filename: string) => {
+    // noveldrr-backup-2026-03-30_14-22_my-tag.json
     const base = filename.replace("noveldrr-backup-", "").replace(".json", "");
     const [datePart, timePart, ...rest] = base.split("_");
     const date = datePart ?? "";
@@ -292,53 +348,63 @@ export default function SettingsScreen() {
 
         <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>APP THEME</Text>
         <View style={styles.themeRow}>
-          <ThemeButton label="Dark" icon="moon" themeKey="dark" active={theme === "dark"} onPress={() => handleThemeChange("dark")} />
-          <ThemeButton label="Light" icon="sunny" themeKey="light" active={theme === "light"} onPress={() => handleThemeChange("light")} />
-          <ThemeButton label="Sepia" icon="book" themeKey="sepia" active={theme === "sepia"} onPress={() => handleThemeChange("sepia")} />
+          <ThemeButton
+            label="Dark"
+            icon="moon"
+            themeKey="dark"
+            active={theme === "dark"}
+            onPress={() => handleThemeChange("dark")}
+          />
+          <ThemeButton
+            label="Light"
+            icon="sunny"
+            themeKey="light"
+            active={theme === "light"}
+            onPress={() => handleThemeChange("light")}
+          />
+          <ThemeButton
+            label="Sepia"
+            icon="book"
+            themeKey="sepia"
+            active={theme === "sepia"}
+            onPress={() => handleThemeChange("sepia")}
+          />
         </View>
 
         <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>BACKUP</Text>
         <View style={[styles.backupCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.backupDesc, { color: colors.textSecondary }]}>
             Saves title, author, cover, synopsis, and reading progress. Chapters are excluded to keep the file small. Backups persist in{" "}
-            <Text style={{ fontFamily: "Inter_500Medium" }}>app private storage</Text>.
+            <Text style={{ fontFamily: "Inter_500Medium" }}>Documents/noveldrr-backups/</Text>.
           </Text>
-
-          {/* Two backup action buttons (removed Import button) */}
           <View style={styles.backupRow}>
             <Pressable
-              style={[
-                styles.backupBtn,
-                {
-                  backgroundColor: activePanel === "comment" ? colors.accent + "dd" : colors.accent,
-                  opacity: exporting ? 0.6 : 1,
-                },
-              ]}
+              style={[styles.backupBtn, { backgroundColor: colors.accent, opacity: exporting ? 0.6 : 1 }]}
               onPress={handleExport}
               disabled={exporting || novels.length === 0}
             >
               <Ionicons name="save-outline" size={18} color="#fff" />
               <Text style={styles.backupBtnText}>{exporting ? "Saving…" : "New Backup"}</Text>
             </Pressable>
-
             <Pressable
-              style={[
-                styles.backupBtn,
-                {
-                  backgroundColor: activePanel === "restore" ? colors.accent + "18" : colors.surface,
-                  borderWidth: 1,
-                  borderColor: activePanel === "restore" ? colors.accent : colors.border,
-                  opacity: importing ? 0.6 : 1,
-                },
-              ]}
+              style={[styles.backupBtn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, opacity: importing ? 0.6 : 1 }]}
               onPress={loadBackupList}
               disabled={importing}
             >
-              <Ionicons name="folder-open-outline" size={18} color={activePanel === "restore" ? colors.accent : colors.accent} />
+              <Ionicons name="folder-open-outline" size={18} color={colors.accent} />
               <Text style={[styles.backupBtnText, { color: colors.accent }]}>Restore</Text>
             </Pressable>
           </View>
-
+          <Pressable
+            style={[styles.backupBtn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, opacity: importing ? 0.6 : 1 }]}
+            onPress={handleImportFromPicker}
+            disabled={importing}
+          >
+            <Ionicons name="cloud-upload-outline" size={18} color={colors.accent} />
+            <Text style={[styles.backupBtnText, { color: colors.accent }]}>
+              {importing ? "Importing…" : "Import from File"}
+            </Text>
+          </Pressable>
           {novels.length === 0 && (
             <Text style={[styles.backupHint, { color: colors.textMuted }]}>
               Add novels to your library before creating a backup.
@@ -346,25 +412,25 @@ export default function SettingsScreen() {
           )}
         </View>
 
-        {/* ── Restore Panel ── */}
-        {activePanel === "restore" && (
+        {/* Backup List Modal */}
+        {showBackupList && (
           <View style={[styles.backupListCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <View style={styles.backupListHeader}>
               <Text style={[styles.backupListTitle, { color: colors.text }]}>Saved Backups</Text>
-              <Pressable onPress={closePanel}>
+              <Pressable onPress={() => setShowBackupList(false)}>
                 <Ionicons name="close" size={20} color={colors.textSecondary} />
               </Pressable>
             </View>
-            {backupList.length === 0 ? (
+            {(backupList as any[]).length === 0 ? (
               <Text style={[styles.backupHint, { color: colors.textMuted }]}>
-                No backups found in app storage.
+                No backups found in Documents/noveldrr-backups/
               </Text>
             ) : (
-              backupList.map((filename) => {
+              (backupList as any[]).map((filename: string) => {
                 const { date, time, tag } = parseFilename(filename);
                 return (
                   <View key={filename} style={[styles.backupItem, { borderColor: colors.border }]}>
-                    <Pressable style={styles.backupItemInfo} onPress={() => handleImportFile(BACKUP_DIR + filename, filename)}>
+                    <Pressable style={styles.backupItemInfo} onPress={() => handleImportFile(filename)}>
                       <View style={styles.backupItemMeta}>
                         <Ionicons name="time-outline" size={13} color={colors.textMuted} />
                         <Text style={[styles.backupItemDate, { color: colors.textSecondary }]}>{date}  {time}</Text>
@@ -375,17 +441,8 @@ export default function SettingsScreen() {
                         <Text style={[styles.backupItemTag, { color: colors.textMuted }]}>No label</Text>
                       )}
                     </Pressable>
-                    <Pressable
-                      onPress={async () => {
-                        const canShare = await Sharing.isAvailableAsync();
-                        if (canShare) await Sharing.shareAsync(BACKUP_DIR + filename, { mimeType: "application/json", dialogTitle: "Share Backup" });
-                      }}
-                      style={styles.backupItemAction}
-                    >
-                      <Ionicons name="share-outline" size={18} color={colors.accent} />
-                    </Pressable>
-                    <Pressable onPress={() => handleDeleteBackup(filename)} style={styles.backupItemAction}>
-                      <Ionicons name="trash-outline" size={18} color={colors.accent} />
+                    <Pressable onPress={() => handleDeleteBackup(filename)} style={styles.backupItemDelete}>
+                      <Ionicons name="trash-outline" size={18} color={colors.text} />
                     </Pressable>
                   </View>
                 );
@@ -394,8 +451,8 @@ export default function SettingsScreen() {
           </View>
         )}
 
-        {/* ── Comment / New Backup Panel ── */}
-        {activePanel === "comment" && (
+        {/* Comment Prompt */}
+        {commentPromptVisible && (
           <View style={[styles.commentCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Text style={[styles.commentTitle, { color: colors.text }]}>Label this backup</Text>
             <Text style={[styles.commentSub, { color: colors.textSecondary }]}>
@@ -413,7 +470,7 @@ export default function SettingsScreen() {
             <View style={styles.backupRow}>
               <Pressable
                 style={[styles.backupBtn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }]}
-                onPress={closePanel}
+                onPress={() => setCommentPromptVisible(false)}
               >
                 <Text style={[styles.backupBtnText, { color: colors.textSecondary }]}>Cancel</Text>
               </Pressable>
@@ -433,10 +490,10 @@ export default function SettingsScreen() {
           <View style={styles.aboutRow}>
             <Ionicons name="globe" size={16} color={colors.accent} />
             <Text style={[styles.aboutText, { color: colors.text }]}>
-              Download novels from popular sites
+              Download novels from 5 popular sites
             </Text>
           </View>
-          {["ReadNovelFull.com", "NovelFull.net", "FreeWebNovel.com", "Novelbin.com", "LightNovelWorld.org"].map((site) => (
+          {["ReadNovelFull", "NovelFull", "FreeWebNovel", "Novelbin", "LightNovelWorld"].map((site) => (
             <View key={site} style={styles.aboutRow}>
               <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
               <Text style={[styles.aboutSite, { color: colors.textSecondary }]}>{site}</Text>
@@ -470,7 +527,7 @@ export default function SettingsScreen() {
         </View>
 
         <View style={[styles.versionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Text style={[styles.versionText, { color: colors.textMuted }]}>Novel DR — v1.3rev055</Text>
+          <Text style={[styles.versionText, { color: colors.textMuted }]}>Novel DR — v1.3.6rev102</Text>
         </View>
       </ScrollView>
     </View>
@@ -549,7 +606,7 @@ const styles = StyleSheet.create({
   },
   backupRow: {
     flexDirection: "row",
-    gap: 8,
+    gap: 10,
   },
   backupBtn: {
     flex: 1,
@@ -562,7 +619,7 @@ const styles = StyleSheet.create({
   },
   backupBtnText: {
     fontFamily: "Inter_600SemiBold",
-    fontSize: 13,
+    fontSize: 14,
     color: "#fff",
   },
   backupHint: {
@@ -610,7 +667,7 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     fontSize: 13,
   },
-  backupItemAction: {
+  backupItemDelete: {
     padding: 6,
   },
   commentCard: {
