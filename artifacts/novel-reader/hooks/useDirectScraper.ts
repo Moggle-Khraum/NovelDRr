@@ -340,17 +340,43 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
   console.log('[Scraper] Fetching chapter:', url);
   
   try {
-    const isFreeWebNovel = url.toLowerCase().includes('freewebnovel');
-    const isLightNovelWorld = url.toLowerCase().includes('lightnovelworld');
+    const domainLower = url.toLowerCase();
+    const isFreeWebNovel = domainLower.includes('freewebnovel') || domainLower.includes('bednovel');
+    const isLightNovelWorld = domainLower.includes('lightnovelworld');
+    const isReadNovelFull = domainLower.includes('readnovelfull');
+    const isNovelFull = domainLower.includes('novelfull') && !isReadNovelFull;
+    const isNovelBin = domainLower.includes('novelbin');
     const html = await fetchWithFallback(url, isFreeWebNovel);
-    
-    // Extract chapter title
+
+    // Extract chapter title — per-site selectors
     let title = `Chapter ${chapterNum}`;
-    const titleMatch = safeMatch(html, /<(?:h1|h2|span)[^>]*(?:class="(?:chapter-title|chr-title|entry-title)")[^>]*>([^<]+)</i);
-    if (titleMatch) {
-      const rawTitle = stripTags(titleMatch);
-      const cleanTitle = rawTitle.replace(/^Chapter\s*\d+\s*[:\-]*\s*/i, '').trim();
-      if (cleanTitle) title = `Chapter ${chapterNum}: ${cleanTitle}`;
+    let rawTitleMatch: string | null = null;
+
+    if (isLightNovelWorld) {
+      // <span class="chapter-title">
+      rawTitleMatch = safeMatch(html, /<span[^>]*class="chapter-title"[^>]*>([^<]+)<\/span>/i);
+    } else if (isFreeWebNovel) {
+      // <h1 class="tit"> or <span class="chapter-title">
+      rawTitleMatch = safeMatch(html, /<h1[^>]*class="tit"[^>]*>([^<]+)<\/h1>/i) ||
+                     safeMatch(html, /<span[^>]*class="chapter-title"[^>]*>([^<]+)<\/span>/i);
+    } else if (isReadNovelFull) {
+      // <a class="chr-title"> or <span class="chr-title">
+      rawTitleMatch = safeMatch(html, /<(?:a|span)[^>]*class="chr-title"[^>]*>([^<]+)<\/(?:a|span)>/i);
+    } else if (isNovelFull) {
+      // <a class="chr-title"> inside the chapter heading
+      rawTitleMatch = safeMatch(html, /<a[^>]*class="chr-title"[^>]*>([^<]+)<\/a>/i);
+    } else if (isNovelBin) {
+      // <span class="chapter-title"> or <h2> fallback — NovelBin themes vary
+      rawTitleMatch = safeMatch(html, /<span[^>]*class="chapter-title"[^>]*>([^<]+)<\/span>/i) ||
+                     safeMatch(html, /<h2[^>]*>([^<]+)<\/h2>/i);
+    } else {
+      // Generic fallback for unknown sites
+      rawTitleMatch = safeMatch(html, /<(?:h1|h2|span)[^>]*class="(?:chapter-title|chr-title|entry-title)"[^>]*>([^<]+)</i);
+    }
+
+    if (rawTitleMatch) {
+      const clean = decodeEntities(stripTags(rawTitleMatch)).replace(/^Chapter\s*\d+\s*[:\-–]*\s*/i, '').trim();
+      if (clean) title = `Chapter ${chapterNum}: ${clean}`;
     }
     
     // Extract content
