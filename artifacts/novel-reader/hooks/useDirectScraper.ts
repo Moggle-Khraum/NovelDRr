@@ -476,6 +476,12 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
         'light novel world',
         'your gateway to infinite stories',
         '© 2025 light novel world',
+        'loading chapters...',
+        'chapter comments',
+        'login to comment',
+        'please follow common sense when posting comments',
+        'spam, phishing, or any sort of suspicious comment will be deleted',
+        
       ];
 
       const filtered = validParagraphs.filter(text => {
