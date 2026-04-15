@@ -365,20 +365,25 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
       }
     }
 
-    // LightNovelWorld: target #chapterText and strip ads/style tags
-    if (isLightNovelWorld && !paragraphMatches) {
-      const containerMatch = html.match(/<div[^>]*id="chapterText"[^>]*>([\s\S]*?)<\/div>/i) ||
-                             html.match(/<div[^>]*class="chapter-text[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
-      if (containerMatch) {
-        const cleaned = containerMatch[1]
-          .replace(/<div[^>]*class="chapter-ad-container"[^>]*>[\s\S]*?<\/div>/gi, '')
-          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+    // LightNovelWorld: target #chapterText and strip ads/style/script tags
+    if (isLightNovelWorld) {
+      // Use a larger slice of HTML anchored to the chapterText id
+      const containerIdx = html.search(/id="chapterText"/i);
+      if (containerIdx !== -1) {
+        // Grab from the opening div tag to a safe cutoff (~200KB ahead)
+        const slice = html.slice(Math.max(0, containerIdx - 50), containerIdx + 200000);
+        const cleaned = slice
+          .replace(/<script[\s\S]*?<\/script>/gi, '')
+          .replace(/<style[\s\S]*?<\/style>/gi, '')
+          .replace(/<div[^>]*class="[^"]*chapter-ad[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '')
+          .replace(/<div[^>]*class="[^"]*comment[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '');
         paragraphMatches = cleaned.match(/<p[^>]*>([\s\S]*?)<\/p>/gis);
       }
+      // Do NOT fall through to whole-page grab for LNW
     }
 
-    // Fallback for all sites: grab all <p> tags
-    if (!paragraphMatches) {
+    // Fallback for non-LNW sites: grab all <p> tags
+    if (!paragraphMatches && !isLightNovelWorld) {
       paragraphMatches = html.match(/<p[^>]*>([\s\S]*?)<\/p>/gis);
     }
 
