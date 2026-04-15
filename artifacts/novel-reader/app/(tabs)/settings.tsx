@@ -503,10 +503,10 @@ export default function SettingsScreen() {
 
               <Pressable
                 style={styles.devLinkRow}
-                onPress={() => Linking.openURL("https://moggs.is-a-good.dev")}
+                onPress={() => Linking.openURL("https://moggle.is-a-good.dev/")}
               >
                 <Text style={[styles.devLinkLabel, { color: colors.textSecondary }]}>Website:</Text>
-                <Text style={[styles.devLinkText, { color: colors.accent }]}>moggs.is-a-good.dev</Text>
+                <Text style={[styles.devLinkText, { color: colors.accent }]}>NovelDR Site</Text>
                 <Ionicons name="open-outline" size={14} color={colors.accent} />
               </Pressable>
 
