@@ -28,7 +28,7 @@ export type Novel = {
   lastRead?: {
     chapterIndex: number;
     chapterTitle: string;
-    scrollOffset: number; // New field to store vertical position
+    scrollOffset: number;
   };
 };
 
@@ -40,8 +40,8 @@ type LibraryContextType = {
   addNovel: (novel: Novel) => Promise<void>;
   updateNovel: (id: string, updates: Partial<Novel>) => Promise<void>;
   removeNovel: (id: string) => Promise<void>;
+  removeNovels: (ids: string[]) => Promise<void>;
   getNovel: (id: string) => Novel | undefined;
-  // Updated signature to include scrollOffset
   saveReadingProgress: (
     novelId: string, 
     chapterIndex: number, 
@@ -57,6 +57,7 @@ const LibraryContext = createContext<LibraryContextType>({
   addNovel: async () => {},
   updateNovel: async () => {},
   removeNovel: async () => {},
+  removeNovels: async () => {},
   getNovel: () => undefined,
   saveReadingProgress: async () => {},
   setNovelStatus: async () => {},
@@ -71,7 +72,6 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
       if (data) {
         try {
           const parsed: Novel[] = JSON.parse(data);
-          // Migrate older novels that don't have status yet
           const migrated = parsed.map((n) => ({
             ...n,
             status: n.status ?? (n.lastRead ? "reading" : "unread"),
@@ -90,27 +90,48 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
 
   const addNovel = useCallback(
     async (novel: Novel) => {
-      const updated = [novel, ...novels.filter((n) => n.id !== novel.id)];
-      await persist(updated);
+      setNovels((currentNovels) => {
+        const updated = [novel, ...currentNovels.filter((n) => n.id !== novel.id)];
+        AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(updated));
+        return updated;
+      });
     },
-    [novels, persist]
+    []
   );
 
   const updateNovel = useCallback(
     async (id: string, updates: Partial<Novel>) => {
-      const updated = novels.map((n) =>
-        n.id === id ? { ...n, ...updates } : n
-      );
-      await persist(updated);
+      setNovels((currentNovels) => {
+        const updated = currentNovels.map((n) =>
+          n.id === id ? { ...n, ...updates } : n
+        );
+        AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(updated));
+        return updated;
+      });
     },
-    [novels, persist]
+    []
   );
 
   const removeNovel = useCallback(
     async (id: string) => {
-      await persist(novels.filter((n) => n.id !== id));
+      setNovels((currentNovels) => {
+        const updated = currentNovels.filter((n) => n.id !== id);
+        AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(updated));
+        return updated;
+      });
     },
-    [novels, persist]
+    []
+  );
+
+  const removeNovels = useCallback(
+    async (ids: string[]) => {
+      setNovels((currentNovels) => {
+        const updated = currentNovels.filter((n) => !ids.includes(n.id));
+        AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(updated));
+        return updated;
+      });
+    },
+    []
   );
 
   const getNovel = useCallback(
@@ -118,10 +139,6 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     [novels]
   );
 
-  /**
-   * Updated to save the exact scroll position (scrollOffset) 
-   * so the reader can jump back to the last point.
-   */
   const saveReadingProgress = useCallback(
     async (
       novelId: string, 
@@ -135,7 +152,6 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
           chapterTitle, 
           scrollOffset 
         },
-        // Automatically switch status to 'reading' if progress is saved
         status: "reading",
       });
     },
@@ -157,6 +173,7 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
         addNovel,
         updateNovel,
         removeNovel,
+        removeNovels,
         getNovel,
         saveReadingProgress,
         setNovelStatus,
@@ -170,4 +187,3 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
 export function useLibrary() {
   return useContext(LibraryContext);
 }
-
