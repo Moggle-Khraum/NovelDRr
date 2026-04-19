@@ -197,7 +197,7 @@ function StatusSheet({
 // ── LibraryScreen ────────────────────────────────────────────────────────────
 
 export default function LibraryScreen() {
-  const { novels, removeNovel, loading, setNovelStatus } = useLibrary();
+  const { novels, removeNovels, loading, setNovelStatus } = useLibrary();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -273,9 +273,10 @@ export default function LibraryScreen() {
   const performBatchDelete = async () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     setConfirmDeleteVisible(false);
-    for (const novelId of selectedNovels) {
-      await removeNovel(novelId);
-    }
+    
+    // Use batch delete to remove all selected novels at once
+    await removeNovels(selectedNovels);
+    
     setSelectionMode(false);
     setSelectedNovels([]);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -507,7 +508,7 @@ export default function LibraryScreen() {
             <Ionicons name="alert-circle" size={48} color={colors.text} style={styles.modalIcon} />
             <Text style={[styles.modalTitle, { color: colors.text }]}>Confirm Deletion</Text>
             <Text style={[styles.modalMessage, { color: colors.textSecondary }]}>
-              This will permanently delete {selectedNovels.length} novel(s) and all its related chapters.{"\n\n"}
+              This will permanently delete {selectedNovels.length} novel(s) and all related chapters.{"\n\n"}
               Are you sure about this? {"\n\n"}
               If YES, click the 'DELETE' button.
             </Text>
