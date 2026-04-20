@@ -148,7 +148,7 @@ export default function SettingsScreen() {
           } catch (finalError) {
             Alert.alert(
               'Manual Steps Required',
-              'Please go to:\n\nSettings > Apps > Novel DR\n\nThen turn off:\n• Pause app activity if unused\n• Remove permissions and free up space',
+              'Please go to:\n\nSettings > Apps > Novel DR\n\nThen turn off:\n •Pause app activity if unused• &\n •Remove permissions and free up space•',
               [{ 
                 text: 'OK',
                 onPress: async () => {
@@ -413,7 +413,7 @@ export default function SettingsScreen() {
               </Pressable>
             </View>
             <Text style={[styles.warningText, { color: colors.textSecondary }]}>
-              Turn off <Text style={{ fontWeight: '700' }}>'Manage unused Apps'</Text> or{' '}
+              Turn off <Text style={{ fontWeight: '700' }}>'Manage unused Apps'</Text> and {' '}
               <Text style={{ fontWeight: '700' }}>'Remove permissions and free up space'</Text>{' '}
               in Android Settings for Novel DR to prevent imminent sudden deletion of your library data.
             </Text>
