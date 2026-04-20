@@ -481,7 +481,6 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
         'login to comment',
         'please follow common sense when posting comments',
         'spam, phishing, or any sort of suspicious comment will be deleted',
-        
       ];
 
       const filtered = validParagraphs.filter(text => {
@@ -504,6 +503,25 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
       if (!content.trim()) {
         content = validParagraphs.join('\n\n');
       }
+
+    // --- NovelFull / ReadNovelFull extra junk filtering ---
+    } else if ((isNovelFull || isReadNovelFull) && validParagraphs.length > 0) {
+      const junkPhrases = [
+        'we are offering free books',
+        'read novel updated daily',
+        'light novel translations',
+        'web novel, chinese novel',
+        'japanese novel, korean novel',
+        'other novel online',
+        'novelfull.com',
+        'readnovelfull.com',
+      ];
+      const filtered = validParagraphs.filter(text => {
+        const lower = text.toLowerCase();
+        return !junkPhrases.some(phrase => lower.includes(phrase));
+      });
+      content = filtered.join('\n\n') || validParagraphs.join('\n\n');
+
     } else {
       content = validParagraphs.join('\n\n');
     }
