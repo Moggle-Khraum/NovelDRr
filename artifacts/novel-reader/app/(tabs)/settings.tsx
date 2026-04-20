@@ -512,15 +512,15 @@ export default function SettingsScreen() {
 
               <Pressable
                 style={styles.devLinkRow}
-                onPress={() => Linking.openURL("https://github.com/Moggle-Khraum/NovelDrr")}
+                onPress={() => Linking.openURL("https://github.com/Moggle-Khraum/noveldr-site/releases")}
               >
-                <Text style={[styles.devLinkLabel, { color: colors.textSecondary }]}>GitHub:</Text>
-                <Text style={[styles.devLinkText, { color: colors.accent }]}>Moggle-Khraum/NovelDrr</Text>
+                <Text style={[styles.devLinkLabel, { color: colors.textSecondary }]}>Github Releases:</Text>
+                <Text style={[styles.devLinkText, { color: colors.accent }]}>Right Here</Text>
                 <Ionicons name="open-outline" size={14} color={colors.accent} />
               </Pressable>
 
               <Text style={[styles.devIssueText, { color: colors.textSecondary }]}>
-                For any suggestions / issues / bugs, please write an issue on the GitHub repository.
+                For any suggestions / issues / bugs, please write a comment on the website.
               </Text>
             </View>
           </View>
