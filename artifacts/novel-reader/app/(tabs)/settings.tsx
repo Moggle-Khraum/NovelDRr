@@ -3,7 +3,6 @@ import * as Haptics from "expo-haptics";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import * as DocumentPicker from "expo-document-picker";
-import * as Application from "expo-application";
 import * as IntentLauncher from "expo-intent-launcher";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { useState, useEffect } from "react";
@@ -18,13 +17,23 @@ import {
   View, 
   Modal, 
   Linking,
-  AppState 
+  AppState,
+  NativeModules 
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useLibrary } from "@/context/LibraryContext";
 import { useTheme } from "@/context/ThemeContext";
 import { Theme } from "@/constants/colors";
+
+// Get package name without expo-application
+const getPackageName = () => {
+  if (Platform.OS === 'android') {
+    // Fallback package name - replace with your actual package name
+    return 'com.moggle.noveldr';
+  }
+  return '';
+};
 
 function ThemeButton({
   label,
@@ -122,13 +131,12 @@ export default function SettingsScreen() {
         await IntentLauncher.startActivityAsync(
           'android.settings.MANAGE_UNUSED_APPS'
         );
-        // Mark as dismissed since user took action
         await AsyncStorage.setItem(WARNING_DISMISSED_KEY, 'true');
         setShowWarningCard(false);
       } catch (error) {
         try {
           // Fallback 1: Open app-specific settings
-          const packageName = Application.applicationId;
+          const packageName = getPackageName();
           await IntentLauncher.startActivityAsync(
             'android.settings.APPLICATION_DETAILS_SETTINGS',
             {
