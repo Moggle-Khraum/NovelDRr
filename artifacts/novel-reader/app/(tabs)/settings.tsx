@@ -30,7 +30,7 @@ import { Theme } from "@/constants/colors";
 const getPackageName = () => {
   if (Platform.OS === 'android') {
     // Fallback package name - replace with your actual package name
-    return 'com.moggle.noveldr';
+    return 'com.noveldr.app';
   }
   return '';
 };
