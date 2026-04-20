@@ -3,8 +3,23 @@ import * as Haptics from "expo-haptics";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import * as DocumentPicker from "expo-document-picker";
-import React, { useState } from "react";
-import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Modal, Linking } from "react-native";
+import * as Application from "expo-application";
+import * as IntentLauncher from "expo-intent-launcher";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import React, { useState, useEffect } from "react";
+import { 
+  Alert, 
+  Platform, 
+  Pressable, 
+  ScrollView, 
+  StyleSheet, 
+  Text, 
+  TextInput, 
+  View, 
+  Modal, 
+  Linking,
+  AppState 
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useLibrary } from "@/context/LibraryContext";
@@ -68,8 +83,93 @@ export default function SettingsScreen() {
   const [pendingComment, setPendingComment] = useState("");
   const [showDevProfile, setShowDevProfile] = useState(false);
   const [activePanel, setActivePanel] = useState<ActivePanel>(null);
+  const [showWarningCard, setShowWarningCard] = useState(true);
 
   const BACKUP_DIR = FileSystem.documentDirectory + "noveldrr-backups/";
+  const WARNING_DISMISSED_KEY = "noveldr_warning_dismissed";
+
+  // Check if warning card should be shown
+  useEffect(() => {
+    const checkWarningStatus = async () => {
+      try {
+        const dismissed = await AsyncStorage.getItem(WARNING_DISMISSED_KEY);
+        setShowWarningCard(dismissed !== 'true');
+      } catch (error) {
+        console.error('Failed to check warning status:', error);
+      }
+    };
+
+    checkWarningStatus();
+
+    // Re-check when app comes back to foreground
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active') {
+        checkWarningStatus();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
+  const openUnusedAppSettings = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
+    if (Platform.OS === 'android') {
+      try {
+        // Try direct MANAGE_UNUSED_APPS intent (Android 12+)
+        await IntentLauncher.startActivityAsync(
+          'android.settings.MANAGE_UNUSED_APPS'
+        );
+        // Mark as dismissed since user took action
+        await AsyncStorage.setItem(WARNING_DISMISSED_KEY, 'true');
+        setShowWarningCard(false);
+      } catch (error) {
+        try {
+          // Fallback 1: Open app-specific settings
+          const packageName = Application.applicationId;
+          await IntentLauncher.startActivityAsync(
+            'android.settings.APPLICATION_DETAILS_SETTINGS',
+            {
+              data: `package:${packageName}`,
+            }
+          );
+          await AsyncStorage.setItem(WARNING_DISMISSED_KEY, 'true');
+          setShowWarningCard(false);
+        } catch (e) {
+          // Fallback 2: Open general settings
+          try {
+            await IntentLauncher.startActivityAsync(
+              'android.settings.SETTINGS'
+            );
+            await AsyncStorage.setItem(WARNING_DISMISSED_KEY, 'true');
+            setShowWarningCard(false);
+          } catch (finalError) {
+            Alert.alert(
+              'Manual Steps Required',
+              'Please go to:\n\nSettings > Apps > Novel DR\n\nThen turn off:\n• Pause app activity if unused\n• Remove permissions and free up space',
+              [{ 
+                text: 'OK',
+                onPress: async () => {
+                  await AsyncStorage.setItem(WARNING_DISMISSED_KEY, 'true');
+                  setShowWarningCard(false);
+                }
+              }]
+            );
+          }
+        }
+      }
+    } else if (Platform.OS === 'ios') {
+      Linking.openURL('app-settings:');
+    }
+  };
+
+  const dismissWarning = async () => {
+    await AsyncStorage.setItem(WARNING_DISMISSED_KEY, 'true');
+    setShowWarningCard(false);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
 
   const openPanel = (panel: ActivePanel) => {
     setActivePanel((prev) => (prev === panel ? null : panel));
@@ -296,16 +396,32 @@ export default function SettingsScreen() {
         contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 100 }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Android Warning Card */}
-        <View style={[styles.warningCard, { backgroundColor: colors.surface, borderColor: "#ffb300" }]}>
-          <View style={styles.aboutRow}>
-            <Ionicons name="warning" size={18} color="#ffb300" />
-            <Text style={[styles.warningTitle, { color: colors.text }]}>System Action Required</Text>
-          </View>
-          <Text style={[styles.warningText, { color: colors.textSecondary }]}>
-            Turn off <Text style={{ fontWeight: '700' }}>'Manage unused Apps'</Text> or <Text style={{ fontWeight: '700' }}>'Remove permissions and free up space'</Text> in Android Settings for Novel DR to prevent imminent sudden deletion of your library data.
-          </Text>
-        </View>
+        {/* Android Warning Card - Conditionally Rendered */}
+        {showWarningCard && Platform.OS === 'android' && (
+          <Pressable
+            style={[styles.warningCard, { backgroundColor: colors.surface, borderColor: "#ffb300" }]}
+            onPress={openUnusedAppSettings}
+            android_ripple={{ color: '#ffb30020' }}
+          >
+            <View style={styles.warningHeader}>
+              <View style={styles.aboutRow}>
+                <Ionicons name="warning" size={18} color="#ffb300" />
+                <Text style={[styles.warningTitle, { color: colors.text }]}>System Action Required</Text>
+              </View>
+              <Pressable onPress={dismissWarning} style={styles.dismissButton}>
+                <Ionicons name="close" size={18} color={colors.textSecondary} />
+              </Pressable>
+            </View>
+            <Text style={[styles.warningText, { color: colors.textSecondary }]}>
+              Turn off <Text style={{ fontWeight: '700' }}>'Manage unused Apps'</Text> or{' '}
+              <Text style={{ fontWeight: '700' }}>'Remove permissions and free up space'</Text>{' '}
+              in Android Settings for Novel DR to prevent imminent sudden deletion of your library data.
+            </Text>
+            <Text style={[styles.warningTapHint, { color: '#ffb300' }]}>
+              👆 Tap here to open settings
+            </Text>
+          </Pressable>
+        )}
 
         <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>LIBRARY STATISTICS</Text>
         <View style={[styles.statsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -480,7 +596,7 @@ export default function SettingsScreen() {
           </View>
         )}
 
-        {/* Developer Profile Modal - New Layout */}
+        {/* Developer Profile Modal */}
         <Modal visible={showDevProfile} transparent animationType="fade">
           <View style={styles.modalOverlay}>
             <View style={[styles.devCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -601,9 +717,29 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     marginTop: 8,
   },
-  warningCard: { borderRadius: 14, borderWidth: 1, padding: 14, gap: 6, marginBottom: 4 },
+  warningCard: { 
+    borderRadius: 14, 
+    borderWidth: 1, 
+    padding: 14, 
+    gap: 6, 
+    marginBottom: 4,
+  },
+  warningHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  dismissButton: {
+    padding: 4,
+  },
   warningTitle: { fontFamily: "Inter_700Bold", fontSize: 14 },
   warningText: { fontFamily: "Inter_400Regular", fontSize: 12, lineHeight: 18 },
+  warningTapHint: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    marginTop: 6,
+    textAlign: 'center',
+  },
   statsCard: {
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
