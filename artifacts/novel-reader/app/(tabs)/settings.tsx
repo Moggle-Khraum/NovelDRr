@@ -514,8 +514,8 @@ export default function SettingsScreen() {
                 style={styles.devLinkRow}
                 onPress={() => Linking.openURL("https://github.com/Moggle-Khraum/noveldr-site/releases")}
               >
-                <Text style={[styles.devLinkLabel, { color: colors.textSecondary }]}>Github Releases:</Text>
-                <Text style={[styles.devLinkText, { color: colors.accent }]}>Right Here</Text>
+                <Text style={[styles.devLinkLabel, { color: colors.textSecondary }]}>Github:</Text>
+                <Text style={[styles.devLinkText, { color: colors.accent }]}>Github/Releases</Text>
                 <Ionicons name="open-outline" size={14} color={colors.accent} />
               </Pressable>
 
