@@ -244,7 +244,6 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
       const coverMatch = safeMatch(html, /<div[^>]*class="book"[^>]*>[\s\S]*?<img[^>]*src="([^"]+)"[^>]*>/i);
       if (coverMatch) coverUrl = makeAbsoluteUrl(coverMatch, url);
 
-      // Fixed: use Schema.org microdata same as ReadNovelFull
       const authorMatch = safeMatch(html, /<span[^>]*itemprop="author"[^>]*>[\s\S]*?<meta[^>]*itemprop="name"[^>]*content="([^"]+)"/i);
       if (authorMatch) author = decodeEntities(authorMatch);
 
@@ -363,7 +362,26 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
     }
 
     let content = '';
-    if (isLightNovelWorld && validParagraphs.length > 0) {
+
+    if (isNovelBin && validParagraphs.length > 0) {
+      const junkPhrases = [
+        'error loading comments',
+        'please try again later',
+        'total responses',
+        'load comments',
+        'login to comment',
+        'post a comment',
+        'report error',
+        'novelbin.com',
+        'novelbin.me',
+      ];
+      const filtered = validParagraphs.filter(text => {
+        const lower = text.toLowerCase();
+        return !junkPhrases.some(phrase => lower.includes(phrase));
+      });
+      content = filtered.join('\n\n') || validParagraphs.join('\n\n');
+
+    } else if (isLightNovelWorld && validParagraphs.length > 0) {
       const junkPhrases = [
         'text-to-speech is here',
         'create a free account',
@@ -414,24 +432,6 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
       if (!content.trim()) {
         content = validParagraphs.join('\n\n');
       }
-
-    } } else if (isNovelBin && validParagraphs.length > 0) {
-      const junkPhrases = [
-        'error loading comments',
-        'please try again later',
-        'total responses',
-        'load comments',
-        'login to comment',
-        'post a comment',
-        'report error',
-        'novelbin.com',
-        'novelbin.me',
-      ];
-      const filtered = validParagraphs.filter(text => {
-        const lower = text.toLowerCase();
-        return !junkPhrases.some(phrase => lower.includes(phrase));
-      });
-      content = filtered.join('\n\n') || validParagraphs.join('\n\n');
 
     } else if ((isNovelFull || isReadNovelFull) && validParagraphs.length > 0) {
       const junkPhrases = [
@@ -521,7 +521,7 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
   }
 };
 
-/**
+ /**
  * Downloads all chapters of a novel by following the "next chapter" links.
  * Saves each chapter as soon as it's fetched, allowing incremental progress.
  *
