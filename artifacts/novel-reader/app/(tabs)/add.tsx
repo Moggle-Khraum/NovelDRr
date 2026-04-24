@@ -1,8 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as FileSystem from "expo-file-system"; // ✅ added
+import * as FileSystem from "expo-file-system";
 import React, { useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -12,7 +13,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
+import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useLibrary, Novel, Chapter } from "@/context/LibraryContext";
@@ -98,7 +99,7 @@ export default function AddNovelScreen() {
     setProgressLabel("");
   };
 
-  // ✅ New: download cover image to local file system
+  // Download cover image to local file system
   const downloadAndSaveCover = async (coverUrl: string, novelId: string): Promise<string> => {
     if (!coverUrl) return '';
     
@@ -106,20 +107,18 @@ export default function AddNovelScreen() {
     const coverPath = `${coverDir}${novelId}.jpg`;
     
     try {
-      // Ensure directory exists
       const dirInfo = await FileSystem.getInfoAsync(coverDir);
       if (!dirInfo.exists) {
         await FileSystem.makeDirectoryAsync(coverDir, { intermediates: true });
       }
       
-      // Download the image
       const downloadResult = await FileSystem.downloadAsync(coverUrl, coverPath);
       addLog(`Cover image saved locally`, "success");
-      return downloadResult.uri; // local file URI
+      return downloadResult.uri;
     } catch (err) {
       console.warn('Failed to download cover:', err);
       addLog(`Cover download failed, using remote URL`, "warning");
-      return coverUrl; // fallback to remote URL
+      return coverUrl;
     }
   };
 
@@ -143,6 +142,42 @@ export default function AddNovelScreen() {
     setProgress(0);
 
     try {
+      // ─── SILENT CHECK: Fetch metadata first (no logs) ───
+      const meta = await fetchNovelMeta(trimmedUrl);
+      
+      // Check if novel already exists (silently)
+      const existingNovel = novels.find(
+        (n) => n.title.toLowerCase() === meta.title.toLowerCase()
+      );
+      
+      if (existingNovel) {
+        // Show modal only - no logs
+        Alert.alert(
+          "📚 Novel Already Exists",
+          `"${meta.title}" is already in your library with ${existingNovel.chapters.length} chapters.\n\nYou can update it from the Updates tab if needed.`,
+          [
+            {
+              text: "OK",
+              onPress: () => {
+                setUrl("");
+                setProgress(0);
+              }
+            },
+            {
+              text: "Go to Updates",
+              onPress: () => {
+                setUrl("");
+                setProgress(0);
+              }
+            }
+          ]
+        );
+        
+        setIsDownloading(false);
+        return;
+      }
+
+      // ─── Now start the visible download process ───
       let domain = "";
       try {
         const urlObj = new URL(trimmedUrl);
@@ -156,8 +191,6 @@ export default function AddNovelScreen() {
       addLog(`Source Domain: ${domain}`, "info");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
-      const meta = await fetchNovelMeta(trimmedUrl);
-      
       addLog(`Connection successful!`, "success");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
       addLog(`NOVEL INFORMATION`, "downloading");
@@ -187,53 +220,39 @@ export default function AddNovelScreen() {
       addLog(`First chapter URL found`, "success");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
-      const existingNovel = novels.find((n) => n.title === meta.title);
       const safeId = meta.title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "") + "-" + Date.now();
-      const novelId = existingNovel?.id || safeId;
+      const novelId = safeId;
 
-      // ✅ Download cover image now (before chapters)
+      // Download cover image now (before chapters)
       let localCoverUrl = "";
       if (meta.coverUrl) {
         localCoverUrl = await downloadAndSaveCover(meta.coverUrl, novelId);
       }
 
-      const existingChapters: Chapter[] = existingNovel?.chapters || [];
-      const existingCount = existingChapters.length;
-
-      if (existingCount > 0) {
-        addLog(`Existing chapters in library: ${existingCount}`, "info");
-        addLog(`Will skip already downloaded chapters`, "info");
-      }
+      const newChapters: Chapter[] = [];
       
       addLog(`Starting from chapter ${startCh}...`, "downloading");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
       let currentUrl: string | null = meta.firstChapterUrl;
       let chapterNum = 1;
-      const newChapters: Chapter[] = [...existingChapters];
       let downloaded = 0;
 
-      while (currentUrl && !stopRef.current) {
-        if (chapterNum < startCh) {
-          const data = await fetchChapter(currentUrl, chapterNum);
-          if (!data.nextUrl) break;
-          currentUrl = data.nextUrl;
-          chapterNum++;
-          continue;
-        }
+      // Skip chapters before start chapter
+      while (currentUrl && chapterNum < startCh && !stopRef.current) {
+        const data = await fetchChapter(currentUrl, chapterNum);
+        if (!data.nextUrl) break;
+        currentUrl = data.nextUrl;
+        chapterNum++;
+      }
 
+      // Download new chapters
+      while (currentUrl && !stopRef.current) {
         if (maxCh !== null && downloaded >= maxCh) {
           addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
           addLog(`Reached max chapter limit (${maxCh})`, "success");
           addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
           break;
-        }
-
-        const alreadyExists = newChapters.some((c) => c.url === currentUrl);
-        if (alreadyExists) {
-          addLog(`[SKIPPED] Chapter ${chapterNum} already exists in library`, "info");
-          chapterNum++;
-          continue;
         }
 
         setProgressLabel(`Chapter ${chapterNum}`);
@@ -286,7 +305,6 @@ export default function AddNovelScreen() {
       
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
-      // ✅ Use local cover URL if available, otherwise fallback to remote
       const finalCoverUrl = localCoverUrl || meta.coverUrl;
 
       const novel: Novel = {
@@ -294,12 +312,11 @@ export default function AddNovelScreen() {
         title: meta.title,
         author: meta.author,
         synopsis: meta.synopsis,
-        coverUrl: finalCoverUrl,   // now points to local file (or remote as fallback)
+        coverUrl: finalCoverUrl,
         sourceUrl: trimmedUrl,
         chapters: newChapters,
-        dateAdded: existingNovel?.dateAdded || Date.now(),
-        lastRead: existingNovel?.lastRead,
-        status: existingNovel?.status ?? "unread",
+        dateAdded: Date.now(),
+        status: "unread",
       };
       await addNovel(novel);
       setProgress(100);
@@ -429,7 +446,7 @@ export default function AddNovelScreen() {
           </View>
         </View>
 
-        {/* Progress Section - Always Visible */}
+        {/* Progress Section */}
         <View style={styles.progressSection}>
           <View style={styles.progressHeader}>
             <Ionicons name="bar-chart" size={15} color={colors.accent} />
@@ -453,7 +470,7 @@ export default function AddNovelScreen() {
           </View>
         </View>
 
-        {/* Activity Log Section - Always Visible with Scroll */}
+        {/* Activity Log Section */}
         <View style={styles.logSection}>
           <View style={styles.logHeader}>
             <Ionicons name="sync" size={15} color={colors.accent} />
@@ -481,7 +498,6 @@ export default function AddNovelScreen() {
           </ScrollView>
         </View>
 
-        {/* Extra space at bottom for better scrolling */}
         <View style={styles.bottomSpacer} />
       </ScrollView>
     </KeyboardAvoidingView>
