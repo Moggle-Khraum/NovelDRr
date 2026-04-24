@@ -415,6 +415,24 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
         content = validParagraphs.join('\n\n');
       }
 
+    } } else if (isNovelBin && validParagraphs.length > 0) {
+      const junkPhrases = [
+        'error loading comments',
+        'please try again later',
+        'total responses',
+        'load comments',
+        'login to comment',
+        'post a comment',
+        'report error',
+        'novelbin.com',
+        'novelbin.me',
+      ];
+      const filtered = validParagraphs.filter(text => {
+        const lower = text.toLowerCase();
+        return !junkPhrases.some(phrase => lower.includes(phrase));
+      });
+      content = filtered.join('\n\n') || validParagraphs.join('\n\n');
+
     } else if ((isNovelFull || isReadNovelFull) && validParagraphs.length > 0) {
       const junkPhrases = [
         'we are offering free books',
