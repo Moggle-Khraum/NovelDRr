@@ -1,6 +1,7 @@
 # Novel DR
 
 A mobile app for downloading and reading web novels offline. Supports limited novel sites.
+
 Visit the website here: https://moggle.is-a-good.dev/
 
 ## Features
