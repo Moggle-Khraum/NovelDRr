@@ -15,7 +15,7 @@ import {
 } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
+import { router } from "expo-router";
 import { useLibrary, Novel, Chapter } from "@/context/LibraryContext";
 import { useTheme } from "@/context/ThemeContext";
 import { fetchNovelMeta, fetchChapter } from "@/hooks/useApi";
@@ -168,6 +168,7 @@ export default function AddNovelScreen() {
               onPress: () => {
                 setUrl("");
                 setProgress(0);
+                router.push("/(tabs)/updates");
               }
             }
           ]
