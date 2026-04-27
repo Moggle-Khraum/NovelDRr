@@ -243,7 +243,7 @@ export default function LibraryScreen() {
       // No need to track isSwiping
     })
     .onUpdate((event) => {
-      translateX.value = event.translationX * 0.8; // Dampen the movement
+      translateX.value = event.translationX * 0.5; // Dampen the movement
     })
     .onEnd((event) => {
       const threshold = 60;
