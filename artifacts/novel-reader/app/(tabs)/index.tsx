@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef } from "react";
 import {
   Alert,
   FlatList,
@@ -20,7 +20,9 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
+  runOnJS,
 } from "react-native-reanimated";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useLibrary, Novel, NovelStatus } from "@/context/LibraryContext";
@@ -214,6 +216,55 @@ export default function LibraryScreen() {
 
   const [statusSheetNovel, setStatusSheetNovel] = useState<Novel | null>(null);
 
+  // ── Swipe Animation Values ─────────────────────────────────────────────────
+  const translateX = useSharedValue(0);
+  const filterKeys = FILTER_TABS.map(tab => tab.key);
+
+  const changeFilterSwipe = (direction: 'left' | 'right') => {
+    const currentIndex = filterKeys.indexOf(activeFilter);
+    let newIndex: number;
+    
+    if (direction === 'left' && currentIndex < filterKeys.length - 1) {
+      newIndex = currentIndex + 1;
+    } else if (direction === 'right' && currentIndex > 0) {
+      newIndex = currentIndex - 1;
+    } else {
+      return;
+    }
+    
+    setActiveFilter(filterKeys[newIndex] as NovelStatus | "all");
+    Haptics.selectionAsync();
+  };
+
+  const panGesture = Gesture.Pan()
+    .activeOffsetX([-10, 10]) // Becomes active after 10px horizontal movement
+    .failOffsetY([-10, 10])   // Fails if vertical movement exceeds 10px
+    .onStart(() => {
+      // No need to track isSwiping
+    })
+    .onUpdate((event) => {
+      translateX.value = event.translationX * 0.8; // Dampen the movement
+    })
+    .onEnd((event) => {
+      const threshold = 60;
+      
+      if (event.translationX < -threshold) {
+        runOnJS(changeFilterSwipe)('left');
+      } else if (event.translationX > threshold) {
+        runOnJS(changeFilterSwipe)('right');
+      }
+      
+      translateX.value = withSpring(0, {
+        damping: 20,
+        stiffness: 200,
+      });
+    });
+
+  const animatedContentStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+    opacity: 1 - Math.abs(translateX.value) / 300,
+  }));
+
   // Filter novels based on status AND search query
   const filteredNovels = useMemo(() => {
     let result = activeFilter === "all"
@@ -274,7 +325,6 @@ export default function LibraryScreen() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     setConfirmDeleteVisible(false);
     
-    // Use batch delete to remove all selected novels at once
     await removeNovels(selectedNovels);
     
     setSelectionMode(false);
@@ -465,6 +515,32 @@ export default function LibraryScreen() {
     );
   };
 
+  const renderContent = () => {
+    if (!loading && filteredNovels.length === 0) {
+      return renderEmptyState();
+    }
+
+    return (
+      <FlatList
+        data={filteredNovels}
+        keyExtractor={(n) => n.id}
+        renderItem={({ item, index }) => (
+          <Animated.View entering={FadeIn.delay(index * 50)}>
+            <NovelCard
+              novel={item}
+              onPress={() => handleNovelPress(item)}
+              onLongPress={() => handleNovelLongPress(item)}
+              isSelected={selectedNovels.includes(item.id)}
+              selectionMode={selectionMode}
+            />
+          </Animated.View>
+        )}
+        contentContainerStyle={{ padding: 16, paddingBottom: bottomPad + 90, gap: 12 }}
+        showsVerticalScrollIndicator={false}
+      />
+    );
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Top chrome — flexShrink: 0 prevents it from being squished by the list */}
@@ -474,26 +550,17 @@ export default function LibraryScreen() {
         {!selectionMode && renderFilterTabs()}
       </View>
 
-      {!loading && filteredNovels.length === 0 ? (
-        renderEmptyState()
+      {/* Swipeable Content Area */}
+      {!selectionMode && !showSearch ? (
+        <GestureDetector gesture={panGesture}>
+          <Animated.View style={[{ flex: 1 }, animatedContentStyle]}>
+            {renderContent()}
+          </Animated.View>
+        </GestureDetector>
       ) : (
-        <FlatList
-          data={filteredNovels}
-          keyExtractor={(n) => n.id}
-          renderItem={({ item, index }) => (
-            <Animated.View entering={FadeIn.delay(index * 50)}>
-              <NovelCard
-                novel={item}
-                onPress={() => handleNovelPress(item)}
-                onLongPress={() => handleNovelLongPress(item)}
-                isSelected={selectedNovels.includes(item.id)}
-                selectionMode={selectionMode}
-              />
-            </Animated.View>
-          )}
-          contentContainerStyle={{ padding: 16, paddingBottom: bottomPad + 90, gap: 12 }}
-          showsVerticalScrollIndicator={false}
-        />
+        <View style={{ flex: 1 }}>
+          {renderContent()}
+        </View>
       )}
 
       {/* Batch Delete Confirmation Modal */}
