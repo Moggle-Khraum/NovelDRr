@@ -255,8 +255,9 @@ export default function LibraryScreen() {
       }
       
       translateX.value = withSpring(0, {
-        damping: 20,
-        stiffness: 200,
+        damping: 50,
+        stiffness: 100,
+        overshootClamping: true,
       });
     });
 
