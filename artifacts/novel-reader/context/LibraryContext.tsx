@@ -32,7 +32,10 @@ export type Novel = {
   };
 };
 
+export type SortOrder = "ascending" | "descending";
+
 const LIBRARY_KEY = "novel_library_v1";
+const SORT_PREFERENCE_KEY = "chapter_sort_preference";
 
 type LibraryContextType = {
   novels: Novel[];
@@ -49,6 +52,9 @@ type LibraryContextType = {
     scrollOffset: number
   ) => Promise<void>;
   setNovelStatus: (novelId: string, status: NovelStatus) => Promise<void>;
+  sortOrder: SortOrder;
+  toggleSortOrder: () => void;
+  getSortedChapters: (chapters: Chapter[]) => Chapter[];
 };
 
 const LibraryContext = createContext<LibraryContextType>({
@@ -61,11 +67,38 @@ const LibraryContext = createContext<LibraryContextType>({
   getNovel: () => undefined,
   saveReadingProgress: async () => {},
   setNovelStatus: async () => {},
+  sortOrder: "ascending",
+  toggleSortOrder: () => {},
+  getSortedChapters: (chapters) => chapters,
 });
+
+// Helper to extract chapter number from a Chapter object
+function extractChapterNumber(chapter: Chapter): number {
+  // Try to get number from title like "Chapter 5" or "Chapter 5: Title" or "Chapter 5 - Title"
+  const titleMatch = chapter.title.match(/chapter\s*(\d+)/i);
+  if (titleMatch) return parseInt(titleMatch[1], 10);
+  
+  // Fallback: try URL like ".../chapter-5" or ".../chapter/5/"
+  const urlMatch = chapter.url.match(/chapter[-/](\d+)/i);
+  if (urlMatch) return parseInt(urlMatch[1], 10);
+  
+  // Last resort: return 0 (will stay in original position)
+  return 0;
+}
 
 export function LibraryProvider({ children }: { children: React.ReactNode }) {
   const [novels, setNovels] = useState<Novel[]>([]);
   const [loading, setLoading] = useState(true);
+  const [sortOrder, setSortOrder] = useState<SortOrder>("ascending");
+
+  // Load sort preference
+  useEffect(() => {
+    AsyncStorage.getItem(SORT_PREFERENCE_KEY).then((value) => {
+      if (value === "descending") {
+        setSortOrder("descending");
+      }
+    });
+  }, []);
 
   useEffect(() => {
     AsyncStorage.getItem(LIBRARY_KEY).then((data) => {
@@ -165,6 +198,34 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     [updateNovel]
   );
 
+  // Toggle between ascending and descending
+  const toggleSortOrder = useCallback(() => {
+    setSortOrder((prev) => {
+      const next = prev === "ascending" ? "descending" : "ascending";
+      AsyncStorage.setItem(SORT_PREFERENCE_KEY, next);
+      return next;
+    });
+  }, []);
+
+  // Sort chapters by chapter number, then apply ascending/descending
+  const getSortedChapters = useCallback(
+    (chapters: Chapter[]): Chapter[] => {
+      // First, sort numerically by chapter number
+      const sorted = [...chapters].sort((a, b) => {
+        const numA = extractChapterNumber(a);
+        const numB = extractChapterNumber(b);
+        return numA - numB;
+      });
+      
+      // Then apply sort order preference
+      if (sortOrder === "descending") {
+        return sorted.reverse();
+      }
+      return sorted;
+    },
+    [sortOrder]
+  );
+
   return (
     <LibraryContext.Provider
       value={{
@@ -177,6 +238,9 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
         getNovel,
         saveReadingProgress,
         setNovelStatus,
+        sortOrder,
+        toggleSortOrder,
+        getSortedChapters,
       }}
     >
       {children}
