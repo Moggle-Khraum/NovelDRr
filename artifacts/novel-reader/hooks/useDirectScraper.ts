@@ -267,9 +267,17 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
       const titleMatch = safeMatch(html, /<h1[^>]*class="novel-title"[^>]*>([^<]+)<\/h1>/i);
       if (titleMatch) title = decodeEntities(titleMatch);
 
-      const authorMatch = safeMatch(html, /<p[^>]*class="novel-author"[^>]*>([^<]+)<\/p>/i);
-      if (authorMatch) author = decodeEntities(authorMatch.replace(/^Author:\s*/i, '').trim());
-
+        // Fix: Extract author from the anchor tag inside novel-author paragraph
+      const authorMatch = safeMatch(html, /<p[^>]*class="novel-author"[^>]*>[\s\S]*?<a[^>]*class="author-link"[^>]*>([^<]+)<\/a>/i);
+      if (authorMatch) {
+        author = decodeEntities(authorMatch.trim());
+      } else {
+       // Fallback: try to get text content and strip tags
+      const authorFallback = safeMatch(html, /<p[^>]*class="novel-author"[^>]*>([\s\S]*?)<\/p>/i);
+      if (authorFallback) {
+        author = decodeEntities(stripTags(authorFallback).replace(/^Author:\s*/i, '').trim());
+        }
+      }
       const coverMatch = safeMatch(html, /<img[^>]*class="novel-cover"[^>]*src="([^"]+)"/i) ||
                          safeMatch(html, /<img[^>]*src="([^"]+)"[^>]*class="novel-cover"/i);
       if (coverMatch) coverUrl = makeAbsoluteUrl(coverMatch, url);
