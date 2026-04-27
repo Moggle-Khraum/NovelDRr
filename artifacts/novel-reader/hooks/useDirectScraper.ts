@@ -250,8 +250,18 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
       if (coverMatch) coverUrl = makeAbsoluteUrl(coverMatch, url);
       
       // AUTHOR
-      const authorMatch = safeMatch(html, /<div[^>]*class="item"[^>]*>.*?<div[^>]*class="right"[^>]*>.*?<a[^>]*class="a1"[^>]*>([^<]+)<\/a>/i);
-      if (authorMatch) author = decodeEntities(authorMatch);
+      // Fix: Better extraction for author with nested anchor tag
+      const authorMatch = safeMatch(html, /<p[^>]*class="novel-author"[^>]*>\s*Author:\s*<a[^>]*class="author-link"[^>]*>([^<]+)<\/a>/i);
+      if (authorMatch) {
+        author = decodeEntities(authorMatch.trim());
+      } else {
+        // Fallback: Try to extract from the paragraph text
+        const authorFallback = safeMatch(html, /<p[^>]*class="novel-author"[^>]*>([\s\S]*?)<\/p>/i);
+        if (authorFallback) {
+          // Clean up: remove "Author:" prefix and any HTML tags
+          author = decodeEntities(stripTags(authorFallback.replace(/^Author:\s*/i, '').trim()));
+        }
+      }
       
       // SYNOPSIS
       const descMatch = safeMatch(html, /<div[^>]*class="m-desc"[^>]*>([\s\S]*?)<\/div>/i);
