@@ -59,12 +59,15 @@ export default function ReaderScreen() {
 
   const novel = getNovel(id);
   
-  // Get sorted chapters
+  // Get sorted chapters for TOC display only
   const sortedChapters = novel ? getSortedChapters(novel.chapters) : [];
   
-  // Find the actual chapter in the sorted list based on the URL
-  // This ensures we use the right chapter even when sorted
-  const chapter = sortedChapters[chapterIndex];
+  // Use original chapters for reading (chapterIndex refers to original array)
+  const chapter = novel?.chapters[chapterIndex];
+  
+  // Find current chapter's position in sorted list (for TOC highlighting)
+  const currentChapterUrl = chapter?.url;
+  const currentSortedIndex = sortedChapters.findIndex(ch => ch.url === currentChapterUrl);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
@@ -227,7 +230,13 @@ export default function ReaderScreen() {
     updateReadingProgress();
   };
 
-  const handleChapterSelect = (index: number) => {
+  const handleChapterSelect = (sortedIndex: number) => {
+    // Find the chapter in sorted list, then get its original index
+    const selectedChapter = sortedChapters[sortedIndex];
+    if (!selectedChapter) return;
+    
+    const originalIndex = novel?.chapters.findIndex(c => c.url === selectedChapter.url) ?? 0;
+    
     if (novel && chapter) {
       saveReadingProgress(
         novel.id,
@@ -242,7 +251,7 @@ export default function ReaderScreen() {
     forceTopRef.current = true;
     scrollRef.current?.scrollTo({ y: 0, animated: false });
     
-    setChapterIndex(index);
+    setChapterIndex(originalIndex);
     setShowTOC(false);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
@@ -261,7 +270,7 @@ export default function ReaderScreen() {
 
   const goChapter = (dir: 1 | -1) => {
     const next = chapterIndex + dir;
-    if (next < 0 || next >= sortedChapters.length) {
+    if (next < 0 || next >= (novel?.chapters.length ?? 0)) {
       Alert.alert("Navigation", dir === -1 ? "First chapter reached" : "Last chapter reached");
       return;
     }
@@ -396,20 +405,20 @@ export default function ReaderScreen() {
           onPress={() => setShowTOC(true)}
         >
           <Text style={[styles.tocButtonText, { color: colors.text }]}>
-            {chapterIndex + 1} / {sortedChapters.length}
+            {chapterIndex + 1} / {novel.chapters.length}
           </Text>
         </Pressable>
 
         <Pressable 
           style={[styles.navChBtn, { 
-            backgroundColor: chapterIndex === sortedChapters.length - 1 ? colors.border : colors.accent, 
-            borderColor: chapterIndex === sortedChapters.length - 1 ? colors.border : colors.accent 
+            backgroundColor: chapterIndex === (novel.chapters.length ?? 0) - 1 ? colors.border : colors.accent, 
+            borderColor: chapterIndex === (novel.chapters.length ?? 0) - 1 ? colors.border : colors.accent 
           }]} 
           onPress={() => goChapter(1)} 
-          disabled={chapterIndex === sortedChapters.length - 1}
+          disabled={chapterIndex === (novel.chapters.length ?? 0) - 1}
         >
-          <Text style={[styles.navChText, { color: chapterIndex === sortedChapters.length - 1 ? colors.textMuted : "#fff" }]}>Next</Text>
-          <Ionicons name="chevron-forward" size={18} color={chapterIndex === sortedChapters.length - 1 ? colors.textMuted : "#fff"} />
+          <Text style={[styles.navChText, { color: chapterIndex === (novel.chapters.length ?? 0) - 1 ? colors.textMuted : "#fff" }]}>Next</Text>
+          <Ionicons name="chevron-forward" size={18} color={chapterIndex === (novel.chapters.length ?? 0) - 1 ? colors.textMuted : "#fff"} />
         </Pressable>
       </View>
 
@@ -425,7 +434,6 @@ export default function ReaderScreen() {
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: colors.text }]}>Table of Contents</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                {/* Sort Order Toggle Button */}
                 <Pressable 
                   onPress={toggleSortOrder} 
                   style={[styles.sortBtn, { borderColor: colors.border }]}
@@ -450,25 +458,25 @@ export default function ReaderScreen() {
                   key={idx}
                   style={[
                     styles.tocItem,
-                    idx === chapterIndex && [styles.tocItemActive, { backgroundColor: colors.accent + '20' }]
+                    idx === currentSortedIndex && [styles.tocItemActive, { backgroundColor: colors.accent + '20' }]
                   ]}
                   onPress={() => handleChapterSelect(idx)}
                 >
                   <View style={styles.tocItemContent}>
                     <Text style={[
                       styles.tocChapterNum,
-                      { color: idx === chapterIndex ? colors.accent : colors.textSecondary }
+                      { color: idx === currentSortedIndex ? colors.accent : colors.textSecondary }
                     ]}>
                       Chapter {idx + 1}
                     </Text>
                     <Text style={[
                       styles.tocChapterTitle,
-                      { color: idx === chapterIndex ? colors.accent : colors.text }
+                      { color: idx === currentSortedIndex ? colors.accent : colors.text }
                     ]}>
                       {ch.title}
                     </Text>
                   </View>
-                  {idx === chapterIndex && (
+                  {idx === currentSortedIndex && (
                     <Ionicons name="checkmark-circle" size={20} color={colors.accent} />
                   )}
                 </Pressable>
@@ -494,7 +502,6 @@ const styles = StyleSheet.create({
   },
   navBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   chapterTitle: { fontFamily: "Inter_600SemiBold", fontSize: 14, flex: 1, textAlign: "center" },
-  
   progressBarContainer: {
     height: 3,
     width: '100%',
@@ -504,7 +511,6 @@ const styles = StyleSheet.create({
     height: '100%',
     width: '0%',
   },
-  
   controls: { paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, gap: 10 },
   controlRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   controlLabel: { fontFamily: "Inter_500Medium", fontSize: 13, width: 80 },
@@ -539,7 +545,6 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold", 
     fontSize: 14,
   },
-  
   modalOverlay: {
     flex: 1,
     justifyContent: 'flex-end',
