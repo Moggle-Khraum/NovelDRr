@@ -120,47 +120,43 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     setNovels(updated);
     await AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(updated));
   }, []);
-
-  |
   
   const addNovel = useCallback(
-  async (novel: Novel) => {
-    setNovels((currentNovels) => {
-      const existingIndex = currentNovels.findIndex((n) => n.id === novel.id);
-      
-      if (existingIndex !== -1) {
-        // Novel exists - merge chapters
-        const existing = currentNovels[existingIndex];
-        const existingUrls = new Set(existing.chapters.map((ch) => ch.url));
+    async (novel: Novel) => {
+      setNovels((currentNovels) => {
+        const existingIndex = currentNovels.findIndex((n) => n.id === novel.id);
         
-        // Only add chapters that don't already exist
-        const newChapters = novel.chapters.filter((ch) => !existingUrls.has(ch.url));
-        
-        const mergedNovel: Novel = {
-          ...existing,
-          title: novel.title,
-          author: novel.author,
-          synopsis: novel.synopsis || existing.synopsis,
-          coverUrl: novel.coverUrl || existing.coverUrl,
-          chapters: [...existing.chapters, ...newChapters],
-        };
-        
-        const updated = [...currentNovels];
-        updated[existingIndex] = mergedNovel;
-        AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(updated));
-        return updated;
-      } else {
-        // New novel
-        const updated = [novel, ...currentNovels];
-        AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(updated));
-        return updated;
-      }
-    });
-  },
-  []
-);
-
-  |
+        if (existingIndex !== -1) {
+          // Novel exists - merge chapters
+          const existing = currentNovels[existingIndex];
+          const existingUrls = new Set(existing.chapters.map((ch) => ch.url));
+          
+          // Only add chapters that don't already exist
+          const newChapters = novel.chapters.filter((ch) => !existingUrls.has(ch.url));
+          
+          const mergedNovel: Novel = {
+            ...existing,
+            title: novel.title,
+            author: novel.author,
+            synopsis: novel.synopsis || existing.synopsis,
+            coverUrl: novel.coverUrl || existing.coverUrl,
+            chapters: [...existing.chapters, ...newChapters],
+          };
+          
+          const updated = [...currentNovels];
+          updated[existingIndex] = mergedNovel;
+          AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(updated));
+          return updated;
+        } else {
+          // New novel
+          const updated = [novel, ...currentNovels];
+          AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(updated));
+          return updated;
+        }
+      });
+    },
+    []
+  );
 
   const updateNovel = useCallback(
     async (id: string, updates: Partial<Novel>) => {
