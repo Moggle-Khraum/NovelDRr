@@ -636,7 +636,7 @@ export default function SettingsScreen() {
               </Pressable>
 
               <Text style={[styles.devIssueText, { color: colors.textSecondary }]}>
-                For any suggestions / issues / bugs, please write a comment on the website.
+                For any suggestions / issues / bugs, please write a comment on Github.
               </Text>
             </View>
           </View>
@@ -690,7 +690,7 @@ export default function SettingsScreen() {
         </View>
 
         <View style={[styles.versionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Text style={[styles.versionText, { color: colors.textMuted }]}>Novel DR — v1.3.9</Text>
+          <Text style={[styles.versionText, { color: colors.textMuted }]}>Novel DR — v1.3.11</Text>
           <Text style={[styles.madeByText, { color: colors.textMuted }]}>Made by Moggs ☕</Text>
         </View>
       </ScrollView>
