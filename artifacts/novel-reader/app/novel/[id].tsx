@@ -19,7 +19,7 @@ import { useTheme } from "@/context/ThemeContext";
 
 export default function NovelDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { getNovel } = useLibrary();
+  const { getNovel, sortOrder, toggleSortOrder, getSortedChapters } = useLibrary();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [synopsisExpanded, setSynopsisExpanded] = useState(false);
@@ -33,6 +33,8 @@ export default function NovelDetailScreen() {
       </View>
     );
   }
+
+  const sortedChapters = getSortedChapters(novel.chapters);
 
   const progress = novel.lastRead
     ? `${novel.lastRead.chapterIndex + 1} / ${novel.chapters.length}`
@@ -143,12 +145,30 @@ export default function NovelDetailScreen() {
             </View>
           </Pressable>
 
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>
-            Chapters ({novel.chapters.length})
-          </Text>
+          {/* Chapters Header with Sort Toggle */}
+          <View style={styles.chapterHeader}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>
+              Chapters ({novel.chapters.length})
+            </Text>
+            <Pressable
+              onPress={toggleSortOrder}
+              style={[styles.sortBtn, { borderColor: colors.border }]}
+            >
+              <Ionicons
+                name={sortOrder === "ascending" ? "arrow-up" : "arrow-down"}
+                size={16}
+                color={colors.accent}
+              />
+              <Text style={[styles.sortBtnText, { color: colors.accent }]}>
+                {sortOrder === "ascending" ? "Asc" : "Desc"}
+              </Text>
+            </Pressable>
+          </View>
 
-          {novel.chapters.map((ch, i) => {
-            const isCurrent = novel.lastRead?.chapterIndex === i;
+          {sortedChapters.map((ch, i) => {
+            // Find original index for "Continue" highlighting
+            const originalIndex = novel.chapters.findIndex(c => c.url === ch.url);
+            const isCurrent = novel.lastRead?.chapterIndex === originalIndex;
             return (
               <Pressable
                 key={i}
@@ -163,7 +183,7 @@ export default function NovelDetailScreen() {
                   Haptics.selectionAsync();
                   router.push({
                     pathname: "/reader/[id]",
-                    params: { id: novel.id, chapterIndex: i.toString() },
+                    params: { id: novel.id, chapterIndex: originalIndex.toString() },
                   });
                 }}
               >
@@ -266,6 +286,24 @@ const styles = StyleSheet.create({
   synopsisText: { fontFamily: "Inter_400Regular", fontSize: 14, lineHeight: 22 },
   seeMoreRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   seeMore: { fontFamily: "Inter_500Medium", fontSize: 13 },
+  chapterHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  sortBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  sortBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+  },
   chapterRow: {
     flexDirection: "row",
     alignItems: "center",
