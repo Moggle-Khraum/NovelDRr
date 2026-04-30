@@ -1,7 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
-import React, { useRef, useState, useCallback, useEffect } from "react";
+import * as FileSystem from "expo-file-system";
+import React, { useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -11,10 +13,9 @@ import {
   TextInput,
   View,
 } from "react-native";
-import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
+import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Audio } from "expo-av";
-
+import { router } from "expo-router";
 import { useLibrary, Novel, Chapter } from "@/context/LibraryContext";
 import { useTheme } from "@/context/ThemeContext";
 import { fetchNovelMeta, fetchChapter } from "@/hooks/useApi";
@@ -35,7 +36,7 @@ function LogLine({ entry }: { entry: LogEntry }) {
     error: Colors.error,
     warning: Colors.amber,
   };
-
+  
   const getIcon = (text: string) => {
     if (text.includes("CONNECTING")) return "🔍";
     if (text.includes("Source Domain")) return "📡";
@@ -55,10 +56,10 @@ function LogLine({ entry }: { entry: LogEntry }) {
     if (text.includes("━━━━")) return "";
     return "";
   };
-
+  
   const icon = getIcon(entry.text);
   const displayText = icon ? `${icon} ${entry.text}` : entry.text;
-
+  
   return (
     <Text style={[styles.logLine, { color: colorMap[entry.type] }]}>
       {displayText}
@@ -83,35 +84,6 @@ export default function AddNovelScreen() {
   const stopRef = useRef(false);
   const logScrollRef = useRef<ScrollView>(null);
 
-  // Pre‑require sound files (static, required by Metro)
-  const sounds = {
-    start: require("@/assets/sounds/start.mp3"),
-    success: require("@/assets/sounds/success.mp3"),
-    fail: require("@/assets/sounds/fail.mp3"),
-  };
-
-  // Audio setup
-  useEffect(() => {
-    Audio.setAudioModeAsync({
-      allowsRecordingIOS: false,
-      playsInSilentModeIOS: true,
-      shouldDuckAndroid: true,
-      playThroughEarpieceAndroid: false,
-    });
-  }, []);
-
-  const playSound = useCallback(async (soundKey: keyof typeof sounds) => {
-    try {
-      const { sound } = await Audio.Sound.createAsync(sounds[soundKey]);
-      await sound.playAsync();
-      sound.setOnPlaybackStatusUpdate((status) => {
-        if (status.didJustFinish) sound.unloadAsync();
-      });
-    } catch (error) {
-      console.warn(`Failed to play ${soundKey} sound`, error);
-    }
-  }, []);
-
   const addLog = (text: string, type: LogEntry["type"] = "info") => {
     const entry: LogEntry = { id: Date.now().toString() + Math.random(), text, type };
     setLogs((prev) => [...prev.slice(-200), entry]);
@@ -125,6 +97,29 @@ export default function AddNovelScreen() {
     setLogs([]);
     setProgress(0);
     setProgressLabel("");
+  };
+
+  // Download cover image to local file system
+  const downloadAndSaveCover = async (coverUrl: string, novelId: string): Promise<string> => {
+    if (!coverUrl) return '';
+    
+    const coverDir = `${FileSystem.documentDirectory}covers/`;
+    const coverPath = `${coverDir}${novelId}.jpg`;
+    
+    try {
+      const dirInfo = await FileSystem.getInfoAsync(coverDir);
+      if (!dirInfo.exists) {
+        await FileSystem.makeDirectoryAsync(coverDir, { intermediates: true });
+      }
+      
+      const downloadResult = await FileSystem.downloadAsync(coverUrl, coverPath);
+      addLog(`Cover image saved locally`, "success");
+      return downloadResult.uri;
+    } catch (err) {
+      console.warn('Failed to download cover:', err);
+      addLog(`Cover download failed, using remote URL`, "warning");
+      return coverUrl;
+    }
   };
 
   const handleDownload = async () => {
@@ -145,9 +140,45 @@ export default function AddNovelScreen() {
     setIsDownloading(true);
     setLogs([]);
     setProgress(0);
-    await playSound("start");
 
     try {
+      // ─── SILENT CHECK: Fetch metadata first (no logs) ───
+      const meta = await fetchNovelMeta(trimmedUrl);
+      
+      // Check if novel already exists (silently)
+      const existingNovel = novels.find(
+        (n) => n.title.toLowerCase() === meta.title.toLowerCase()
+      );
+      
+      if (existingNovel) {
+        // Show modal only - no logs
+        Alert.alert(
+          "📚 Novel Already Exists",
+          `"${meta.title}" is already in your library with ${existingNovel.chapters.length} chapters.\n\nYou can update it from the Updates tab if needed.`,
+          [
+            {
+              text: "OK",
+              onPress: () => {
+                setUrl("");
+                setProgress(0);
+              }
+            },
+            {
+              text: "Go to Updates",
+              onPress: () => {
+                setUrl("");
+                setProgress(0);
+                router.push("/(tabs)/updates");
+              }
+            }
+          ]
+        );
+        
+        setIsDownloading(false);
+        return;
+      }
+
+      // ─── Now start the visible download process ───
       let domain = "";
       try {
         const urlObj = new URL(trimmedUrl);
@@ -155,13 +186,11 @@ export default function AddNovelScreen() {
       } catch {
         domain = "Unknown";
       }
-
+      
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
       addLog(`CONNECTING TO SOURCE...`, "downloading");
       addLog(`Source Domain: ${domain}`, "info");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-
-      const meta = await fetchNovelMeta(trimmedUrl);
 
       addLog(`Connection successful!`, "success");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
@@ -169,19 +198,18 @@ export default function AddNovelScreen() {
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
       addLog(`Title: ${meta.title}`, "success");
       addLog(`Author: ${meta.author}`, "info");
-
+      
       if (meta.synopsis && meta.synopsis !== "No summary available.") {
-        const shortSynopsis =
-          meta.synopsis.length > 100
-            ? meta.synopsis.substring(0, 100) + "..."
-            : meta.synopsis;
+        const shortSynopsis = meta.synopsis.length > 100 
+          ? meta.synopsis.substring(0, 100) + "..." 
+          : meta.synopsis;
         addLog(`Synopsis: ${shortSynopsis}`, "info");
       }
-
+      
       if (meta.coverUrl) {
-        addLog(`Cover found`, "info");
+        addLog(`Cover found, downloading...`, "info");
       }
-
+      
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
       if (!meta.firstChapterUrl) {
@@ -193,50 +221,39 @@ export default function AddNovelScreen() {
       addLog(`First chapter URL found`, "success");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
-      const existingNovel = novels.find((n) => n.title === meta.title);
-      const safeId =
-        meta.title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "") +
-        "-" +
-        Date.now();
-      const novelId = existingNovel?.id || safeId;
+      const safeId = meta.title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "") + "-" + Date.now();
+      const novelId = safeId;
 
-      const existingChapters: Chapter[] = existingNovel?.chapters || [];
-      const existingCount = existingChapters.length;
-
-      if (existingCount > 0) {
-        addLog(`Existing chapters in library: ${existingCount}`, "info");
-        addLog(`Will skip already downloaded chapters`, "info");
+      // Download cover image now (before chapters)
+      let localCoverUrl = "";
+      if (meta.coverUrl) {
+        localCoverUrl = await downloadAndSaveCover(meta.coverUrl, novelId);
       }
 
+      const newChapters: Chapter[] = [];
+      
       addLog(`Starting from chapter ${startCh}...`, "downloading");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
       let currentUrl: string | null = meta.firstChapterUrl;
       let chapterNum = 1;
-      const newChapters: Chapter[] = [...existingChapters];
       let downloaded = 0;
 
-      while (currentUrl && !stopRef.current) {
-        if (chapterNum < startCh) {
-          const data = await fetchChapter(currentUrl, chapterNum);
-          if (!data.nextUrl) break;
-          currentUrl = data.nextUrl;
-          chapterNum++;
-          continue;
-        }
+      // Skip chapters before start chapter
+      while (currentUrl && chapterNum < startCh && !stopRef.current) {
+        const data = await fetchChapter(currentUrl, chapterNum);
+        if (!data.nextUrl) break;
+        currentUrl = data.nextUrl;
+        chapterNum++;
+      }
 
+      // Download new chapters
+      while (currentUrl && !stopRef.current) {
         if (maxCh !== null && downloaded >= maxCh) {
           addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
           addLog(`Reached max chapter limit (${maxCh})`, "success");
           addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
           break;
-        }
-
-        const alreadyExists = newChapters.some((c) => c.url === currentUrl);
-        if (alreadyExists) {
-          addLog(`[SKIPPED] Chapter ${chapterNum} already exists in library`, "info");
-          chapterNum++;
-          continue;
         }
 
         setProgressLabel(`Chapter ${chapterNum}`);
@@ -251,12 +268,9 @@ export default function AddNovelScreen() {
         });
 
         downloaded++;
-
+        
         if (downloaded % 10 === 0) {
-          addLog(
-            `Saved: ${data.title} [${downloaded} chapters downloaded so far]`,
-            "success"
-          );
+          addLog(`Saved: ${data.title} [${downloaded} chapters downloaded so far]`, "success");
         } else {
           addLog(`Saved: ${data.title}`, "info");
         }
@@ -278,7 +292,7 @@ export default function AddNovelScreen() {
       }
 
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-
+      
       if (stopRef.current) {
         addLog(`Download halted by user.`, "warning");
         addLog(`Downloaded ${downloaded} chapters before stop.`, "info");
@@ -289,26 +303,25 @@ export default function AddNovelScreen() {
           addLog(`Novel saved to your library`, "success");
         }
       }
-
+      
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
+
+      const finalCoverUrl = localCoverUrl || meta.coverUrl;
 
       const novel: Novel = {
         id: novelId,
         title: meta.title,
         author: meta.author,
         synopsis: meta.synopsis,
-        coverUrl: meta.coverUrl,
+        coverUrl: finalCoverUrl,
         sourceUrl: trimmedUrl,
         chapters: newChapters,
-        dateAdded: existingNovel?.dateAdded || Date.now(),
-        lastRead: existingNovel?.lastRead,
-        status: existingNovel?.status ?? "unread",
+        dateAdded: Date.now(),
+        status: "unread",
       };
       await addNovel(novel);
-      await playSound("success");
       setProgress(100);
     } catch (e: any) {
-      await playSound("fail");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "error");
       addLog(`ERROR: ${e.message || "Download failed"}`, "error");
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "error");
@@ -331,36 +344,21 @@ export default function AddNovelScreen() {
       style={[styles.container, { backgroundColor: colors.background }]}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <View
-        style={[
-          styles.header,
-          { paddingTop: topPad + 12, borderBottomColor: colors.border },
-        ]}
-      >
+      <View style={[styles.header, { paddingTop: topPad + 12, borderBottomColor: colors.border }]}>
         <Ionicons name="cloud-download" size={22} color={colors.accent} />
         <Text style={[styles.headerTitle, { color: colors.text }]}>Download Novel</Text>
       </View>
 
       <ScrollView
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingBottom: bottomPad + 20 },
-        ]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomPad + 20 }]}
         showsVerticalScrollIndicator={true}
         alwaysBounceVertical={true}
       >
         {/* Supported Sites Card */}
-        <View
-          style={[
-            styles.card,
-            { backgroundColor: colors.card, borderColor: colors.border },
-          ]}
-        >
-          <Text style={[styles.cardLabel, { color: colors.textSecondary }]}>
-            SUPPORTED SITES
-          </Text>
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.cardLabel, { color: colors.textSecondary }]}>SUPPORTED SITES</Text>
           <Text style={[styles.cardValue, { color: colors.text }]}>
-            ReadNovelFull·NovelFull·FreeWebNovel·NovelBin
+            ReadNovelFull • NovelFull • FreeWebNovel • NovelBin • LightNovelWorld 
           </Text>
         </View>
 
@@ -383,9 +381,7 @@ export default function AddNovelScreen() {
 
           <View style={styles.row}>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.label, { color: colors.textSecondary }]}>
-                Start Chapter
-              </Text>
+              <Text style={[styles.label, { color: colors.textSecondary }]}>Start Chapter</Text>
               <TextInput
                 style={inputStyle}
                 value={startChStr}
@@ -397,9 +393,7 @@ export default function AddNovelScreen() {
               />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.label, { color: colors.textSecondary }]}>
-                Max Chapters
-              </Text>
+              <Text style={[styles.label, { color: colors.textSecondary }]}>Max Chapters</Text>
               <TextInput
                 style={inputStyle}
                 value={maxChStr}
@@ -434,9 +428,7 @@ export default function AddNovelScreen() {
             {isDownloading && (
               <Pressable
                 style={[styles.outlineBtn, { borderColor: Colors.error }]}
-                onPress={() => {
-                  stopRef.current = true;
-                }}
+                onPress={() => { stopRef.current = true; }}
               >
                 <Ionicons name="stop" size={16} color={Colors.error} />
                 <Text style={[styles.outlineBtnText, { color: Colors.error }]}>Halt</Text>
@@ -449,15 +441,13 @@ export default function AddNovelScreen() {
                 onPress={clearAll}
               >
                 <Ionicons name="trash-outline" size={16} color={colors.textSecondary} />
-                <Text style={[styles.outlineBtnText, { color: colors.textSecondary }]}>
-                  Clear
-                </Text>
+                <Text style={[styles.outlineBtnText, { color: colors.textSecondary }]}>Clear</Text>
               </Pressable>
             )}
           </View>
         </View>
 
-        {/* Progress Section - Always Visible */}
+        {/* Progress Section */}
         <View style={styles.progressSection}>
           <View style={styles.progressHeader}>
             <Ionicons name="bar-chart" size={15} color={colors.accent} />
@@ -481,7 +471,7 @@ export default function AddNovelScreen() {
           </View>
         </View>
 
-        {/* Activity Log Section - Always Visible with Scroll */}
+        {/* Activity Log Section */}
         <View style={styles.logSection}>
           <View style={styles.logHeader}>
             <Ionicons name="sync" size={15} color={colors.accent} />
@@ -492,10 +482,7 @@ export default function AddNovelScreen() {
           </View>
           <ScrollView
             ref={logScrollRef}
-            style={[
-              styles.logBox,
-              { backgroundColor: colors.surface, borderColor: colors.border },
-            ]}
+            style={[styles.logBox, { backgroundColor: colors.surface, borderColor: colors.border }]}
             contentContainerStyle={styles.logContent}
             showsVerticalScrollIndicator={true}
             nestedScrollEnabled={true}
@@ -505,12 +492,13 @@ export default function AddNovelScreen() {
                 Ready to download...
               </Text>
             ) : (
-              logs.map((entry) => <LogLine key={entry.id} entry={entry} />)
+              logs.map((entry) => (
+                <LogLine key={entry.id} entry={entry} />
+              ))
             )}
           </ScrollView>
         </View>
 
-        {/* Extra space at bottom for better scrolling */}
         <View style={styles.bottomSpacer} />
       </ScrollView>
     </KeyboardAvoidingView>
@@ -531,7 +519,7 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     fontSize: 22,
   },
-  scrollContent: {
+  scrollContent: { 
     paddingHorizontal: 16,
     paddingTop: 16,
   },
@@ -551,7 +539,7 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     fontSize: 13,
   },
-  form: {
+  form: { 
     gap: 14,
     marginBottom: 16,
   },
@@ -596,7 +584,7 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     fontSize: 14,
   },
-  progressSection: {
+  progressSection: { 
     gap: 8,
     marginBottom: 16,
   },
@@ -623,7 +611,7 @@ const styles = StyleSheet.create({
     height: "100%",
     borderRadius: 3,
   },
-  logSection: {
+  logSection: { 
     gap: 8,
     marginBottom: 16,
   },

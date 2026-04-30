@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef } from "react";
 import {
   Alert,
   FlatList,
@@ -20,7 +20,9 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
+  runOnJS,
 } from "react-native-reanimated";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useLibrary, Novel, NovelStatus } from "@/context/LibraryContext";
@@ -197,7 +199,7 @@ function StatusSheet({
 // ── LibraryScreen ────────────────────────────────────────────────────────────
 
 export default function LibraryScreen() {
-  const { novels, removeNovel, loading, setNovelStatus } = useLibrary();
+  const { novels, removeNovels, loading, setNovelStatus } = useLibrary();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -213,6 +215,57 @@ export default function LibraryScreen() {
   const [confirmDeleteVisible, setConfirmDeleteVisible] = useState(false);
 
   const [statusSheetNovel, setStatusSheetNovel] = useState<Novel | null>(null);
+
+  // ── Swipe Animation Values ─────────────────────────────────────────────────
+  const translateX = useSharedValue(0);
+  const filterKeys = FILTER_TABS.map(tab => tab.key);
+
+  const changeFilterSwipe = (direction: 'left' | 'right') => {
+    const currentIndex = filterKeys.indexOf(activeFilter);
+    let newIndex: number;
+    
+    if (direction === 'left' && currentIndex < filterKeys.length - 1) {
+      newIndex = currentIndex + 1;
+    } else if (direction === 'right' && currentIndex > 0) {
+      newIndex = currentIndex - 1;
+    } else {
+      return;
+    }
+    
+    setActiveFilter(filterKeys[newIndex] as NovelStatus | "all");
+    Haptics.selectionAsync();
+  };
+
+  const panGesture = Gesture.Pan()
+    .activeOffsetX([-10, 10]) // Becomes active after 10px horizontal movement
+    .failOffsetY([-10, 10])   // Fails if vertical movement exceeds 10px
+    .onStart(() => {
+      // No need to track isSwiping
+    })
+    .onUpdate((event) => {
+      translateX.value = event.translationX * 0.5; // Dampen the movement
+    })
+    .onEnd((event) => {
+      const threshold = 60;
+      
+      if (event.translationX < -threshold) {
+        runOnJS(changeFilterSwipe)('left');
+      } else if (event.translationX > threshold) {
+        runOnJS(changeFilterSwipe)('right');
+      }
+      
+      translateX.value = withSpring(0, {
+        damping: 80,
+        stiffness: 150,
+        mass: 0.5, 
+        overshootClamping: true,
+      });
+    });
+
+  const animatedContentStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+    opacity: 1 - Math.abs(translateX.value) / 300,
+  }));
 
   // Filter novels based on status AND search query
   const filteredNovels = useMemo(() => {
@@ -273,9 +326,9 @@ export default function LibraryScreen() {
   const performBatchDelete = async () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     setConfirmDeleteVisible(false);
-    for (const novelId of selectedNovels) {
-      await removeNovel(novelId);
-    }
+    
+    await removeNovels(selectedNovels);
+    
     setSelectionMode(false);
     setSelectedNovels([]);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -464,32 +517,52 @@ export default function LibraryScreen() {
     );
   };
 
+  const renderContent = () => {
+    if (!loading && filteredNovels.length === 0) {
+      return renderEmptyState();
+    }
+
+    return (
+      <FlatList
+        data={filteredNovels}
+        keyExtractor={(n) => n.id}
+        renderItem={({ item, index }) => (
+          <Animated.View entering={FadeIn.delay(index * 50)}>
+            <NovelCard
+              novel={item}
+              onPress={() => handleNovelPress(item)}
+              onLongPress={() => handleNovelLongPress(item)}
+              isSelected={selectedNovels.includes(item.id)}
+              selectionMode={selectionMode}
+            />
+          </Animated.View>
+        )}
+        contentContainerStyle={{ padding: 16, paddingBottom: bottomPad + 90, gap: 12 }}
+        showsVerticalScrollIndicator={false}
+      />
+    );
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {selectionMode ? renderSelectionHeader() : renderHeader()}
-      {showSearch && !selectionMode && renderSearchBar()}
-      {!selectionMode && renderFilterTabs()}
+      {/* Top chrome — flexShrink: 0 prevents it from being squished by the list */}
+      <View style={styles.topChrome}>
+        {selectionMode ? renderSelectionHeader() : renderHeader()}
+        {showSearch && !selectionMode && renderSearchBar()}
+        {!selectionMode && renderFilterTabs()}
+      </View>
 
-      {!loading && filteredNovels.length === 0 ? (
-        renderEmptyState()
+      {/* Swipeable Content Area */}
+      {!selectionMode && !showSearch ? (
+        <GestureDetector gesture={panGesture}>
+          <Animated.View style={[{ flex: 1 }, animatedContentStyle]}>
+            {renderContent()}
+          </Animated.View>
+        </GestureDetector>
       ) : (
-        <FlatList
-          data={filteredNovels}
-          keyExtractor={(n) => n.id}
-          renderItem={({ item, index }) => (
-            <Animated.View entering={FadeIn.delay(index * 50)}>
-              <NovelCard
-                novel={item}
-                onPress={() => handleNovelPress(item)}
-                onLongPress={() => handleNovelLongPress(item)}
-                isSelected={selectedNovels.includes(item.id)}
-                selectionMode={selectionMode}
-              />
-            </Animated.View>
-          )}
-          contentContainerStyle={{ padding: 16, paddingBottom: bottomPad + 90, gap: 12 }}
-          showsVerticalScrollIndicator={false}
-        />
+        <View style={{ flex: 1 }}>
+          {renderContent()}
+        </View>
       )}
 
       {/* Batch Delete Confirmation Modal */}
@@ -504,7 +577,7 @@ export default function LibraryScreen() {
             <Ionicons name="alert-circle" size={48} color={colors.text} style={styles.modalIcon} />
             <Text style={[styles.modalTitle, { color: colors.text }]}>Confirm Deletion</Text>
             <Text style={[styles.modalMessage, { color: colors.textSecondary }]}>
-              This will permanently delete {selectedNovels.length} novel(s) and all its chapters.{"\n\n"}
+              This will permanently delete {selectedNovels.length} novel(s) and all related chapters.{"\n\n"}
               Are you sure about this? {"\n\n"}
               If YES, click the 'DELETE' button.
             </Text>
@@ -540,6 +613,9 @@ export default function LibraryScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+
+  // top chrome wrapper — never shrinks regardless of list content
+  topChrome: { flexShrink: 0 },
 
   // header
   header: {
@@ -599,7 +675,7 @@ const styles = StyleSheet.create({
   },
 
   // filter bar
-  filterBar: { borderBottomWidth: StyleSheet.hairlineWidth, flexGrow: 0 },
+  filterBar: { borderBottomWidth: StyleSheet.hairlineWidth, flexGrow: 0, flexShrink: 0 },
   filterBarContent: { paddingHorizontal: 16, paddingVertical: 10, gap: 8, flexDirection: "row" },
   filterTab: {
     flexDirection: "row",
@@ -610,7 +686,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1,
     flexShrink: 0,
-    minWidth: 70,
   },
   filterTabText: { fontFamily: "Inter_600SemiBold", fontSize: 13 },
   filterCount: { minWidth: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", paddingHorizontal: 5 },
@@ -676,4 +751,3 @@ const styles = StyleSheet.create({
   sheetCancel: { marginTop: 4, padding: 14, borderRadius: 12, borderWidth: 1, alignItems: "center" },
   sheetCancelText: { fontFamily: "Inter_600SemiBold", fontSize: 15 },
 });
-
