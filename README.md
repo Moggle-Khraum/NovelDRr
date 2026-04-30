@@ -126,6 +126,3 @@ MIT © [Moggle-Khraum](https://github.com/Moggle-Khraum)
 **Made with ❤️ for the webnovel community.**
 
 *No tracking. No ads. Just pure offline reading. #FOSS*
-
-
-The overhaul focuses on scannability and warmth with section dividers, emoji-anchored categories, and a centered badge cluster at the top that mirrors the NovelDR site personality — while keeping all your existing links, supported sites, build instructions, and tech stack intact.
