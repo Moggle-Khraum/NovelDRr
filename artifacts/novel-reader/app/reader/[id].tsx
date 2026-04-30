@@ -22,7 +22,6 @@ const FONT_SIZES = [14, 15, 16, 17, 18, 19, 20, 22];
 const LINE_SPACINGS = [1.2, 1.3, 1.5, 1.8, 2.0, 2.5];
 const AUTO_SCROLL_SPEEDS = [0.5, 1, 1.5, 1.8, 2, 2.5];
 
-// Storage keys for persistent settings
 const STORAGE_KEYS = {
   FONT_SIZE_IDX: 'reader_font_size_idx',
   LINE_SPACING_IDX: 'reader_line_spacing_idx',
@@ -33,7 +32,7 @@ export default function ReaderScreen() {
     id: string;
     chapterIndex: string;
   }>();
-  const { getNovel, saveReadingProgress } = useLibrary();
+  const { getNovel, saveReadingProgress, sortOrder, toggleSortOrder, getSortedChapters } = useLibrary();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -48,22 +47,27 @@ export default function ReaderScreen() {
   const [autoScrollActive, setAutoScrollActive] = useState(false);
   const [autoScrollSpeedIdx, setAutoScrollSpeedIdx] = useState(1);
   
-  // Progress tracking
   const [readingProgress, setReadingProgress] = useState(0);
   const scrollYRef = useRef(0);
   const contentHeightRef = useRef(0);
   const scrollViewHeightRef = useRef(0);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   
-  // Track if we've already restored scroll position for current chapter
   const hasRestoredScrollRef = useRef(false);
-  // Track the chapter we restored for
   const restoredChapterRef = useRef<number>(-1);
-  // Force top scroll after manual navigation
   const forceTopRef = useRef(false);
 
   const novel = getNovel(id);
+  
+  // Get sorted chapters for TOC display only
+  const sortedChapters = novel ? getSortedChapters(novel.chapters) : [];
+  
+  // Use original chapters for reading (chapterIndex refers to original array)
   const chapter = novel?.chapters[chapterIndex];
+  
+  // Find current chapter's position in sorted list (for TOC highlighting)
+  const currentChapterUrl = chapter?.url;
+  const currentSortedIndex = sortedChapters.findIndex(ch => ch.url === currentChapterUrl);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
@@ -93,7 +97,6 @@ export default function ReaderScreen() {
     loadSettings();
   }, []);
 
-  // Save font size when changed
   const handleFontSizeChange = async (newIdx: number) => {
     setFontSizeIdx(newIdx);
     try {
@@ -103,7 +106,6 @@ export default function ReaderScreen() {
     }
   };
 
-  // Save line spacing when changed
   const handleLineSpacingChange = async (newIdx: number) => {
     setLineSpacingIdx(newIdx);
     try {
@@ -127,28 +129,24 @@ export default function ReaderScreen() {
     };
   }, [chapterIndex, novel?.id, novel, chapter, saveReadingProgress]);
 
-  // Restore scroll position when chapter changes or component mounts
+  // Restore scroll position when chapter changes
   useEffect(() => {
     if (!settingsLoaded) return;
 
-    // If we forced a top scroll for this chapter, don't restore anything
     if (forceTopRef.current) {
       forceTopRef.current = false;
       return;
     }
 
-    // Only restore if this is a different chapter than the last restored one
     if (restoredChapterRef.current !== chapterIndex) {
       hasRestoredScrollRef.current = false;
     }
 
-    // Get saved progress - but only use it if it's for THIS chapter
     const savedLastRead = novel?.lastRead;
     const savedOffset = (savedLastRead?.chapterIndex === chapterIndex) 
       ? savedLastRead.scrollOffset 
       : 0;
 
-    // Only restore if we haven't restored for this chapter yet
     if (!hasRestoredScrollRef.current) {
       if (savedOffset > 0) {
         const timer = setTimeout(() => {
@@ -161,7 +159,6 @@ export default function ReaderScreen() {
         }, 200);
         return () => clearTimeout(timer);
       } else {
-        // No saved position for this chapter, scroll to top
         scrollRef.current?.scrollTo({ y: 0, animated: false });
         hasRestoredScrollRef.current = true;
         restoredChapterRef.current = chapterIndex;
@@ -169,7 +166,6 @@ export default function ReaderScreen() {
     }
   }, [chapterIndex, novel?.lastRead, settingsLoaded]);
 
-  // Calculate reading progress
   const updateReadingProgress = useCallback(() => {
     if (contentHeightRef.current > scrollViewHeightRef.current) {
       const maxScroll = contentHeightRef.current - scrollViewHeightRef.current;
@@ -180,7 +176,6 @@ export default function ReaderScreen() {
     }
   }, []);
 
-  // Auto-scroll logic
   const stopAutoScroll = useCallback(() => {
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
@@ -235,8 +230,13 @@ export default function ReaderScreen() {
     updateReadingProgress();
   };
 
-  const handleChapterSelect = (index: number) => {
-    // Save current chapter progress before switching
+  const handleChapterSelect = (sortedIndex: number) => {
+    // Find the chapter in sorted list, then get its original index
+    const selectedChapter = sortedChapters[sortedIndex];
+    if (!selectedChapter) return;
+    
+    const originalIndex = novel?.chapters.findIndex(c => c.url === selectedChapter.url) ?? 0;
+    
     if (novel && chapter) {
       saveReadingProgress(
         novel.id,
@@ -246,13 +246,12 @@ export default function ReaderScreen() {
       );
     }
     
-    // Reset everything for the new chapter
     scrollYRef.current = 0;
     hasRestoredScrollRef.current = false;
     forceTopRef.current = true;
     scrollRef.current?.scrollTo({ y: 0, animated: false });
     
-    setChapterIndex(index);
+    setChapterIndex(originalIndex);
     setShowTOC(false);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
@@ -271,12 +270,11 @@ export default function ReaderScreen() {
 
   const goChapter = (dir: 1 | -1) => {
     const next = chapterIndex + dir;
-    if (next < 0 || next >= novel.chapters.length) {
+    if (next < 0 || next >= (novel?.chapters.length ?? 0)) {
       Alert.alert("Navigation", dir === -1 ? "First chapter reached" : "Last chapter reached");
       return;
     }
     
-    // Save current chapter progress before navigating
     if (novel && chapter) {
       saveReadingProgress(
         novel.id,
@@ -286,7 +284,6 @@ export default function ReaderScreen() {
       );
     }
     
-    // Reset everything for the new chapter
     scrollYRef.current = 0;
     hasRestoredScrollRef.current = false;
     forceTopRef.current = true;
@@ -379,7 +376,7 @@ export default function ReaderScreen() {
         </Text>
       </ScrollView>
 
-      {/* Progress Bar placed above bottom navigation */}
+      {/* Progress Bar */}
       <View style={[styles.progressBarContainer, { backgroundColor: colors.border }]}>
         <View 
           style={[
@@ -393,21 +390,35 @@ export default function ReaderScreen() {
       </View>
 
       <View style={[styles.bottomNav, { backgroundColor: colors.surface, borderTopColor: colors.border, paddingBottom: bottomPad + 8 }]}>
-        <Pressable style={[styles.navChBtn, { backgroundColor: chapterIndex === 0 ? colors.border : colors.card, borderColor: colors.border }]} onPress={() => goChapter(-1)} disabled={chapterIndex === 0}>
+        <Pressable 
+          style={[styles.navChBtn, { backgroundColor: chapterIndex === 0 ? colors.border : colors.card, borderColor: colors.border }]} 
+          onPress={() => goChapter(-1)} 
+          disabled={chapterIndex === 0}
+        >
           <Ionicons name="chevron-back" size={18} color={chapterIndex === 0 ? colors.textMuted : colors.text} />
           <Text style={[styles.navChText, { color: chapterIndex === 0 ? colors.textMuted : colors.text }]}>Previous</Text>
         </Pressable>
 
-        {/* TOC Button - using chapter count */}
-        <Pressable style={[styles.tocButton, { backgroundColor: colors.card, borderColor: colors.border }]} onPress={() => setShowTOC(true)}>
+        {/* TOC Button */}
+        <Pressable 
+          style={[styles.tocButton, { backgroundColor: colors.card, borderColor: colors.border }]} 
+          onPress={() => setShowTOC(true)}
+        >
           <Text style={[styles.tocButtonText, { color: colors.text }]}>
             {chapterIndex + 1} / {novel.chapters.length}
           </Text>
         </Pressable>
 
-        <Pressable style={[styles.navChBtn, { backgroundColor: chapterIndex === novel.chapters.length - 1 ? colors.border : colors.accent, borderColor: chapterIndex === novel.chapters.length - 1 ? colors.border : colors.accent }]} onPress={() => goChapter(1)} disabled={chapterIndex === novel.chapters.length - 1}>
-          <Text style={[styles.navChText, { color: chapterIndex === novel.chapters.length - 1 ? colors.textMuted : "#fff" }]}>Next</Text>
-          <Ionicons name="chevron-forward" size={18} color={chapterIndex === novel.chapters.length - 1 ? colors.textMuted : "#fff"} />
+        <Pressable 
+          style={[styles.navChBtn, { 
+            backgroundColor: chapterIndex === (novel.chapters.length ?? 0) - 1 ? colors.border : colors.accent, 
+            borderColor: chapterIndex === (novel.chapters.length ?? 0) - 1 ? colors.border : colors.accent 
+          }]} 
+          onPress={() => goChapter(1)} 
+          disabled={chapterIndex === (novel.chapters.length ?? 0) - 1}
+        >
+          <Text style={[styles.navChText, { color: chapterIndex === (novel.chapters.length ?? 0) - 1 ? colors.textMuted : "#fff" }]}>Next</Text>
+          <Ionicons name="chevron-forward" size={18} color={chapterIndex === (novel.chapters.length ?? 0) - 1 ? colors.textMuted : "#fff"} />
         </Pressable>
       </View>
 
@@ -422,35 +433,50 @@ export default function ReaderScreen() {
           <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: colors.text }]}>Table of Contents</Text>
-              <Pressable onPress={() => setShowTOC(false)} style={styles.modalCloseBtn}>
-                <Ionicons name="close" size={24} color={colors.text} />
-              </Pressable>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Pressable 
+                  onPress={toggleSortOrder} 
+                  style={[styles.sortBtn, { borderColor: colors.border }]}
+                >
+                  <Ionicons 
+                    name={sortOrder === "ascending" ? "arrow-up" : "arrow-down"} 
+                    size={18} 
+                    color={colors.accent} 
+                  />
+                  <Text style={[styles.sortBtnText, { color: colors.accent }]}>
+                    {sortOrder === "ascending" ? "Asc" : "Desc"}
+                  </Text>
+                </Pressable>
+                <Pressable onPress={() => setShowTOC(false)} style={styles.modalCloseBtn}>
+                  <Ionicons name="close" size={24} color={colors.text} />
+                </Pressable>
+              </View>
             </View>
             <ScrollView style={styles.modalScrollView}>
-              {novel.chapters.map((ch, idx) => (
+              {sortedChapters.map((ch, idx) => (
                 <Pressable
                   key={idx}
                   style={[
                     styles.tocItem,
-                    idx === chapterIndex && [styles.tocItemActive, { backgroundColor: colors.accent + '20' }]
+                    idx === currentSortedIndex && [styles.tocItemActive, { backgroundColor: colors.accent + '20' }]
                   ]}
                   onPress={() => handleChapterSelect(idx)}
                 >
                   <View style={styles.tocItemContent}>
                     <Text style={[
                       styles.tocChapterNum,
-                      { color: idx === chapterIndex ? colors.accent : colors.textSecondary }
+                      { color: idx === currentSortedIndex ? colors.accent : colors.textSecondary }
                     ]}>
                       Chapter {idx + 1}
                     </Text>
                     <Text style={[
                       styles.tocChapterTitle,
-                      { color: idx === chapterIndex ? colors.accent : colors.text }
+                      { color: idx === currentSortedIndex ? colors.accent : colors.text }
                     ]}>
                       {ch.title}
                     </Text>
                   </View>
-                  {idx === chapterIndex && (
+                  {idx === currentSortedIndex && (
                     <Ionicons name="checkmark-circle" size={20} color={colors.accent} />
                   )}
                 </Pressable>
@@ -476,8 +502,6 @@ const styles = StyleSheet.create({
   },
   navBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   chapterTitle: { fontFamily: "Inter_600SemiBold", fontSize: 14, flex: 1, textAlign: "center" },
-  
-  // Progress Bar Styles
   progressBarContainer: {
     height: 3,
     width: '100%',
@@ -487,7 +511,6 @@ const styles = StyleSheet.create({
     height: '100%',
     width: '0%',
   },
-  
   controls: { paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, gap: 10 },
   controlRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   controlLabel: { fontFamily: "Inter_500Medium", fontSize: 13, width: 80 },
@@ -522,8 +545,6 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold", 
     fontSize: 14,
   },
-  
-  // Modal Styles
   modalOverlay: {
     flex: 1,
     justifyContent: 'flex-end',
@@ -577,5 +598,18 @@ const styles = StyleSheet.create({
   tocChapterTitle: {
     fontFamily: "Inter_500Medium",
     fontSize: 14,
+  },
+  sortBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  sortBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
   },
 });

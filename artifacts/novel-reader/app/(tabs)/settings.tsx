@@ -2,8 +2,24 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
-import React, { useState } from "react";
-import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import * as DocumentPicker from "expo-document-picker";
+import * as Application from "expo-application";
+import * as IntentLauncher from "expo-intent-launcher";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import React, { useState, useEffect } from "react";
+import { 
+  Alert, 
+  Platform, 
+  Pressable, 
+  ScrollView, 
+  StyleSheet, 
+  Text, 
+  TextInput, 
+  View, 
+  Modal, 
+  Linking,
+  AppState 
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useLibrary } from "@/context/LibraryContext";
@@ -52,6 +68,8 @@ function ThemeButton({
   );
 }
 
+type ActivePanel = "comment" | "restore" | null;
+
 export default function SettingsScreen() {
   const { colors, theme, setTheme } = useTheme();
   const { novels, addNovel } = useLibrary();
@@ -61,12 +79,103 @@ export default function SettingsScreen() {
 
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [backupList, setBackupList] = useState<FileSystem.FileInfo[]>([]);
-  const [showBackupList, setShowBackupList] = useState(false);
-  const [commentPromptVisible, setCommentPromptVisible] = useState(false);
+  const [backupList, setBackupList] = useState<string[]>([]);
   const [pendingComment, setPendingComment] = useState("");
+  const [showDevProfile, setShowDevProfile] = useState(false);
+  const [activePanel, setActivePanel] = useState<ActivePanel>(null);
+  const [showWarningCard, setShowWarningCard] = useState(true);
 
   const BACKUP_DIR = FileSystem.documentDirectory + "noveldrr-backups/";
+  const WARNING_DISMISSED_KEY = "noveldr_warning_dismissed";
+
+  // Check if warning card should be shown
+  useEffect(() => {
+    const checkWarningStatus = async () => {
+      try {
+        const dismissed = await AsyncStorage.getItem(WARNING_DISMISSED_KEY);
+        setShowWarningCard(dismissed !== 'true');
+      } catch (error) {
+        console.error('Failed to check warning status:', error);
+      }
+    };
+
+    checkWarningStatus();
+
+    // Re-check when app comes back to foreground
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active') {
+        checkWarningStatus();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
+  const openUnusedAppSettings = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
+    if (Platform.OS === 'android') {
+      try {
+        // Try direct MANAGE_UNUSED_APPS intent (Android 12+)
+        await IntentLauncher.startActivityAsync(
+          'android.settings.MANAGE_UNUSED_APPS'
+        );
+        // Mark as dismissed since user took action
+        await AsyncStorage.setItem(WARNING_DISMISSED_KEY, 'true');
+        setShowWarningCard(false);
+      } catch (error) {
+        try {
+          // Fallback 1: Open app-specific settings
+          const packageName = Application.applicationId;
+          await IntentLauncher.startActivityAsync(
+            'android.settings.APPLICATION_DETAILS_SETTINGS',
+            {
+              data: `package:${packageName}`,
+            }
+          );
+          await AsyncStorage.setItem(WARNING_DISMISSED_KEY, 'true');
+          setShowWarningCard(false);
+        } catch (e) {
+          // Fallback 2: Open general settings
+          try {
+            await IntentLauncher.startActivityAsync(
+              'android.settings.SETTINGS'
+            );
+            await AsyncStorage.setItem(WARNING_DISMISSED_KEY, 'true');
+            setShowWarningCard(false);
+          } catch (finalError) {
+            Alert.alert(
+              'Manual Steps Required',
+              'Please go to:\n\nSettings > Apps > Novel DR\n\nThen turn off:\n •Pause app activity if unused• &\n •Remove permissions and free up space•',
+              [{ 
+                text: 'OK',
+                onPress: async () => {
+                  await AsyncStorage.setItem(WARNING_DISMISSED_KEY, 'true');
+                  setShowWarningCard(false);
+                }
+              }]
+            );
+          }
+        }
+      }
+    } else if (Platform.OS === 'ios') {
+      Linking.openURL('app-settings:');
+    }
+  };
+
+  const dismissWarning = async () => {
+    await AsyncStorage.setItem(WARNING_DISMISSED_KEY, 'true');
+    setShowWarningCard(false);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
+  const openPanel = (panel: ActivePanel) => {
+    setActivePanel((prev) => (prev === panel ? null : panel));
+  };
+
+  const closePanel = () => setActivePanel(null);
 
   const ensureDir = async () => {
     const info = await FileSystem.getInfoAsync(BACKUP_DIR);
@@ -84,19 +193,74 @@ export default function SettingsScreen() {
     return `noveldrr-backup-${formatDateTag()}${tag ? "_" + tag : ""}.json`;
   };
 
+  // ── Duplicate check (ID + Title) ─────────────────────────────────────────
+  const getUniqueNovelsToImport = (backupNovels: any[]) => {
+    const existingIds = new Set(novels.map((n) => n.id));
+    const existingTitles = new Set(novels.map((n) => n.title.toLowerCase().trim()));
+
+    return backupNovels.filter((n: any) => {
+      const isDuplicateId = existingIds.has(n.id);
+      const isDuplicateTitle = existingTitles.has(n.title?.toLowerCase().trim());
+      return !isDuplicateId && !isDuplicateTitle;
+    });
+  };
+
+  const processImport = async (backup: any, fileName: string) => {
+    if (!backup.version || !Array.isArray(backup.novels)) {
+      Alert.alert("Invalid Backup", "This file doesn't look like a NovelDRr backup.");
+      return;
+    }
+
+    const toImport = getUniqueNovelsToImport(backup.novels);
+    const skipped = backup.novels.length - toImport.length;
+
+    if (toImport.length === 0) {
+      Alert.alert("Nothing to Import", `All ${skipped} novel(s) are already in your library.`);
+      return;
+    }
+
+    Alert.alert(
+      "Confirm Import",
+      `Import ${toImport.length} novel(s) from:\n"${fileName}"?${skipped > 0 ? `\n\n(${skipped} already in library will be skipped)` : ""}`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Import",
+          onPress: async () => {
+            for (const n of toImport) {
+              await addNovel({
+                id: n.id,
+                title: n.title,
+                author: n.author,
+                coverUrl: n.coverUrl ?? "",
+                synopsis: n.synopsis ?? "",
+                sourceUrl: n.sourceUrl ?? "",
+                dateAdded: n.dateAdded ?? Date.now(),
+                lastRead: n.lastRead ?? undefined,
+                chapters: [],
+              });
+            }
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            closePanel();
+            Alert.alert("Import Complete", `${toImport.length} novel(s) restored.\nRe-download chapters from the Add tab.`);
+          },
+        },
+      ]
+    );
+  };
+
   // ── Export ────────────────────────────────────────────────────────────────
   const handleExport = () => {
     if (novels.length === 0) return;
     setPendingComment("");
-    setCommentPromptVisible(true);
+    openPanel("comment");
   };
 
   const confirmExport = async (comment: string) => {
     try {
-      setCommentPromptVisible(false);
+      closePanel();
       setExporting(true);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
       await ensureDir();
 
       const backup = {
@@ -113,21 +277,17 @@ export default function SettingsScreen() {
           dateAdded: n.dateAdded,
           lastRead: n.lastRead ?? null,
           chapterCount: n.chapters.length,
-          // chapters intentionally excluded to save space
         })),
       };
 
       const filename = buildFilename(comment);
       const path = BACKUP_DIR + filename;
-
-      await FileSystem.writeAsStringAsync(path, JSON.stringify(backup, null, 2), {
-        encoding: FileSystem.EncodingType.UTF8,
-      });
+      await FileSystem.writeAsStringAsync(path, JSON.stringify(backup, null, 2), { encoding: FileSystem.EncodingType.UTF8 });
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert(
         "Backup Saved ✓",
-        `Saved to Documents/noveldrr-backups/\n\n${filename}`,
+        `Saved to app storage.\n\n${filename}`,
         [
           { text: "OK" },
           {
@@ -151,67 +311,35 @@ export default function SettingsScreen() {
     try {
       await ensureDir();
       const files = await FileSystem.readDirectoryAsync(BACKUP_DIR);
-      const jsonFiles = files
-        .filter((f) => f.endsWith(".json"))
-        .sort()
-        .reverse(); // newest first
-      setBackupList(jsonFiles as any);
-      setShowBackupList(true);
+      const jsonFiles = files.filter((f) => f.endsWith(".json")).sort().reverse();
+      setBackupList(jsonFiles);
+      openPanel("restore");
     } catch (e) {
       Alert.alert("Error", String(e));
     }
   };
 
-  // ── Import from a specific file ───────────────────────────────────────────
-  const handleImportFile = async (filename: string) => {
+  // ── Import from a specific file (called by restore list) ─────────────────
+  const handleImportFile = async (path: string, filename: string) => {
     try {
       setImporting(true);
-      const path = BACKUP_DIR + filename;
       const raw = await FileSystem.readAsStringAsync(path, { encoding: FileSystem.EncodingType.UTF8 });
-      const backup = JSON.parse(raw);
+      await processImport(JSON.parse(raw), filename);
+    } catch (e) {
+      Alert.alert("Import Failed", String(e));
+    } finally {
+      setImporting(false);
+    }
+  };
 
-      if (!backup.version || !Array.isArray(backup.novels)) {
-        Alert.alert("Invalid Backup", "This file doesn't look like a NovelDRr backup.");
-        return;
-      }
-
-      const existingIds = new Set(novels.map((n) => n.id));
-      const toImport = backup.novels.filter((n: any) => !existingIds.has(n.id));
-      const skipped = backup.novels.length - toImport.length;
-
-      if (toImport.length === 0) {
-        Alert.alert("Nothing to Import", `All ${skipped} novel(s) are already in your library.`);
-        return;
-      }
-
-      Alert.alert(
-        "Confirm Import",
-        `Import ${toImport.length} novel(s) from:\n"${filename}"?${skipped > 0 ? `\n\n(${skipped} already in library will be skipped)` : ""}`,
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Import",
-            onPress: async () => {
-              for (const n of toImport) {
-                await addNovel({
-                  id: n.id,
-                  title: n.title,
-                  author: n.author,
-                  coverUrl: n.coverUrl ?? "",
-                  synopsis: n.synopsis ?? "",
-                  sourceUrl: n.sourceUrl ?? "",
-                  dateAdded: n.dateAdded ?? Date.now(),
-                  lastRead: n.lastRead ?? undefined,
-                  chapters: [],
-                });
-              }
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              setShowBackupList(false);
-              Alert.alert("Import Complete", `${toImport.length} novel(s) restored.\nRe-download chapters from the Add tab.`);
-            },
-          },
-        ]
-      );
+  // ── Import from external file picker ──────────────────────────────────────
+  const handleImportFromPicker = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ type: "application/json", copyToCacheDirectory: true });
+      if (result.canceled) return;
+      setImporting(true);
+      const raw = await FileSystem.readAsStringAsync(result.assets[0].uri, { encoding: FileSystem.EncodingType.UTF8 });
+      await processImport(JSON.parse(raw), result.assets[0].name);
     } catch (e) {
       Alert.alert("Import Failed", String(e));
     } finally {
@@ -229,15 +357,13 @@ export default function SettingsScreen() {
         onPress: async () => {
           await FileSystem.deleteAsync(BACKUP_DIR + filename, { idempotent: true });
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-          setBackupList((prev) => (prev as any[]).filter((f) => f !== filename) as any);
+          setBackupList((prev) => prev.filter((f) => f !== filename));
         },
       },
     ]);
   };
 
-  // ── Parse filename into readable label ────────────────────────────────────
   const parseFilename = (filename: string) => {
-    // noveldrr-backup-2026-03-30_14-22_my-tag.json
     const base = filename.replace("noveldrr-backup-", "").replace(".json", "");
     const [datePart, timePart, ...rest] = base.split("_");
     const date = datePart ?? "";
@@ -255,15 +381,48 @@ export default function SettingsScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Header with Beer Icon (Developer Modal) */}
       <View style={[styles.header, { paddingTop: topPad + 12, borderBottomColor: colors.border }]}>
-        <Ionicons name="settings" size={22} color={colors.accent} />
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Settings</Text>
+        <View style={styles.headerTitleContainer}>
+          <Ionicons name="settings" size={22} color={colors.accent} />
+          <Text style={[styles.headerTitle, { color: colors.text }]}>Settings</Text>
+        </View>
+        <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowDevProfile(true); }}>
+          <Ionicons name="beer-outline" size={22} color={colors.accent} />
+        </Pressable>
       </View>
 
       <ScrollView
         contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 100 }]}
         showsVerticalScrollIndicator={false}
       >
+        {/* Android Warning Card - Conditionally Rendered */}
+        {showWarningCard && Platform.OS === 'android' && (
+          <Pressable
+            style={[styles.warningCard, { backgroundColor: colors.surface, borderColor: "#ffb300" }]}
+            onPress={openUnusedAppSettings}
+            android_ripple={{ color: '#ffb30020' }}
+          >
+            <View style={styles.warningHeader}>
+              <View style={styles.aboutRow}>
+                <Ionicons name="warning" size={18} color="#ffb300" />
+                <Text style={[styles.warningTitle, { color: colors.text }]}>System Action Required</Text>
+              </View>
+              <Pressable onPress={dismissWarning} style={styles.dismissButton}>
+                <Ionicons name="close" size={18} color={colors.textSecondary} />
+              </Pressable>
+            </View>
+            <Text style={[styles.warningText, { color: colors.textSecondary }]}>
+              Turn off <Text style={{ fontWeight: '700' }}>'Manage unused Apps'</Text> and {' '}
+              <Text style={{ fontWeight: '700' }}>'Remove permissions and free up space'</Text>{' '}
+              in Android Settings for Novel DR to prevent imminent sudden deletion of your library data.
+            </Text>
+            <Text style={[styles.warningTapHint, { color: '#ffb300' }]}>
+              👆 Tap here to open settings
+            </Text>
+          </Pressable>
+        )}
+
         <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>LIBRARY STATISTICS</Text>
         <View style={[styles.statsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.statItem}>
@@ -285,46 +444,45 @@ export default function SettingsScreen() {
 
         <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>APP THEME</Text>
         <View style={styles.themeRow}>
-          <ThemeButton
-            label="Dark"
-            icon="moon"
-            themeKey="dark"
-            active={theme === "dark"}
-            onPress={() => handleThemeChange("dark")}
-          />
-          <ThemeButton
-            label="Light"
-            icon="sunny"
-            themeKey="light"
-            active={theme === "light"}
-            onPress={() => handleThemeChange("light")}
-          />
-          <ThemeButton
-            label="Sepia"
-            icon="book"
-            themeKey="sepia"
-            active={theme === "sepia"}
-            onPress={() => handleThemeChange("sepia")}
-          />
+          <ThemeButton label="Dark" icon="moon" themeKey="dark" active={theme === "dark"} onPress={() => handleThemeChange("dark")} />
+          <ThemeButton label="Light" icon="sunny" themeKey="light" active={theme === "light"} onPress={() => handleThemeChange("light")} />
+          <ThemeButton label="Sepia" icon="book" themeKey="sepia" active={theme === "sepia"} onPress={() => handleThemeChange("sepia")} />
         </View>
 
         <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>BACKUP</Text>
         <View style={[styles.backupCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.backupDesc, { color: colors.textSecondary }]}>
             Saves title, author, cover, synopsis, and reading progress. Chapters are excluded to keep the file small. Backups persist in{" "}
-            <Text style={{ fontFamily: "Inter_500Medium" }}>Documents/noveldrr-backups/</Text>.
+            <Text style={{ fontFamily: "Inter_500Medium" }}>app private storage</Text>.
           </Text>
+
+          {/* Two primary buttons (New Backup & Restore) */}
           <View style={styles.backupRow}>
             <Pressable
-              style={[styles.backupBtn, { backgroundColor: colors.accent, opacity: exporting ? 0.6 : 1 }]}
+              style={[
+                styles.backupBtn,
+                {
+                  backgroundColor: activePanel === "comment" ? colors.accent + "dd" : colors.accent,
+                  opacity: exporting ? 0.6 : 1,
+                },
+              ]}
               onPress={handleExport}
               disabled={exporting || novels.length === 0}
             >
               <Ionicons name="save-outline" size={18} color="#fff" />
               <Text style={styles.backupBtnText}>{exporting ? "Saving…" : "New Backup"}</Text>
             </Pressable>
+
             <Pressable
-              style={[styles.backupBtn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, opacity: importing ? 0.6 : 1 }]}
+              style={[
+                styles.backupBtn,
+                {
+                  backgroundColor: activePanel === "restore" ? colors.accent + "18" : colors.surface,
+                  borderWidth: 1,
+                  borderColor: activePanel === "restore" ? colors.accent : colors.border,
+                  opacity: importing ? 0.6 : 1,
+                },
+              ]}
               onPress={loadBackupList}
               disabled={importing}
             >
@@ -332,6 +490,25 @@ export default function SettingsScreen() {
               <Text style={[styles.backupBtnText, { color: colors.accent }]}>Restore</Text>
             </Pressable>
           </View>
+
+          {/* Import from File button */}
+          <Pressable
+            style={[
+              styles.backupBtn,
+              {
+                backgroundColor: colors.surface,
+                borderWidth: 1,
+                borderColor: colors.border,
+                opacity: importing ? 0.6 : 1,
+              },
+            ]}
+            onPress={handleImportFromPicker}
+            disabled={importing}
+          >
+            <Ionicons name="cloud-upload-outline" size={18} color={colors.accent} />
+            <Text style={[styles.backupBtnText, { color: colors.accent }]}>{importing ? "Importing…" : "Import from File"}</Text>
+          </Pressable>
+
           {novels.length === 0 && (
             <Text style={[styles.backupHint, { color: colors.textMuted }]}>
               Add novels to your library before creating a backup.
@@ -339,25 +516,23 @@ export default function SettingsScreen() {
           )}
         </View>
 
-        {/* Backup List Modal */}
-        {showBackupList && (
+        {/* ── Restore Panel (Backup List) ── */}
+        {activePanel === "restore" && (
           <View style={[styles.backupListCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <View style={styles.backupListHeader}>
               <Text style={[styles.backupListTitle, { color: colors.text }]}>Saved Backups</Text>
-              <Pressable onPress={() => setShowBackupList(false)}>
+              <Pressable onPress={closePanel}>
                 <Ionicons name="close" size={20} color={colors.textSecondary} />
               </Pressable>
             </View>
-            {(backupList as any[]).length === 0 ? (
-              <Text style={[styles.backupHint, { color: colors.textMuted }]}>
-                No backups found in Documents/noveldrr-backups/
-              </Text>
+            {backupList.length === 0 ? (
+              <Text style={[styles.backupHint, { color: colors.textMuted }]}>No backups found in app storage.</Text>
             ) : (
-              (backupList as any[]).map((filename: string) => {
+              backupList.map((filename) => {
                 const { date, time, tag } = parseFilename(filename);
                 return (
                   <View key={filename} style={[styles.backupItem, { borderColor: colors.border }]}>
-                    <Pressable style={styles.backupItemInfo} onPress={() => handleImportFile(filename)}>
+                    <Pressable style={styles.backupItemInfo} onPress={() => handleImportFile(BACKUP_DIR + filename, filename)}>
                       <View style={styles.backupItemMeta}>
                         <Ionicons name="time-outline" size={13} color={colors.textMuted} />
                         <Text style={[styles.backupItemDate, { color: colors.textSecondary }]}>{date}  {time}</Text>
@@ -368,8 +543,17 @@ export default function SettingsScreen() {
                         <Text style={[styles.backupItemTag, { color: colors.textMuted }]}>No label</Text>
                       )}
                     </Pressable>
-                    <Pressable onPress={() => handleDeleteBackup(filename)} style={styles.backupItemDelete}>
-                      <Ionicons name="trash-outline" size={18} color={colors.error} />
+                    <Pressable
+                      onPress={async () => {
+                        const canShare = await Sharing.isAvailableAsync();
+                        if (canShare) await Sharing.shareAsync(BACKUP_DIR + filename, { mimeType: "application/json", dialogTitle: "Share Backup" });
+                      }}
+                      style={styles.backupItemAction}
+                    >
+                      <Ionicons name="share-outline" size={18} color={colors.accent} />
+                    </Pressable>
+                    <Pressable onPress={() => handleDeleteBackup(filename)} style={styles.backupItemAction}>
+                      <Ionicons name="trash-outline" size={18} color={colors.accent} />
                     </Pressable>
                   </View>
                 );
@@ -378,8 +562,8 @@ export default function SettingsScreen() {
           </View>
         )}
 
-        {/* Comment Prompt */}
-        {commentPromptVisible && (
+        {/* ── New Backup Comment Panel ── */}
+        {activePanel === "comment" && (
           <View style={[styles.commentCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Text style={[styles.commentTitle, { color: colors.text }]}>Label this backup</Text>
             <Text style={[styles.commentSub, { color: colors.textSecondary }]}>
@@ -397,7 +581,7 @@ export default function SettingsScreen() {
             <View style={styles.backupRow}>
               <Pressable
                 style={[styles.backupBtn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }]}
-                onPress={() => setCommentPromptVisible(false)}
+                onPress={closePanel}
               >
                 <Text style={[styles.backupBtnText, { color: colors.textSecondary }]}>Cancel</Text>
               </Pressable>
@@ -412,15 +596,61 @@ export default function SettingsScreen() {
           </View>
         )}
 
+        {/* Developer Profile Modal */}
+        <Modal visible={showDevProfile} transparent animationType="fade">
+          <View style={styles.modalOverlay}>
+            <View style={[styles.devCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <View style={styles.devHeader}>
+                <Text style={[styles.devTitle, { color: colors.text }]}>About Developer</Text>
+                <Pressable onPress={() => setShowDevProfile(false)}>
+                  <Ionicons name="close" size={24} color={colors.textSecondary} />
+                </Pressable>
+              </View>
+
+              <View style={styles.devProfileRow}>
+                <View style={[styles.profileImage, { backgroundColor: colors.accent + "20" }]}>
+                  <Ionicons name="person" size={40} color={colors.accent} />
+                </View>
+                <View style={styles.devInfo}>
+                  <Text style={[styles.devLabel, { color: colors.textMuted }]}>Name</Text>
+                  <Text style={[styles.devValue, { color: colors.text }]}>Moggs</Text>
+                </View>
+              </View>
+
+              <Pressable
+                style={styles.devLinkRow}
+                onPress={() => Linking.openURL("https://moggle.is-a-good.dev/")}
+              >
+                <Text style={[styles.devLinkLabel, { color: colors.textSecondary }]}>Website:</Text>
+                <Text style={[styles.devLinkText, { color: colors.accent }]}>NovelDR Site</Text>
+                <Ionicons name="open-outline" size={14} color={colors.accent} />
+              </Pressable>
+
+              <Pressable
+                style={styles.devLinkRow}
+                onPress={() => Linking.openURL("https://github.com/Moggle-Khraum/noveldr-site/releases")}
+              >
+                <Text style={[styles.devLinkLabel, { color: colors.textSecondary }]}>Github:</Text>
+                <Text style={[styles.devLinkText, { color: colors.accent }]}>Github/Releases</Text>
+                <Ionicons name="open-outline" size={14} color={colors.accent} />
+              </Pressable>
+
+              <Text style={[styles.devIssueText, { color: colors.textSecondary }]}>
+                For any suggestions / issues / bugs, please write a comment on Github.
+              </Text>
+            </View>
+          </View>
+        </Modal>
+
         <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>ABOUT</Text>
         <View style={[styles.aboutCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.aboutRow}>
             <Ionicons name="globe" size={16} color={colors.accent} />
             <Text style={[styles.aboutText, { color: colors.text }]}>
-              Download novels from 3 popular sites
+              Download novels from popular supported sites & more to come.
             </Text>
           </View>
-          {["ReadNovelFull", "NovelFull", "FreeWebNovel"].map((site) => (
+          {["ReadNovelFull.com", "NovelFull.net", "FreeWebNovel.com", "Novelbin.com", "LightNovelWorld.org"].map((site) => (
             <View key={site} style={styles.aboutRow}>
               <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
               <Text style={[styles.aboutSite, { color: colors.textSecondary }]}>{site}</Text>
@@ -430,31 +660,38 @@ export default function SettingsScreen() {
           <View style={styles.aboutRow}>
             <Ionicons name="eye" size={16} color={colors.accent} />
             <Text style={[styles.aboutText, { color: colors.text }]}>
-              Beautiful in-app reading experience
+              Easy, Intuitive design & Feature-rich App for comfy reading experience.
             </Text>
           </View>
           <View style={styles.aboutRow}>
             <Ionicons name="bookmark" size={16} color={colors.accent} />
             <Text style={[styles.aboutText, { color: colors.text }]}>
-              Reading progress tracking with Continue
+              Keeps track of your reading progress & where you left off.
             </Text>
           </View>
           <View style={styles.aboutRow}>
-            <Ionicons name="phone-portrait" size={16} color={colors.accent} />
+            <Ionicons name="color-palette-outline" size={16} color={colors.accent} />
             <Text style={[styles.aboutText, { color: colors.text }]}>
-              Dark, Light, and Sepia themes
+              In-App Themes: Dark, Light, and Sepia themes
             </Text>
           </View>
           <View style={styles.aboutRow}>
             <Ionicons name="cloud-offline" size={16} color={colors.accent} />
             <Text style={[styles.aboutText, { color: colors.text }]}>
-              Offline reading capability
+              Download once, Read forever and whenever
+            </Text>
+          </View>
+          <View style={styles.aboutRow}>
+            <Ionicons name="newspaper-outline" size={16} color={colors.accent} />
+            <Text style={[styles.aboutText, { color: colors.text }]}>
+              More features awaits, explore the App!
             </Text>
           </View>
         </View>
 
         <View style={[styles.versionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Text style={[styles.versionText, { color: colors.textMuted }]}>Novel DR — v1.3rev055</Text>
+          <Text style={[styles.versionText, { color: colors.textMuted }]}>Novel DR — v1.3.11</Text>
+          <Text style={[styles.madeByText, { color: colors.textMuted }]}>Made by Moggs ☕</Text>
         </View>
       </ScrollView>
     </View>
@@ -466,11 +703,12 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingBottom: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  headerTitleContainer: { flexDirection: "row", alignItems: "center", gap: 10 },
   headerTitle: { fontFamily: "Inter_700Bold", fontSize: 22 },
   scroll: { padding: 16, gap: 12 },
   sectionLabel: {
@@ -479,12 +717,34 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     marginTop: 8,
   },
+  warningCard: { 
+    borderRadius: 14, 
+    borderWidth: 1, 
+    padding: 14, 
+    gap: 6, 
+    marginBottom: 4,
+  },
+  warningHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  dismissButton: {
+    padding: 4,
+  },
+  warningTitle: { fontFamily: "Inter_700Bold", fontSize: 14 },
+  warningText: { fontFamily: "Inter_400Regular", fontSize: 12, lineHeight: 18 },
+  warningTapHint: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    marginTop: 6,
+    textAlign: 'center',
+  },
   statsCard: {
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     padding: 20,
-    gap: 0,
   },
   statItem: { flex: 1, flexDirection: "row", alignItems: "center", gap: 12 },
   statDivider: { width: StyleSheet.hairlineWidth, marginVertical: 4 },
@@ -520,6 +780,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   versionText: { fontFamily: "Inter_400Regular", fontSize: 12 },
+  madeByText: { fontFamily: "Inter_400Regular", fontSize: 11, marginTop: 6, textAlign: "center" },
   backupCard: {
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
@@ -533,7 +794,7 @@ const styles = StyleSheet.create({
   },
   backupRow: {
     flexDirection: "row",
-    gap: 10,
+    gap: 8,
   },
   backupBtn: {
     flex: 1,
@@ -546,7 +807,7 @@ const styles = StyleSheet.create({
   },
   backupBtnText: {
     fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
+    fontSize: 13,
     color: "#fff",
   },
   backupHint: {
@@ -594,7 +855,7 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     fontSize: 13,
   },
-  backupItemDelete: {
+  backupItemAction: {
     padding: 6,
   },
   commentCard: {
@@ -619,5 +880,76 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     fontFamily: "Inter_400Regular",
     fontSize: 14,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  devCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 20,
+    gap: 16,
+  },
+  devHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  devTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 18,
+  },
+  devProfileRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+    marginBottom: 8,
+  },
+  profileImage: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  devInfo: {
+    flex: 1,
+    gap: 4,
+  },
+  devLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    letterSpacing: 0.5,
+  },
+  devValue: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 18,
+  },
+  devLinkRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 6,
+    paddingVertical: 4,
+  },
+  devLinkLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+  },
+  devLinkText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+    textDecorationLine: "underline",
+  },
+  devIssueText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 8,
+    textAlign: "center",
   },
 });

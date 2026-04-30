@@ -12,6 +12,6 @@
   "packageManager": "pnpm@10.26.1",
   "devDependencies": {
     "typescript": "~5.9.2",
-    "prettier": "^3.8.1"
+    "prettier": "^3.8.2"
   }
 }
