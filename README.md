@@ -1,3 +1,5 @@
+---
+
 # Novel DR
 
 <div align="center">
@@ -10,7 +12,7 @@
 
 **Download webnovels. Read anywhere. No ads, no login, just pure offline reading.**
 
-[Website](https://moggle.is-a-good.dev/) · [Download APK](https://github.com/Moggle-Khraum/noveldr-site/releases) · 
+[Website](https://moggle.is-a-good.dev/) · [Download APK](https://github.com/Moggle-Khraum/noveldr-site/releases)
 
 </div>
 
