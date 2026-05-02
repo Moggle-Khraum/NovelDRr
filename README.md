@@ -10,7 +10,7 @@
 
 **Download webnovels. Read anywhere. No ads, no login, just pure offline reading.**
 
-[Website](https://moggle.is-a-good.dev/) · [Download APK](https://github.com/Moggle-Khraum/noveldr-site/releases) · [Changelog](https://github.com/Moggle-Khraum/NovelDR-site/releases) · [Archives](https://github.com/Moggle-Khraum/NovelDR-site/releases)
+[Website](https://moggle.is-a-good.dev/) · [Download APK](https://github.com/Moggle-Khraum/noveldr-site/releases) · 
 
 </div>
 
