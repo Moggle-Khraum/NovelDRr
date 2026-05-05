@@ -69,7 +69,7 @@ function LogLine({ entry }: { entry: LogEntry }) {
 
 export default function AddNovelScreen() {
   const { colors } = useTheme();
-  const { addNovel, novels } = useLibrary();
+  const { addNovel, novels, saveChapterContent } = useLibrary();
   const insets = useSafeAreaInsets();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
@@ -261,10 +261,21 @@ export default function AddNovelScreen() {
 
         const data = await fetchChapter(currentUrl, chapterNum);
 
+        // Save chapter content individually to file system (optimized for 3K+ chapters)
+        const chapterIndex = newChapters.length;
+        await saveChapterContent(
+          novelId,
+          chapterIndex,
+          data.title,
+          currentUrl,
+          data.content
+        );
+
+        // Only store metadata in memory (no content) to save RAM
         newChapters.push({
           title: data.title,
           url: currentUrl,
-          content: data.content,
+          // content intentionally not stored in memory - saved to individual file above
         });
 
         downloaded++;
