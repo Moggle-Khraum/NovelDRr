@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
+import * as FileSystem from 'expo-file-system';
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -13,7 +14,6 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useLibrary } from "@/context/LibraryContext";
 import { useTheme } from "@/context/ThemeContext";
@@ -22,9 +22,37 @@ const FONT_SIZES = [14, 15, 16, 17, 18, 19, 20, 22];
 const LINE_SPACINGS = [1.2, 1.3, 1.5, 1.8, 2.0, 2.5];
 const AUTO_SCROLL_SPEEDS = [0.5, 1, 1.5, 1.8, 2, 2.5];
 
-const STORAGE_KEYS = {
-  FONT_SIZE_IDX: 'reader_font_size_idx',
-  LINE_SPACING_IDX: 'reader_line_spacing_idx',
+// File system path for reader settings
+const READER_SETTINGS_FILE = `${FileSystem.documentDirectory}NovelDR/reader_settings.json`;
+
+// Helper functions for reader settings
+const loadReaderSettings = async () => {
+  try {
+    const fileInfo = await FileSystem.getInfoAsync(READER_SETTINGS_FILE);
+    if (!fileInfo.exists) return { fontSizeIdx: null, lineSpacingIdx: null };
+    const content = await FileSystem.readAsStringAsync(READER_SETTINGS_FILE);
+    return JSON.parse(content);
+  } catch {
+    return { fontSizeIdx: null, lineSpacingIdx: null };
+  }
+};
+
+const saveReaderSettings = async (settings: { fontSizeIdx?: number; lineSpacingIdx?: number }) => {
+  try {
+    // Ensure directory exists
+    const dir = `${FileSystem.documentDirectory}NovelDR/`;
+    const dirInfo = await FileSystem.getInfoAsync(dir);
+    if (!dirInfo.exists) {
+      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+    }
+    
+    // Load existing settings and merge
+    const current = await loadReaderSettings();
+    const updated = { ...current, ...settings };
+    await FileSystem.writeAsStringAsync(READER_SETTINGS_FILE, JSON.stringify(updated));
+  } catch (error) {
+    console.error('Failed to save reader settings:', error);
+  }
 };
 
 export default function ReaderScreen() {
@@ -76,16 +104,13 @@ export default function ReaderScreen() {
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const [savedFontSize, savedLineSpacing] = await Promise.all([
-          AsyncStorage.getItem(STORAGE_KEYS.FONT_SIZE_IDX),
-          AsyncStorage.getItem(STORAGE_KEYS.LINE_SPACING_IDX),
-        ]);
+        const settings = await loadReaderSettings();
         
-        if (savedFontSize !== null) {
-          setFontSizeIdx(parseInt(savedFontSize));
+        if (settings.fontSizeIdx !== null) {
+          setFontSizeIdx(settings.fontSizeIdx);
         }
-        if (savedLineSpacing !== null) {
-          setLineSpacingIdx(parseInt(savedLineSpacing));
+        if (settings.lineSpacingIdx !== null) {
+          setLineSpacingIdx(settings.lineSpacingIdx);
         }
       } catch (error) {
         console.error('Failed to load reader settings:', error);
@@ -99,20 +124,12 @@ export default function ReaderScreen() {
 
   const handleFontSizeChange = async (newIdx: number) => {
     setFontSizeIdx(newIdx);
-    try {
-      await AsyncStorage.setItem(STORAGE_KEYS.FONT_SIZE_IDX, newIdx.toString());
-    } catch (error) {
-      console.error('Failed to save font size:', error);
-    }
+    await saveReaderSettings({ fontSizeIdx: newIdx });
   };
 
   const handleLineSpacingChange = async (newIdx: number) => {
     setLineSpacingIdx(newIdx);
-    try {
-      await AsyncStorage.setItem(STORAGE_KEYS.LINE_SPACING_IDX, newIdx.toString());
-    } catch (error) {
-      console.error('Failed to save line spacing:', error);
-    }
+    await saveReaderSettings({ lineSpacingIdx: newIdx });
   };
 
   // Save progress when unmounting or when chapter changes
