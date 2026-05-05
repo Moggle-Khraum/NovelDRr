@@ -531,11 +531,11 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
 
  /**
  * Downloads all chapters of a novel by following the "next chapter" links.
- * Saves each chapter as soon as it's fetched, allowing incremental progress.
+ * Saves each chapter individually to file system for memory efficiency.
  *
  * @param startUrl - URL of the first chapter (e.g., from `firstChapterUrl`)
- * @param novelId - Unique identifier for the novel (used in the save callback)
- * @param saveChapter - Async function to store a chapter: (novelId, chapterIndex, title, content) => Promise<void>
+ * @param novelId - Unique identifier for the novel
+ * @param saveChapter - Callback function that saves individual chapter to file system
  * @param onProgress - Optional callback for progress updates: (chapterNumber, title) => void
  * @param delayMs - Milliseconds to wait between chapter requests (default 500)
  * @returns Promise that resolves when all chapters are downloaded
@@ -543,7 +543,7 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
 export async function downloadNovelByCrawling(
   startUrl: string,
   novelId: string,
-  saveChapter: (novelId: string, chapterIndex: number, title: string, content: string) => Promise<void>,
+  saveChapter: (novelId: string, chapterIndex: number, title: string, url: string, content: string) => Promise<void>,
   onProgress?: (chapterNumber: number, title: string) => void,
   delayMs: number = 500
 ): Promise<void> {
@@ -555,7 +555,9 @@ export async function downloadNovelByCrawling(
 
     try {
       const chapter = await directFetchChapter(currentUrl, chapterNumber);
-      await saveChapter(novelId, chapterNumber, chapter.title, chapter.content);
+      
+      // Save chapter individually to file system
+      await saveChapter(novelId, chapterNumber - 1, chapter.title, currentUrl, chapter.content);
 
       if (onProgress) {
         onProgress(chapterNumber, chapter.title);
@@ -569,7 +571,16 @@ export async function downloadNovelByCrawling(
       }
     } catch (error: any) {
       console.error(`[Downloader] Failed at chapter ${chapterNumber}:`, error.message);
-      throw new Error(`Download failed at chapter ${chapterNumber}: ${error.message}`);
+      
+      // Store the progress so far, don't throw - allow partial downloads for large novels
+      console.log(`[Downloader] Partial download completed. ${chapterNumber - 1} chapters saved.`);
+      
+      if (onProgress && chapterNumber > 1) {
+        onProgress(chapterNumber, `Download paused at chapter ${chapterNumber - 1}. ${chapterNumber - 1} chapters saved.`);
+      }
+      
+      // Break instead of throw for large novel support
+      break;
     }
   }
 
