@@ -38,6 +38,7 @@ export type SortOrder = "ascending" | "descending";
 const APP_FOLDER_NAME = 'NovelDR';
 const LIBRARY_FILE_NAME = 'novel_library_v1.json';
 const SORT_PREFERENCE_FILE_NAME = 'chapter_sort_preference.json';
+const CHAPTERS_FOLDER_NAME = 'chapters';
 
 // Helper functions for file system operations
 const getAppStoragePath = () => {
@@ -52,6 +53,18 @@ const getSortPreferenceFilePath = () => {
   return `${getAppStoragePath()}${SORT_PREFERENCE_FILE_NAME}`;
 };
 
+const getChaptersPath = () => {
+  return `${getAppStoragePath()}${CHAPTERS_FOLDER_NAME}/`;
+};
+
+const getNovelChaptersPath = (novelId: string) => {
+  return `${getChaptersPath()}${novelId}/`;
+};
+
+const getChapterFilePath = (novelId: string, chapterIndex: number) => {
+  return `${getNovelChaptersPath(novelId)}chapter_${chapterIndex}.json`;
+};
+
 // Ensure app directory exists
 const ensureAppDirectoryExists = async () => {
   const appDir = getAppStoragePath();
@@ -60,6 +73,13 @@ const ensureAppDirectoryExists = async () => {
   if (!dirInfo.exists) {
     await FileSystem.makeDirectoryAsync(appDir, { intermediates: true });
     console.log('Created app directory:', appDir);
+  }
+};
+
+const ensureDirectoryExists = async (dirPath: string) => {
+  const dirInfo = await FileSystem.getInfoAsync(dirPath);
+  if (!dirInfo.exists) {
+    await FileSystem.makeDirectoryAsync(dirPath, { intermediates: true });
   }
 };
 
@@ -99,6 +119,58 @@ const deleteFile = async (filePath: string) => {
   }
 };
 
+// Chapter-specific file operations
+const saveChapterToFile = async (novelId: string, chapterIndex: number, chapterData: { title: string; url: string; content: string }) => {
+  try {
+    await ensureDirectoryExists(getNovelChaptersPath(novelId));
+    await FileSystem.writeAsStringAsync(
+      getChapterFilePath(novelId, chapterIndex),
+      JSON.stringify(chapterData)
+    );
+  } catch (error) {
+    console.error('Error saving chapter to file:', error);
+    throw error;
+  }
+};
+
+const loadChapterFromFile = async (novelId: string, chapterIndex: number): Promise<Chapter | null> => {
+  try {
+    const content = await loadFromFile(getChapterFilePath(novelId, chapterIndex));
+    if (content) {
+      return JSON.parse(content);
+    }
+    return null;
+  } catch (error) {
+    console.error('Error loading chapter from file:', error);
+    return null;
+  }
+};
+
+const deleteNovelChapters = async (novelId: string) => {
+  try {
+    const novelChaptersDir = getNovelChaptersPath(novelId);
+    const dirInfo = await FileSystem.getInfoAsync(novelChaptersDir);
+    if (dirInfo.exists) {
+      await FileSystem.deleteAsync(novelChaptersDir, { idempotent: true });
+    }
+  } catch (error) {
+    console.error('Error deleting novel chapters:', error);
+  }
+};
+
+// Save all chapters for a novel
+const saveAllChaptersToFile = async (novelId: string, chapters: Chapter[]) => {
+  for (let i = 0; i < chapters.length; i++) {
+    if (chapters[i].content) {
+      await saveChapterToFile(novelId, i, {
+        title: chapters[i].title,
+        url: chapters[i].url,
+        content: chapters[i].content
+      });
+    }
+  }
+};
+
 type LibraryContextType = {
   novels: Novel[];
   loading: boolean;
@@ -117,6 +189,8 @@ type LibraryContextType = {
   sortOrder: SortOrder;
   toggleSortOrder: () => void;
   getSortedChapters: (chapters: Chapter[]) => Chapter[];
+  saveChapterContent: (novelId: string, chapterIndex: number, title: string, url: string, content: string) => Promise<void>;
+  loadChapterContent: (novelId: string, chapterIndex: number) => Promise<Chapter | null>;
 };
 
 const LibraryContext = createContext<LibraryContextType>({
@@ -132,6 +206,8 @@ const LibraryContext = createContext<LibraryContextType>({
   sortOrder: "ascending",
   toggleSortOrder: () => {},
   getSortedChapters: (chapters) => chapters,
+  saveChapterContent: async () => {},
+  loadChapterContent: async () => null,
 });
 
 // Helper to extract chapter number from a Chapter object
@@ -166,7 +242,7 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
           setSortOrder("descending");
         }
         
-        // Load library data
+        // Load library data (metadata only, without chapter content)
         const libraryData = await loadFromFile(getLibraryFilePath());
         if (libraryData) {
           try {
@@ -174,6 +250,12 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
             const migrated = parsed.map((n) => ({
               ...n,
               status: n.status ?? (n.lastRead ? "reading" : "unread"),
+              // Remove chapter content from memory - will be loaded on-demand
+              chapters: n.chapters.map(ch => ({
+                title: ch.title,
+                url: ch.url
+                // content intentionally not loaded
+              }))
             }));
             setNovels(migrated);
           } catch (error) {
@@ -189,6 +271,20 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     
     initializeStorage();
   }, []);
+
+  // Save novel metadata without chapter content
+  const saveLibraryToFile = async (novelsData: Novel[]) => {
+    // Strip chapter content before saving metadata
+    const metadataOnly = novelsData.map(novel => ({
+      ...novel,
+      chapters: novel.chapters.map(ch => ({
+        title: ch.title,
+        url: ch.url
+        // content stored separately
+      }))
+    }));
+    await saveToFile(getLibraryFilePath(), metadataOnly);
+  };
 
   const addNovel = useCallback(
     async (novel: Novel) => {
@@ -214,12 +310,20 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
           
           const updated = [...currentNovels];
           updated[existingIndex] = mergedNovel;
-          saveToFile(getLibraryFilePath(), updated);
+          
+          // Save chapter contents for new chapters
+          saveAllChaptersToFile(novel.id, newChapters);
+          saveLibraryToFile(updated);
+          
           return updated;
         } else {
           // New novel
           const updated = [novel, ...currentNovels];
-          saveToFile(getLibraryFilePath(), updated);
+          
+          // Save chapter contents
+          saveAllChaptersToFile(novel.id, novel.chapters);
+          saveLibraryToFile(updated);
+          
           return updated;
         }
       });
@@ -233,7 +337,7 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
         const updated = currentNovels.map((n) =>
           n.id === id ? { ...n, ...updates } : n
         );
-        saveToFile(getLibraryFilePath(), updated);
+        saveLibraryToFile(updated);
         return updated;
       });
     },
@@ -244,7 +348,9 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     async (id: string) => {
       setNovels((currentNovels) => {
         const updated = currentNovels.filter((n) => n.id !== id);
-        saveToFile(getLibraryFilePath(), updated);
+        saveLibraryToFile(updated);
+        // Clean up chapter files
+        deleteNovelChapters(id);
         return updated;
       });
     },
@@ -255,7 +361,9 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     async (ids: string[]) => {
       setNovels((currentNovels) => {
         const updated = currentNovels.filter((n) => !ids.includes(n.id));
-        saveToFile(getLibraryFilePath(), updated);
+        saveLibraryToFile(updated);
+        // Clean up chapter files for removed novels
+        ids.forEach(id => deleteNovelChapters(id));
         return updated;
       });
     },
@@ -321,6 +429,44 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     [sortOrder]
   );
 
+  // Save individual chapter content to file
+  const saveChapterContent = useCallback(
+    async (novelId: string, chapterIndex: number, title: string, url: string, content: string) => {
+      await saveChapterToFile(novelId, chapterIndex, { title, url, content });
+      
+      // Update chapter metadata in novel object
+      setNovels((currentNovels) => {
+        const novelIndex = currentNovels.findIndex(n => n.id === novelId);
+        if (novelIndex === -1) return currentNovels;
+        
+        const updated = [...currentNovels];
+        const novel = { ...updated[novelIndex] };
+        
+        // Update or add chapter metadata
+        if (chapterIndex >= novel.chapters.length) {
+          novel.chapters = [...novel.chapters, { title, url }];
+        } else {
+          const chapters = [...novel.chapters];
+          chapters[chapterIndex] = { ...chapters[chapterIndex], title, url };
+          novel.chapters = chapters;
+        }
+        
+        updated[novelIndex] = novel;
+        saveLibraryToFile(updated);
+        return updated;
+      });
+    },
+    []
+  );
+
+  // Load chapter content from file
+  const loadChapterContent = useCallback(
+    async (novelId: string, chapterIndex: number): Promise<Chapter | null> => {
+      return await loadChapterFromFile(novelId, chapterIndex);
+    },
+    []
+  );
+
   return (
     <LibraryContext.Provider
       value={{
@@ -336,6 +482,8 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
         sortOrder,
         toggleSortOrder,
         getSortedChapters,
+        saveChapterContent,
+        loadChapterContent,
       }}
     >
       {children}
