@@ -60,7 +60,7 @@ export default function ReaderScreen() {
     id: string;
     chapterIndex: string;
   }>();
-  const { getNovel, saveReadingProgress, sortOrder, toggleSortOrder, getSortedChapters } = useLibrary();
+  const { getNovel, saveReadingProgress, loadChapterContent, sortOrder, toggleSortOrder, getSortedChapters } = useLibrary();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -84,6 +84,10 @@ export default function ReaderScreen() {
   const hasRestoredScrollRef = useRef(false);
   const restoredChapterRef = useRef<number>(-1);
   const forceTopRef = useRef(false);
+
+  // Chapter content state
+  const [chapterContent, setChapterContent] = useState<string>("");
+  const [contentLoading, setContentLoading] = useState(false);
 
   const novel = getNovel(id);
   
@@ -122,6 +126,33 @@ export default function ReaderScreen() {
     loadSettings();
   }, []);
 
+  // Load chapter content when chapter changes
+  useEffect(() => {
+    const loadContent = async () => {
+      if (novel && chapter) {
+        setContentLoading(true);
+        try {
+          // Try to load from file system first
+          const fileChapter = await loadChapterContent(novel.id, chapterIndex);
+          if (fileChapter && fileChapter.content) {
+            setChapterContent(fileChapter.content);
+          } else if (chapter.content) {
+            // Fallback to in-memory content (for backward compatibility)
+            setChapterContent(chapter.content);
+          } else {
+            setChapterContent("Content not available for this chapter. It may still be downloading or wasn't saved properly.");
+          }
+        } catch (error) {
+          console.error('Error loading chapter content:', error);
+          setChapterContent("Error loading chapter content. Please try again.");
+        } finally {
+          setContentLoading(false);
+        }
+      }
+    };
+    loadContent();
+  }, [chapterIndex, novel?.id, chapter, novel, loadChapterContent]);
+
   const handleFontSizeChange = async (newIdx: number) => {
     setFontSizeIdx(newIdx);
     await saveReaderSettings({ fontSizeIdx: newIdx });
@@ -149,6 +180,7 @@ export default function ReaderScreen() {
   // Restore scroll position when chapter changes
   useEffect(() => {
     if (!settingsLoaded) return;
+    if (contentLoading) return; // Wait for content to load
 
     if (forceTopRef.current) {
       forceTopRef.current = false;
@@ -181,7 +213,7 @@ export default function ReaderScreen() {
         restoredChapterRef.current = chapterIndex;
       }
     }
-  }, [chapterIndex, novel?.lastRead, settingsLoaded]);
+  }, [chapterIndex, novel?.lastRead, settingsLoaded, contentLoading]);
 
   const updateReadingProgress = useCallback(() => {
     if (contentHeightRef.current > scrollViewHeightRef.current) {
@@ -388,9 +420,16 @@ export default function ReaderScreen() {
         scrollEventThrottle={16}
       >
         <Text style={[styles.chapterHeader, { color: colors.accent }]}>{chapter.title}</Text>
-        <Text style={[styles.content, { color: colors.text, fontSize, lineHeight: fontSize * lineSpacing }]}>
-          {chapter.content || "Content not available for this chapter."}
-        </Text>
+        
+        {contentLoading ? (
+          <View style={styles.loadingContainer}>
+            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading chapter content...</Text>
+          </View>
+        ) : (
+          <Text style={[styles.content, { color: colors.text, fontSize, lineHeight: fontSize * lineSpacing }]}>
+            {chapterContent}
+          </Text>
+        )}
       </ScrollView>
 
       {/* Progress Bar */}
@@ -539,6 +578,16 @@ const styles = StyleSheet.create({
   textContainer: { paddingHorizontal: 22, paddingTop: 20 },
   chapterHeader: { fontFamily: "Inter_700Bold", fontSize: 18, marginBottom: 20, lineHeight: 26 },
   content: { fontFamily: "Inter_400Regular" },
+  loadingContainer: { 
+    flex: 1, 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    paddingVertical: 40 
+  },
+  loadingText: { 
+    fontFamily: "Inter_400Regular", 
+    fontSize: 14 
+  },
   bottomNav: { 
     flexDirection: "row", 
     alignItems: "center", 
