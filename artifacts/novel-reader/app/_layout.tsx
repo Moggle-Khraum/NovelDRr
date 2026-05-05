@@ -118,7 +118,7 @@ function InitScreen() {
         </View>
         
         <Text style={[initStyles.title, { color: colors.text }]}>Novel DR</Text>
-        <Text style={[initStyles.version, { color: colors.textSecondary }]}>v1.4.1</Text>
+        <Text style={[initStyles.version, { color: colors.textSecondary }]}>v1.3.12</Text>
         
         {/* Progress Steps */}
         <View style={initStyles.stepsContainer}>
