@@ -1,4 +1,4 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as FileSystem from 'expo-file-system';
 import React, {
   createContext,
   useCallback,
@@ -34,8 +34,70 @@ export type Novel = {
 
 export type SortOrder = "ascending" | "descending";
 
-const LIBRARY_KEY = "novel_library_v1";
-const SORT_PREFERENCE_KEY = "chapter_sort_preference";
+// File system paths
+const APP_FOLDER_NAME = 'NovelDR';
+const LIBRARY_FILE_NAME = 'novel_library_v1.json';
+const SORT_PREFERENCE_FILE_NAME = 'chapter_sort_preference.json';
+
+// Helper functions for file system operations
+const getAppStoragePath = () => {
+  return `${FileSystem.documentDirectory}${APP_FOLDER_NAME}/`;
+};
+
+const getLibraryFilePath = () => {
+  return `${getAppStoragePath()}${LIBRARY_FILE_NAME}`;
+};
+
+const getSortPreferenceFilePath = () => {
+  return `${getAppStoragePath()}${SORT_PREFERENCE_FILE_NAME}`;
+};
+
+// Ensure app directory exists
+const ensureAppDirectoryExists = async () => {
+  const appDir = getAppStoragePath();
+  const dirInfo = await FileSystem.getInfoAsync(appDir);
+  
+  if (!dirInfo.exists) {
+    await FileSystem.makeDirectoryAsync(appDir, { intermediates: true });
+    console.log('Created app directory:', appDir);
+  }
+};
+
+// File system CRUD operations
+const saveToFile = async (filePath: string, data: any) => {
+  try {
+    await ensureAppDirectoryExists();
+    await FileSystem.writeAsStringAsync(filePath, JSON.stringify(data));
+  } catch (error) {
+    console.error('Error saving to file:', error);
+    throw error;
+  }
+};
+
+const loadFromFile = async (filePath: string) => {
+  try {
+    const fileInfo = await FileSystem.getInfoAsync(filePath);
+    if (!fileInfo.exists) {
+      return null;
+    }
+    const content = await FileSystem.readAsStringAsync(filePath);
+    return content;
+  } catch (error) {
+    console.error('Error loading from file:', error);
+    return null;
+  }
+};
+
+const deleteFile = async (filePath: string) => {
+  try {
+    const fileInfo = await FileSystem.getInfoAsync(filePath);
+    if (fileInfo.exists) {
+      await FileSystem.deleteAsync(filePath);
+    }
+  } catch (error) {
+    console.error('Error deleting file:', error);
+  }
+};
 
 type LibraryContextType = {
   novels: Novel[];
@@ -91,36 +153,43 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [sortOrder, setSortOrder] = useState<SortOrder>("ascending");
 
-  // Load sort preference
+  // Initialize app directory and load data on mount
   useEffect(() => {
-    AsyncStorage.getItem(SORT_PREFERENCE_KEY).then((value) => {
-      if (value === "descending") {
-        setSortOrder("descending");
+    const initializeStorage = async () => {
+      try {
+        // Ensure app directory exists
+        await ensureAppDirectoryExists();
+        
+        // Load sort preference
+        const sortData = await loadFromFile(getSortPreferenceFilePath());
+        if (sortData === "descending") {
+          setSortOrder("descending");
+        }
+        
+        // Load library data
+        const libraryData = await loadFromFile(getLibraryFilePath());
+        if (libraryData) {
+          try {
+            const parsed: Novel[] = JSON.parse(libraryData);
+            const migrated = parsed.map((n) => ({
+              ...n,
+              status: n.status ?? (n.lastRead ? "reading" : "unread"),
+            }));
+            setNovels(migrated);
+          } catch (error) {
+            console.error('Error parsing library data:', error);
+          }
+        }
+      } catch (error) {
+        console.error('Error initializing storage:', error);
+      } finally {
+        setLoading(false);
       }
-    });
+    };
+    
+    initializeStorage();
   }, []);
 
-  useEffect(() => {
-    AsyncStorage.getItem(LIBRARY_KEY).then((data) => {
-      if (data) {
-        try {
-          const parsed: Novel[] = JSON.parse(data);
-          const migrated = parsed.map((n) => ({
-            ...n,
-            status: n.status ?? (n.lastRead ? "reading" : "unread"),
-          }));
-          setNovels(migrated);
-        } catch {}
-      }
-      setLoading(false);
-    });
-  }, []);
-
-  const persist = useCallback(async (updated: Novel[]) => {
-    setNovels(updated);
-    await AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(updated));
-  }, []);
-  
   const addNovel = useCallback(
     async (novel: Novel) => {
       setNovels((currentNovels) => {
@@ -145,12 +214,12 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
           
           const updated = [...currentNovels];
           updated[existingIndex] = mergedNovel;
-          AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(updated));
+          saveToFile(getLibraryFilePath(), updated);
           return updated;
         } else {
           // New novel
           const updated = [novel, ...currentNovels];
-          AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(updated));
+          saveToFile(getLibraryFilePath(), updated);
           return updated;
         }
       });
@@ -164,7 +233,7 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
         const updated = currentNovels.map((n) =>
           n.id === id ? { ...n, ...updates } : n
         );
-        AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(updated));
+        saveToFile(getLibraryFilePath(), updated);
         return updated;
       });
     },
@@ -175,7 +244,7 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     async (id: string) => {
       setNovels((currentNovels) => {
         const updated = currentNovels.filter((n) => n.id !== id);
-        AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(updated));
+        saveToFile(getLibraryFilePath(), updated);
         return updated;
       });
     },
@@ -186,7 +255,7 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     async (ids: string[]) => {
       setNovels((currentNovels) => {
         const updated = currentNovels.filter((n) => !ids.includes(n.id));
-        AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(updated));
+        saveToFile(getLibraryFilePath(), updated);
         return updated;
       });
     },
@@ -228,7 +297,7 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
   const toggleSortOrder = useCallback(() => {
     setSortOrder((prev) => {
       const next = prev === "ascending" ? "descending" : "ascending";
-      AsyncStorage.setItem(SORT_PREFERENCE_KEY, next);
+      saveToFile(getSortPreferenceFilePath(), next);
       return next;
     });
   }, []);
