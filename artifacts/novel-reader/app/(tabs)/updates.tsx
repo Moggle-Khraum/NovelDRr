@@ -83,7 +83,7 @@ function LogLine({ entry }: { entry: LogEntry }) {
 
 export default function UpdatesScreen() {
   const { colors } = useTheme();
-  const { novels, updateNovel } = useLibrary();
+  const { novels, updateNovel, saveChapterContent } = useLibrary();
   const insets = useSafeAreaInsets();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
@@ -355,10 +355,23 @@ export default function UpdatesScreen() {
 
           // Check if chapter already exists in library
           if (!chapterExists(currentUrl, existingChapters) && !chapterExists(currentUrl, newChapters)) {
+            // Calculate the correct chapter index for file storage
+            const chapterIndex = existingChapters.length + newChapters.length;
+            
+            // Save chapter content individually to file system (optimized for 3K+ chapters)
+            await saveChapterContent(
+              selectedNovel.id,
+              chapterIndex,
+              data.title,
+              currentUrl,
+              data.content
+            );
+            
+            // Only store metadata in memory (no content) to save RAM
             newChapters.push({
               title: data.title,
               url: currentUrl,
-              content: data.content,
+              // content intentionally not stored in memory
             });
             downloaded++;
             consecutiveErrors = 0;
@@ -423,7 +436,7 @@ export default function UpdatesScreen() {
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
       if (downloaded > 0 || updatedCoverUrl !== selectedNovel.coverUrl) {
-        // Merge existing chapters with new chapters, ensuring no duplicates
+        // Merge existing chapters with new chapters (metadata only, content already saved individually)
         const allChapters = [...existingChapters];
         newChapters.forEach((newCh) => {
           if (!chapterExists(newCh.url, allChapters)) {
@@ -431,8 +444,7 @@ export default function UpdatesScreen() {
           }
         });
         
-        // Sort chapters by their original order (assuming they're in sequence)
-        // Update novel with new chapters and potentially new cover/metadata
+        // Update novel with chapter metadata only (content is already saved to individual files)
         await updateNovel(selectedNovel.id, { 
           chapters: allChapters,
           coverUrl: updatedCoverUrl,
@@ -947,4 +959,3 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   }
 });
-
