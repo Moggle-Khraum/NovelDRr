@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useState } from "react";
+import React, { useCallback, useState } from "react";
 import {
   FlatList,
   Platform,
@@ -48,6 +48,45 @@ export default function NovelDetailScreen() {
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
+  // Memoized chapter render function for FlatList performance
+  const renderChapterItem = useCallback(({ item: ch, index: i }: { item: typeof sortedChapters[0], index: number }) => {
+    const originalIndex = novel.chapters.findIndex(c => c.url === ch.url);
+    const isCurrent = novel.lastRead?.chapterIndex === originalIndex;
+    return (
+      <Pressable
+        style={[
+          styles.chapterRow,
+          {
+            backgroundColor: isCurrent ? colors.accent + "18" : colors.card,
+            borderColor: isCurrent ? colors.accent : colors.border,
+          },
+        ]}
+        onPress={() => {
+          Haptics.selectionAsync();
+          router.push({
+            pathname: "/reader/[id]",
+            params: { id: novel.id, chapterIndex: originalIndex.toString() },
+          });
+        }}
+      >
+        <Text style={[styles.chapterTitle, { color: isCurrent ? colors.accent : colors.text }]} numberOfLines={1}>
+          {isCurrent ? "► " : ""}{ch.title}
+        </Text>
+        <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
+      </Pressable>
+    );
+  }, [novel.chapters, novel.lastRead?.chapterIndex, novel.id, colors.accent, colors.text, colors.card, colors.border, colors.textMuted]);
+
+  const keyExtractor = useCallback((item: typeof sortedChapters[0], index: number) => {
+    return `${item.url}-${index}`;
+  }, []);
+
+  const getItemLayout = useCallback((_data: any, index: number) => ({
+    length: 48, // Approximate height of each chapter row
+    offset: 48 * index,
+    index,
+  }), []);
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.navBar, { paddingTop: topPad + 4, borderBottomColor: colors.border }]}>
@@ -67,6 +106,7 @@ export default function NovelDetailScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: bottomPad + 20 }}
+        nestedScrollEnabled={true}
       >
         <View style={styles.hero}>
           <View style={styles.coverWrap}>
@@ -165,35 +205,28 @@ export default function NovelDetailScreen() {
             </Pressable>
           </View>
 
-          {sortedChapters.map((ch, i) => {
-            // Find original index for "Continue" highlighting
-            const originalIndex = novel.chapters.findIndex(c => c.url === ch.url);
-            const isCurrent = novel.lastRead?.chapterIndex === originalIndex;
-            return (
-              <Pressable
-                key={i}
-                style={[
-                  styles.chapterRow,
-                  {
-                    backgroundColor: isCurrent ? colors.accent + "18" : colors.card,
-                    borderColor: isCurrent ? colors.accent : colors.border,
-                  },
-                ]}
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  router.push({
-                    pathname: "/reader/[id]",
-                    params: { id: novel.id, chapterIndex: originalIndex.toString() },
-                  });
-                }}
-              >
-                <Text style={[styles.chapterTitle, { color: isCurrent ? colors.accent : colors.text }]} numberOfLines={1}>
-                  {isCurrent ? "► " : ""}{ch.title}
-                </Text>
-                <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
-              </Pressable>
-            );
-          })}
+          {/* Optimized Chapter List with FlatList */}
+          <View style={styles.chapterListContainer}>
+            <FlatList
+              data={sortedChapters}
+              keyExtractor={keyExtractor}
+              renderItem={renderChapterItem}
+              getItemLayout={getItemLayout}
+              scrollEnabled={false}
+              nestedScrollEnabled={true}
+              initialNumToRender={20}
+              maxToRenderPerBatch={30}
+              windowSize={10}
+              removeClippedSubviews={true}
+              ListEmptyComponent={
+                <View style={styles.emptyChapters}>
+                  <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+                    No chapters available yet. Start downloading to see chapters here.
+                  </Text>
+                </View>
+              }
+            />
+          </View>
         </View>
       </ScrollView>
     </View>
@@ -304,12 +337,26 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     fontSize: 12,
   },
+  chapterListContainer: {
+    minHeight: 200, // Minimum height to ensure FlatList renders properly
+  },
   chapterRow: {
     flexDirection: "row",
     alignItems: "center",
     padding: 14,
     borderRadius: 10,
     borderWidth: StyleSheet.hairlineWidth,
+    marginBottom: 6, // Add spacing between rows
   },
   chapterTitle: { fontFamily: "Inter_500Medium", fontSize: 14, flex: 1 },
+  emptyChapters: {
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    textAlign: 'center',
+  },
 });
