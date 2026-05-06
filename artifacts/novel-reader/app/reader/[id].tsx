@@ -23,62 +23,27 @@ const FONT_SIZES = [14, 15, 16, 17, 18, 19, 20, 22];
 const LINE_SPACINGS = [1.2, 1.3, 1.5, 1.8, 2.0, 2.5];
 const AUTO_SCROLL_SPEEDS = [0.5, 1, 1.5, 1.8, 2, 2.5];
 
-// File system path for reader settings
 const READER_SETTINGS_FILE = `${FileSystem.documentDirectory}NovelDR/reader_settings.json`;
 
-// Helper functions for reader settings
-const loadReaderSettings = async () => {
-  try {
-    const fileInfo = await FileSystem.getInfoAsync(READER_SETTINGS_FILE);
-    if (!fileInfo.exists) return { fontSizeIdx: null, lineSpacingIdx: null };
-    const content = await FileSystem.readAsStringAsync(READER_SETTINGS_FILE);
-    return JSON.parse(content);
-  } catch {
-    return { fontSizeIdx: null, lineSpacingIdx: null };
-  }
-};
-
-const saveReaderSettings = async (settings: { fontSizeIdx?: number; lineSpacingIdx?: number }) => {
-  try {
-    const dir = `${FileSystem.documentDirectory}NovelDR/`;
-    const dirInfo = await FileSystem.getInfoAsync(dir);
-    if (!dirInfo.exists) {
-      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-    }
-    
-    const current = await loadReaderSettings();
-    const updated = { ...current, ...settings };
-    await FileSystem.writeAsStringAsync(READER_SETTINGS_FILE, JSON.stringify(updated));
-  } catch (error) {
-    console.error('Failed to save reader settings:', error);
-  }
-};
-
-// ── FIX #2: Load content with AsyncStorage fallback ─────────────────────────
 const loadChapterContentWithFallback = async (
   novelId: string,
   chapterIndex: number,
   chapter: { title: string; url: string; content?: string },
   loadFromFileSystem: (novelId: string, chapterIndex: number) => Promise<any>
 ): Promise<string> => {
-  // Try file system first
   try {
     const fileChapter = await loadFromFileSystem(novelId, chapterIndex);
     if (fileChapter && fileChapter.content) {
-      console.log(`[Reader] Loaded chapter from file system: ${fileChapter.title}`);
       return fileChapter.content;
     }
   } catch (error) {
     console.log('[Reader] File system load failed, trying fallbacks...');
   }
   
-  // Fallback 1: Check if content is in memory (from AsyncStorage migration or direct download)
   if (chapter.content && chapter.content.trim().length > 0) {
-    console.log('[Reader] Using in-memory content fallback');
     return chapter.content;
   }
   
-  // Fallback 2: Try AsyncStorage directly (for legacy data that wasn't migrated)
   try {
     const AsyncStorage = require('@react-native-async-storage/async-storage').default;
     const libraryData = await AsyncStorage.getItem('novel_library_v1');
@@ -88,7 +53,6 @@ const loadChapterContentWithFallback = async (
       if (novel && novel.chapters && novel.chapters[chapterIndex]) {
         const legacyChapter = novel.chapters[chapterIndex];
         if (legacyChapter.content && legacyChapter.content.trim().length > 0) {
-          console.log('[Reader] Loaded from legacy AsyncStorage!');
           return legacyChapter.content;
         }
       }
@@ -97,7 +61,6 @@ const loadChapterContentWithFallback = async (
     console.log('[Reader] AsyncStorage fallback failed:', asyncError);
   }
   
-  // Fallback 3: Try alternative file locations
   try {
     const altPaths = [
       `${FileSystem.documentDirectory}noveldr/chapters/${novelId}/chapter_${chapterIndex}.json`,
@@ -110,7 +73,6 @@ const loadChapterContentWithFallback = async (
         const content = await FileSystem.readAsStringAsync(altPath);
         const chapterData = JSON.parse(content);
         if (chapterData.content) {
-          console.log(`[Reader] Found content in alternative location: ${altPath}`);
           return chapterData.content;
         }
       }
@@ -133,6 +95,7 @@ export default function ReaderScreen() {
 
   const [fontSizeIdx, setFontSizeIdx] = useState(1);
   const [lineSpacingIdx, setLineSpacingIdx] = useState(1);
+  const [autoScrollSpeedIdx, setAutoScrollSpeedIdx] = useState(1);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [showControls, setShowControls] = useState(false);
   const [showTOC, setShowTOC] = useState(false);
@@ -140,7 +103,6 @@ export default function ReaderScreen() {
   const scrollRef = useRef<ScrollView>(null);
 
   const [autoScrollActive, setAutoScrollActive] = useState(false);
-  const [autoScrollSpeedIdx, setAutoScrollSpeedIdx] = useState(1);
   
   const [readingProgress, setReadingProgress] = useState(0);
   const scrollYRef = useRef(0);
@@ -151,23 +113,14 @@ export default function ReaderScreen() {
   const hasRestoredScrollRef = useRef(false);
   const restoredChapterRef = useRef<number>(-1);
   const forceTopRef = useRef(false);
-  const isTransitioningRef = useRef(false);
 
-  // Chapter content state
   const [chapterContent, setChapterContent] = useState<string>("");
   const [contentLoading, setContentLoading] = useState(false);
   const [previousContent, setPreviousContent] = useState<string>("");
 
   const novel = getNovel(id);
-  
-  // ── FIX #4: Sort chapters properly for TOC ─────────────────────────────────
-  // Use getSortedChapters for TOC display
   const sortedChapters = novel ? getSortedChapters(novel.chapters) : [];
-  
-  // Use original chapters array for reading (chapterIndex refers to original array)
   const chapter = novel?.chapters[chapterIndex];
-  
-  // Find current chapter's position in sorted list (for TOC highlighting)
   const currentChapterUrl = chapter?.url;
   const currentSortedIndex = sortedChapters.findIndex(ch => ch.url === currentChapterUrl);
 
@@ -178,13 +131,13 @@ export default function ReaderScreen() {
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const settings = await loadReaderSettings();
-        
-        if (settings.fontSizeIdx !== null) {
-          setFontSizeIdx(settings.fontSizeIdx);
-        }
-        if (settings.lineSpacingIdx !== null) {
-          setLineSpacingIdx(settings.lineSpacingIdx);
+        const fileInfo = await FileSystem.getInfoAsync(READER_SETTINGS_FILE);
+        if (fileInfo.exists) {
+          const content = await FileSystem.readAsStringAsync(READER_SETTINGS_FILE);
+          const settings = JSON.parse(content);
+          if (settings.fontSizeIdx !== undefined) setFontSizeIdx(settings.fontSizeIdx);
+          if (settings.lineSpacingIdx !== undefined) setLineSpacingIdx(settings.lineSpacingIdx);
+          if (settings.autoScrollSpeedIdx !== undefined) setAutoScrollSpeedIdx(settings.autoScrollSpeedIdx);
         }
       } catch (error) {
         console.error('Failed to load reader settings:', error);
@@ -192,32 +145,51 @@ export default function ReaderScreen() {
         setSettingsLoaded(true);
       }
     };
-    
     loadSettings();
   }, []);
 
-  // ── FIX #1: Prevent flashing when changing chapters ───────────────────────
+  // Save settings helper - write all at once to avoid recursive issues
+  const saveAllSettings = async (font: number, line: number, scroll: number) => {
+    try {
+      const dir = `${FileSystem.documentDirectory}NovelDR/`;
+      const dirInfo = await FileSystem.getInfoAsync(dir);
+      if (!dirInfo.exists) {
+        await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+      }
+      await FileSystem.writeAsStringAsync(
+        READER_SETTINGS_FILE,
+        JSON.stringify({ fontSizeIdx: font, lineSpacingIdx: line, autoScrollSpeedIdx: scroll })
+      );
+    } catch (error) {
+      console.error('Failed to save settings:', error);
+    }
+  };
+
+  const handleFontSizeChange = (newIdx: number) => {
+    setFontSizeIdx(newIdx);
+    saveAllSettings(newIdx, lineSpacingIdx, autoScrollSpeedIdx);
+  };
+
+  const handleLineSpacingChange = (newIdx: number) => {
+    setLineSpacingIdx(newIdx);
+    saveAllSettings(fontSizeIdx, newIdx, autoScrollSpeedIdx);
+  };
+
+  const handleAutoScrollSpeedChange = (newIdx: number) => {
+    setAutoScrollSpeedIdx(newIdx);
+    saveAllSettings(fontSizeIdx, lineSpacingIdx, newIdx);
+  };
+
   // Load chapter content when chapter changes
   useEffect(() => {
     const loadContent = async () => {
       if (novel && chapter) {
-        isTransitioningRef.current = true;
         setContentLoading(true);
-        
-        // Keep showing previous content while loading new one
-        // This prevents the flash of "Loading..." text
-        
         try {
           const content = await loadChapterContentWithFallback(
-            novel.id,
-            chapterIndex,
-            chapter,
-            loadChapterContent
+            novel.id, chapterIndex, chapter, loadChapterContent
           );
-          
-          // Small delay to ensure smooth transition
           await new Promise(resolve => setTimeout(resolve, 50));
-          
           setPreviousContent(chapterContent);
           setChapterContent(content);
         } catch (error) {
@@ -225,41 +197,25 @@ export default function ReaderScreen() {
           setChapterContent("Error loading chapter content. Please try again.");
         } finally {
           setContentLoading(false);
-          isTransitioningRef.current = false;
         }
       }
     };
     loadContent();
   }, [chapterIndex, novel?.id]);
 
-  const handleFontSizeChange = async (newIdx: number) => {
-    setFontSizeIdx(newIdx);
-    await saveReaderSettings({ fontSizeIdx: newIdx });
-  };
-
-  const handleLineSpacingChange = async (newIdx: number) => {
-    setLineSpacingIdx(newIdx);
-    await saveReaderSettings({ lineSpacingIdx: newIdx });
-  };
-
-  // Save progress when unmounting or when chapter changes
+  // Save progress on unmount
   useEffect(() => {
     return () => {
       if (novel && chapter) {
-        saveReadingProgress(
-          novel.id,
-          chapterIndex,
-          chapter.title,
-          scrollYRef.current
-        );
+        saveReadingProgress(novel.id, chapterIndex, chapter.title, scrollYRef.current);
       }
+      if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [chapterIndex, novel?.id]);
 
-  // Restore scroll position when chapter changes
+  // Restore scroll position
   useEffect(() => {
-    if (!settingsLoaded) return;
-    if (contentLoading) return;
+    if (!settingsLoaded || contentLoading) return;
 
     if (forceTopRef.current) {
       forceTopRef.current = false;
@@ -273,19 +229,11 @@ export default function ReaderScreen() {
 
     const savedLastRead = novel?.lastRead;
     const savedOffset = (savedLastRead?.chapterIndex === chapterIndex) 
-      ? savedLastRead.scrollOffset 
-      : 0;
+      ? savedLastRead.scrollOffset : 0;
 
     if (!hasRestoredScrollRef.current) {
       const timer = setTimeout(() => {
-        if (savedOffset > 0) {
-          scrollRef.current?.scrollTo({
-            y: savedOffset,
-            animated: false,
-          });
-        } else {
-          scrollRef.current?.scrollTo({ y: 0, animated: false });
-        }
+        scrollRef.current?.scrollTo({ y: savedOffset > 0 ? savedOffset : 0, animated: false });
         hasRestoredScrollRef.current = true;
         restoredChapterRef.current = chapterIndex;
       }, 100);
@@ -314,29 +262,32 @@ export default function ReaderScreen() {
   const startAutoScroll = useCallback(() => {
     if (intervalRef.current) clearInterval(intervalRef.current);
     const speed = AUTO_SCROLL_SPEEDS[autoScrollSpeedIdx];
-    const baseSpeedPxPerSec = 60;
-    const stepPxPerFrame = (baseSpeedPxPerSec * speed) / 60;
+    const baseSpeedPxPerSec = 30;
+    const stepPxPerFrame = (baseSpeedPxPerSec * speed) / 20; // 20fps
 
     intervalRef.current = setInterval(() => {
       if (!scrollRef.current) return;
       const currentY = scrollYRef.current;
       const maxY = Math.max(0, contentHeightRef.current - scrollViewHeightRef.current);
+      if (currentY >= maxY) {
+        stopAutoScroll();
+        return;
+      }
       const newY = Math.min(maxY, currentY + stepPxPerFrame);
-
       scrollRef.current.scrollTo({ y: newY, animated: false });
-
-      if (newY >= maxY) stopAutoScroll();
-    }, 1000 / 60);
+      scrollYRef.current = newY;
+    }, 50);
+    
+    setAutoScrollActive(true);
   }, [autoScrollSpeedIdx, stopAutoScroll]);
 
-  useEffect(() => {
-    if (autoScrollActive) startAutoScroll();
-    else if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
+  const toggleAutoScroll = () => {
+    if (autoScrollActive) {
+      stopAutoScroll();
+    } else {
+      startAutoScroll();
     }
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [autoScrollActive, startAutoScroll]);
+  };
 
   const handleScroll = (event: any) => {
     scrollYRef.current = event.nativeEvent.contentOffset.y;
@@ -357,27 +308,18 @@ export default function ReaderScreen() {
     updateReadingProgress();
   };
 
-  // ── FIX #4: Proper chapter selection in TOC ────────────────────────────────
   const handleChapterSelect = (sortedIndex: number) => {
     const selectedChapter = sortedChapters[sortedIndex];
     if (!selectedChapter) return;
-    
-    // Find the EXACT original index by matching URL
     const originalIndex = novel?.chapters.findIndex(c => c.url === selectedChapter.url) ?? 0;
     
     if (novel && chapter) {
-      saveReadingProgress(
-        novel.id,
-        chapterIndex,
-        chapter.title,
-        scrollYRef.current
-      );
+      saveReadingProgress(novel.id, chapterIndex, chapter.title, scrollYRef.current);
     }
     
     scrollYRef.current = 0;
     hasRestoredScrollRef.current = false;
     forceTopRef.current = true;
-    
     setChapterIndex(originalIndex);
     setShowTOC(false);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -396,7 +338,6 @@ export default function ReaderScreen() {
   const lineSpacing = LINE_SPACINGS[lineSpacingIdx];
   const currentSpeed = AUTO_SCROLL_SPEEDS[autoScrollSpeedIdx];
 
-  // ── FIX #1: Smooth chapter transitions ─────────────────────────────────────
   const goChapter = (dir: 1 | -1) => {
     const next = chapterIndex + dir;
     if (next < 0 || next >= (novel?.chapters.length ?? 0)) {
@@ -405,14 +346,10 @@ export default function ReaderScreen() {
     }
     
     if (novel && chapter) {
-      saveReadingProgress(
-        novel.id,
-        chapterIndex,
-        chapter.title,
-        scrollYRef.current
-      );
+      saveReadingProgress(novel.id, chapterIndex, chapter.title, scrollYRef.current);
     }
     
+    stopAutoScroll();
     scrollYRef.current = 0;
     hasRestoredScrollRef.current = false;
     forceTopRef.current = true;
@@ -473,14 +410,27 @@ export default function ReaderScreen() {
           <View style={styles.controlRow}>
             <Text style={[styles.controlLabel, { color: colors.textSecondary }]}>AutoScroll</Text>
             <View style={styles.controlBtns}>
-              <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => setAutoScrollActive((prev) => !prev)}>
-                <Ionicons name={autoScrollActive ? "pause" : "play"} size={16} color={colors.text} />
+              <Pressable 
+                style={[styles.controlBtn, { 
+                  backgroundColor: autoScrollActive ? colors.accent : colors.surface, 
+                  borderColor: colors.border 
+                }]} 
+                onPress={toggleAutoScroll}>
+                <Ionicons 
+                  name={autoScrollActive ? "pause" : "play"} 
+                  size={16} 
+                  color={autoScrollActive ? "#fff" : colors.text} 
+                />
               </Pressable>
-              <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => setAutoScrollSpeedIdx((i) => Math.max(0, i - 1))}>
+              <Pressable 
+                style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} 
+                onPress={() => handleAutoScrollSpeedChange(Math.max(0, autoScrollSpeedIdx - 1))}>
                 <Ionicons name="remove" size={16} color={colors.text} />
               </Pressable>
               <Text style={[styles.controlValue, { color: colors.text }]}>{currentSpeed.toFixed(1)}x</Text>
-              <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => setAutoScrollSpeedIdx((i) => Math.min(AUTO_SCROLL_SPEEDS.length - 1, i + 1))}>
+              <Pressable 
+                style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} 
+                onPress={() => handleAutoScrollSpeedChange(Math.min(AUTO_SCROLL_SPEEDS.length - 1, autoScrollSpeedIdx + 1))}>
                 <Ionicons name="add" size={16} color={colors.text} />
               </Pressable>
             </View>
@@ -488,7 +438,6 @@ export default function ReaderScreen() {
         </View>
       )}
 
-      {/* ── FIX #1: Show previous content while loading to prevent flash ── */}
       <ScrollView
         ref={scrollRef}
         style={styles.scrollArea}
@@ -504,9 +453,7 @@ export default function ReaderScreen() {
         {contentLoading && !chapterContent ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="small" color={colors.accent} />
-            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
-              Loading chapter...
-            </Text>
+            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading chapter...</Text>
           </View>
         ) : (
           <Text style={[styles.content, { color: colors.text, fontSize, lineHeight: fontSize * lineSpacing }]}>
@@ -515,37 +462,23 @@ export default function ReaderScreen() {
         )}
       </ScrollView>
 
-      {/* Progress Bar */}
       <View style={[styles.progressBarContainer, { backgroundColor: colors.border }]}>
-        <View 
-          style={[
-            styles.progressBar, 
-            { 
-              backgroundColor: colors.accent,
-              width: `${readingProgress}%`
-            }
-          ]} 
-        />
+        <View style={[styles.progressBar, { backgroundColor: colors.accent, width: `${readingProgress}%` }]} />
       </View>
 
       <View style={[styles.bottomNav, { backgroundColor: colors.surface, borderTopColor: colors.border, paddingBottom: bottomPad + 8 }]}>
         <Pressable 
           style={[styles.navChBtn, { backgroundColor: chapterIndex === 0 ? colors.border : colors.card, borderColor: colors.border }]} 
           onPress={() => goChapter(-1)} 
-          disabled={chapterIndex === 0}
-        >
+          disabled={chapterIndex === 0}>
           <Ionicons name="chevron-back" size={18} color={chapterIndex === 0 ? colors.textMuted : colors.text} />
           <Text style={[styles.navChText, { color: chapterIndex === 0 ? colors.textMuted : colors.text }]}>Previous</Text>
         </Pressable>
 
-        {/* TOC Button */}
         <Pressable 
           style={[styles.tocButton, { backgroundColor: colors.card, borderColor: colors.border }]} 
-          onPress={() => setShowTOC(true)}
-        >
-          <Text style={[styles.tocButtonText, { color: colors.text }]}>
-            {chapterIndex + 1} / {novel.chapters.length}
-          </Text>
+          onPress={() => setShowTOC(true)}>
+          <Text style={[styles.tocButtonText, { color: colors.text }]}>{chapterIndex + 1} / {novel.chapters.length}</Text>
         </Pressable>
 
         <Pressable 
@@ -554,37 +487,21 @@ export default function ReaderScreen() {
             borderColor: chapterIndex === (novel.chapters.length ?? 0) - 1 ? colors.border : colors.accent 
           }]} 
           onPress={() => goChapter(1)} 
-          disabled={chapterIndex === (novel.chapters.length ?? 0) - 1}
-        >
+          disabled={chapterIndex === (novel.chapters.length ?? 0) - 1}>
           <Text style={[styles.navChText, { color: chapterIndex === (novel.chapters.length ?? 0) - 1 ? colors.textMuted : "#fff" }]}>Next</Text>
           <Ionicons name="chevron-forward" size={18} color={chapterIndex === (novel.chapters.length ?? 0) - 1 ? colors.textMuted : "#fff"} />
         </Pressable>
       </View>
 
-      {/* ── FIX #4: Table of Contents with correct sorting ── */}
-      <Modal
-        visible={showTOC}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowTOC(false)}
-      >
+      <Modal visible={showTOC} animationType="slide" transparent onRequestClose={() => setShowTOC(false)}>
         <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
           <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: colors.text }]}>Table of Contents</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Pressable 
-                  onPress={toggleSortOrder} 
-                  style={[styles.sortBtn, { borderColor: colors.border }]}
-                >
-                  <Ionicons 
-                    name={sortOrder === "ascending" ? "arrow-up" : "arrow-down"} 
-                    size={18} 
-                    color={colors.accent} 
-                  />
-                  <Text style={[styles.sortBtnText, { color: colors.accent }]}>
-                    {sortOrder === "ascending" ? "Asc" : "Desc"}
-                  </Text>
+                <Pressable onPress={toggleSortOrder} style={[styles.sortBtn, { borderColor: colors.border }]}>
+                  <Ionicons name={sortOrder === "ascending" ? "arrow-up" : "arrow-down"} size={18} color={colors.accent} />
+                  <Text style={[styles.sortBtnText, { color: colors.accent }]}>{sortOrder === "ascending" ? "Asc" : "Desc"}</Text>
                 </Pressable>
                 <Pressable onPress={() => setShowTOC(false)} style={styles.modalCloseBtn}>
                   <Ionicons name="close" size={24} color={colors.text} />
@@ -593,36 +510,22 @@ export default function ReaderScreen() {
             </View>
             <ScrollView style={styles.modalScrollView}>
               {sortedChapters.map((ch, idx) => {
-                // Find the ORIGINAL index for this chapter
                 const originalIndex = novel.chapters.findIndex(c => c.url === ch.url);
                 const isCurrent = chapterIndex === originalIndex;
-                
                 return (
                   <Pressable
                     key={ch.url || idx}
-                    style={[
-                      styles.tocItem,
-                      isCurrent && [styles.tocItemActive, { backgroundColor: colors.accent + '20' }]
-                    ]}
-                    onPress={() => handleChapterSelect(idx)}
-                  >
+                    style={[styles.tocItem, isCurrent && [styles.tocItemActive, { backgroundColor: colors.accent + '20' }]]}
+                    onPress={() => handleChapterSelect(idx)}>
                     <View style={styles.tocItemContent}>
-                      <Text style={[
-                        styles.tocChapterNum,
-                        { color: isCurrent ? colors.accent : colors.textSecondary }
-                      ]}>
+                      <Text style={[styles.tocChapterNum, { color: isCurrent ? colors.accent : colors.textSecondary }]}>
                         Chapter {originalIndex + 1}
                       </Text>
-                      <Text style={[
-                        styles.tocChapterTitle,
-                        { color: isCurrent ? colors.accent : colors.text }
-                      ]}>
+                      <Text style={[styles.tocChapterTitle, { color: isCurrent ? colors.accent : colors.text }]}>
                         {ch.title}
                       </Text>
                     </View>
-                    {isCurrent && (
-                      <Ionicons name="checkmark-circle" size={20} color={colors.accent} />
-                    )}
+                    {isCurrent && <Ionicons name="checkmark-circle" size={20} color={colors.accent} />}
                   </Pressable>
                 );
               })}
@@ -638,24 +541,13 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   topBar: { 
-    flexDirection: "row", 
-    alignItems: "center", 
-    paddingHorizontal: 4, 
-    paddingBottom: 10, 
-    borderBottomWidth: StyleSheet.hairlineWidth, 
-    gap: 4 
+    flexDirection: "row", alignItems: "center", paddingHorizontal: 4, 
+    paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth, gap: 4 
   },
   navBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   chapterTitle: { fontFamily: "Inter_600SemiBold", fontSize: 14, flex: 1, textAlign: "center" },
-  progressBarContainer: {
-    height: 3,
-    width: '100%',
-    overflow: 'hidden',
-  },
-  progressBar: {
-    height: '100%',
-    width: '0%',
-  },
+  progressBarContainer: { height: 3, width: '100%', overflow: 'hidden' },
+  progressBar: { height: '100%', width: '0%' },
   controls: { paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, gap: 10 },
   controlRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   controlLabel: { fontFamily: "Inter_500Medium", fontSize: 13, width: 80 },
@@ -667,105 +559,27 @@ const styles = StyleSheet.create({
   textContainer: { paddingHorizontal: 22, paddingTop: 20 },
   chapterHeader: { fontFamily: "Inter_700Bold", fontSize: 18, marginBottom: 20, lineHeight: 26 },
   content: { fontFamily: "Inter_400Regular" },
-  loadingContainer: { 
-    flex: 1, 
-    alignItems: 'center', 
-    justifyContent: 'center', 
-    paddingVertical: 40 
-  },
-  loadingText: { 
-    fontFamily: "Inter_400Regular", 
-    fontSize: 14,
-    marginTop: 8,
-  },
+  loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 40 },
+  loadingText: { fontFamily: "Inter_400Regular", fontSize: 14, marginTop: 8 },
   bottomNav: { 
-    flexDirection: "row", 
-    alignItems: "center", 
-    justifyContent: "space-between", 
-    paddingHorizontal: 16, 
-    paddingTop: 10, 
-    borderTopWidth: StyleSheet.hairlineWidth, 
-    gap: 12 
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between", 
+    paddingHorizontal: 16, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, gap: 12 
   },
   navChBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, borderWidth: 1 },
   navChText: { fontFamily: "Inter_600SemiBold", fontSize: 13 },
-  tocButton: { 
-    paddingHorizontal: 16, 
-    paddingVertical: 10, 
-    borderRadius: 10, 
-    borderWidth: 1,
-    minWidth: 70,
-    alignItems: "center",
-  },
-  tocButtonText: { 
-    fontFamily: "Inter_600SemiBold", 
-    fontSize: 14,
-  },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: '80%',
-    minHeight: '50%',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e0e0e0',
-  },
-  modalTitle: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 18,
-  },
-  modalCloseBtn: {
-    padding: 4,
-  },
-  modalScrollView: {
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-  },
-  tocItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 14,
-    paddingHorizontal: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e0e0e0',
-  },
-  tocItemActive: {
-    borderRadius: 8,
-  },
-  tocItemContent: {
-    flex: 1,
-  },
-  tocChapterNum: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    marginBottom: 4,
-  },
-  tocChapterTitle: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 14,
-  },
-  sortBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  sortBtnText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 12,
-  },
+  tocButton: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, borderWidth: 1, minWidth: 70, alignItems: "center" },
+  tocButtonText: { fontFamily: "Inter_600SemiBold", fontSize: 14 },
+  modalOverlay: { flex: 1, justifyContent: 'flex-end' },
+  modalContent: { borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '80%', minHeight: '50%' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#e0e0e0' },
+  modalTitle: { fontFamily: "Inter_700Bold", fontSize: 18 },
+  modalCloseBtn: { padding: 4 },
+  modalScrollView: { paddingHorizontal: 20, paddingVertical: 12 },
+  tocItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, paddingHorizontal: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#e0e0e0' },
+  tocItemActive: { borderRadius: 8 },
+  tocItemContent: { flex: 1 },
+  tocChapterNum: { fontFamily: "Inter_400Regular", fontSize: 12, marginBottom: 4 },
+  tocChapterTitle: { fontFamily: "Inter_500Medium", fontSize: 14 },
+  sortBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1 },
+  sortBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 12 },
 });
