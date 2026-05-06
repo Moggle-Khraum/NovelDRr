@@ -2,13 +2,14 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React, { useState, useMemo, useRef } from "react";
+import React, { useState, useMemo } from "react";
 import {
   Alert,
   FlatList,
   Modal,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -16,10 +17,14 @@ import {
   View,
 } from "react-native";
 import Animated, {
+  cancelAnimation,
+  Easing,
   FadeIn,
   useAnimatedStyle,
   useSharedValue,
+  withRepeat,
   withSpring,
+  withTiming,
   runOnJS,
 } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -199,7 +204,8 @@ function StatusSheet({
 // ── LibraryScreen ────────────────────────────────────────────────────────────
 
 export default function LibraryScreen() {
-  const { novels, removeNovels, loading, setNovelStatus } = useLibrary();
+  // Add `refreshLibrary` from your LibraryContext
+  const { novels, removeNovels, loading, setNovelStatus, refreshLibrary } = useLibrary();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -216,6 +222,41 @@ export default function LibraryScreen() {
 
   const [statusSheetNovel, setStatusSheetNovel] = useState<Novel | null>(null);
 
+  // ── Refresh state ──────────────────────────────────────────────────────────
+  const [refreshing, setRefreshing] = useState(false);
+  const fabRotation = useSharedValue(0);
+  const fabSpinStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${fabRotation.value}deg` }],
+  }));
+
+  const startSpin = () => {
+    fabRotation.value = 0;
+    fabRotation.value = withRepeat(
+      withTiming(360, { duration: 600, easing: Easing.linear }),
+      -1,
+      false
+    );
+  };
+
+  const stopSpin = () => {
+    cancelAnimation(fabRotation);
+    fabRotation.value = withTiming(0, { duration: 200 });
+  };
+
+  const handleRefresh = async () => {
+    if (refreshing) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setRefreshing(true);
+    startSpin();
+    try {
+      await refreshLibrary();
+    } finally {
+      stopSpin();
+      setRefreshing(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+  };
+
   // ── Swipe Animation Values ─────────────────────────────────────────────────
   const translateX = useSharedValue(0);
   const filterKeys = FILTER_TABS.map(tab => tab.key);
@@ -223,7 +264,7 @@ export default function LibraryScreen() {
   const changeFilterSwipe = (direction: 'left' | 'right') => {
     const currentIndex = filterKeys.indexOf(activeFilter);
     let newIndex: number;
-    
+
     if (direction === 'left' && currentIndex < filterKeys.length - 1) {
       newIndex = currentIndex + 1;
     } else if (direction === 'right' && currentIndex > 0) {
@@ -231,33 +272,30 @@ export default function LibraryScreen() {
     } else {
       return;
     }
-    
+
     setActiveFilter(filterKeys[newIndex] as NovelStatus | "all");
     Haptics.selectionAsync();
   };
 
   const panGesture = Gesture.Pan()
-    .activeOffsetX([-10, 10]) // Becomes active after 10px horizontal movement
-    .failOffsetY([-10, 10])   // Fails if vertical movement exceeds 10px
-    .onStart(() => {
-      // No need to track isSwiping
-    })
+    .activeOffsetX([-10, 10])
+    .failOffsetY([-10, 10])
     .onUpdate((event) => {
-      translateX.value = event.translationX * 0.5; // Dampen the movement
+      translateX.value = event.translationX * 0.5;
     })
     .onEnd((event) => {
       const threshold = 60;
-      
+
       if (event.translationX < -threshold) {
         runOnJS(changeFilterSwipe)('left');
       } else if (event.translationX > threshold) {
         runOnJS(changeFilterSwipe)('right');
       }
-      
+
       translateX.value = withSpring(0, {
         damping: 80,
         stiffness: 150,
-        mass: 0.5, 
+        mass: 0.5,
         overshootClamping: true,
       });
     });
@@ -267,20 +305,20 @@ export default function LibraryScreen() {
     opacity: 1 - Math.abs(translateX.value) / 300,
   }));
 
-  // Filter novels based on status AND search query
+  // ── Filtered novels ────────────────────────────────────────────────────────
   const filteredNovels = useMemo(() => {
     let result = activeFilter === "all"
       ? novels
       : novels.filter((n) => (n.status ?? "unread") === activeFilter);
-    
+
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase().trim();
       result = result.filter(
-        (n) => n.title.toLowerCase().includes(query) || 
+        (n) => n.title.toLowerCase().includes(query) ||
                n.author.toLowerCase().includes(query)
       );
     }
-    
+
     return result;
   }, [novels, activeFilter, searchQuery]);
 
@@ -291,6 +329,7 @@ export default function LibraryScreen() {
     completed: novels.filter((n) => (n.status ?? "unread") === "completed").length,
   };
 
+  // ── Selection helpers ──────────────────────────────────────────────────────
   const enterSelectionMode = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setSelectionMode(true);
@@ -309,7 +348,7 @@ export default function LibraryScreen() {
       prev.includes(novelId) ? prev.filter((id) => id !== novelId) : [...prev, novelId]
     );
   };
-  
+
   const showFirstConfirmation = () => {
     if (selectedNovels.length === 0) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -322,13 +361,11 @@ export default function LibraryScreen() {
       ]
     );
   };
- 
+
   const performBatchDelete = async () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     setConfirmDeleteVisible(false);
-    
     await removeNovels(selectedNovels);
-    
     setSelectionMode(false);
     setSelectedNovels([]);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -360,17 +397,16 @@ export default function LibraryScreen() {
   const toggleSearch = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setShowSearch(!showSearch);
-    if (!showSearch) {
-      setSearchQuery("");
-    }
+    if (!showSearch) setSearchQuery("");
   };
 
+  // ── Render helpers ─────────────────────────────────────────────────────────
   const renderHeader = () => (
     <View style={[styles.header, { paddingTop: topPad + 12, borderBottomColor: colors.border, backgroundColor: colors.background }]}>
       <View>
         <Text style={[styles.headerTitle, { color: colors.text }]}>Novel DR</Text>
         <Text style={[styles.headerSub, { color: colors.textSecondary }]}>
-          {filteredNovels.length} {filteredNovels.length === 1 ? "novel" : "novels"} 
+          {filteredNovels.length} {filteredNovels.length === 1 ? "novel" : "novels"}
           {searchQuery ? ` (filtered from ${novels.length})` : ""}
         </Text>
       </View>
@@ -463,7 +499,7 @@ export default function LibraryScreen() {
 
   const renderEmptyState = () => {
     const isFiltered = searchQuery || activeFilter !== "all";
-    
+
     if (novels.length === 0) {
       return (
         <View style={styles.emptyState}>
@@ -496,7 +532,7 @@ export default function LibraryScreen() {
         />
         <Text style={[styles.emptyTitle, { color: colors.text }]}>No novels found</Text>
         <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-          {searchQuery 
+          {searchQuery
             ? `No novels matching "${searchQuery}"`
             : `No novels marked as "${FILTER_TABS.find((t) => t.key === activeFilter)?.label}" yet.`
           }
@@ -539,13 +575,23 @@ export default function LibraryScreen() {
         )}
         contentContainerStyle={{ padding: 16, paddingBottom: bottomPad + 90, gap: 12 }}
         showsVerticalScrollIndicator={false}
+        // ── Pull-to-refresh ──────────────────────────────────────────────────
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={colors.accent}
+            colors={[colors.accent]}
+          />
+        }
       />
     );
   };
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Top chrome — flexShrink: 0 prevents it from being squished by the list */}
+      {/* Top chrome */}
       <View style={styles.topChrome}>
         {selectionMode ? renderSelectionHeader() : renderHeader()}
         {showSearch && !selectionMode && renderSearchBar()}
@@ -565,6 +611,25 @@ export default function LibraryScreen() {
         </View>
       )}
 
+      {/* ── Floating Refresh Button (FAB) ── */}
+      {!selectionMode && (
+        <Pressable
+          style={[
+            styles.fab,
+            {
+              backgroundColor: colors.card,
+              borderColor: colors.border,
+              bottom: bottomPad + 90,
+            },
+          ]}
+          onPress={handleRefresh}
+        >
+          <Animated.View style={fabSpinStyle}>
+            <Ionicons name="refresh" size={22} color={colors.text} />
+          </Animated.View>
+        </Pressable>
+      )}
+
       {/* Batch Delete Confirmation Modal */}
       <Modal
         visible={confirmDeleteVisible}
@@ -581,7 +646,7 @@ export default function LibraryScreen() {
               Are you sure about this? {"\n\n"}
               If YES, click the 'DELETE' button.
             </Text>
-            
+
             <View style={styles.modalButtons}>
               <Pressable
                 style={[styles.modalButton, styles.modalCancelButton, { borderColor: colors.border }]}
@@ -614,7 +679,6 @@ export default function LibraryScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
 
-  // top chrome wrapper — never shrinks regardless of list content
   topChrome: { flexShrink: 0 },
 
   // header
@@ -628,11 +692,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontFamily: "Inter_700Bold", fontSize: 28 },
   headerSub: { fontFamily: "Inter_400Regular", fontSize: 13, marginTop: 2 },
-  headerButtons: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
+  headerButtons: { flexDirection: "row", alignItems: "center", gap: 8 },
   iconButton: { padding: 8 },
 
   // selection header
@@ -717,6 +777,23 @@ const styles = StyleSheet.create({
   statusDot: { width: 6, height: 6, borderRadius: 3 },
   statusText: { fontFamily: "Inter_500Medium", fontSize: 11 },
   chevron: { marginLeft: "auto" },
+
+  // floating refresh button
+  fab: {
+    position: "absolute",
+    right: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 4,
+  },
 
   // empty state
   emptyState: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 40, gap: 12 },
