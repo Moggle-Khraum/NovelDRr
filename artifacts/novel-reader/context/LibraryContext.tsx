@@ -12,7 +12,7 @@ export type Chapter = {
   title: string;
   url: string;
   content?: string;
-  chapterNumber?: number; // Optional field for reliable sorting
+  chapterNumber?: number;
 };
 
 export type NovelStatus = "unread" | "reading" | "completed";
@@ -164,7 +164,7 @@ const saveAllChaptersToFile = async (novelId: string, chapters: Chapter[]) => {
       await saveChapterToFile(novelId, i, {
         title: chapters[i].title,
         url: chapters[i].url,
-        content: chapters[i].content,
+        content: chapters[i].content!,
         chapterNumber: chapters[i].chapterNumber,
       });
     }
@@ -172,7 +172,7 @@ const saveAllChaptersToFile = async (novelId: string, chapters: Chapter[]) => {
 };
 
 // =============================================================================
-// INITIALIZATION FLAG (prevents repeated init screen)
+// INITIALIZATION FLAG
 // =============================================================================
 
 const isInitialized = async (): Promise<boolean> => {
@@ -190,7 +190,7 @@ const markInitialized = async () => {
 };
 
 // =============================================================================
-// MIGRATION & RECOVERY (only run when needed)
+// MIGRATION & RECOVERY
 // =============================================================================
 
 const LEGACY_ASYNC_KEYS = {
@@ -210,7 +210,7 @@ type InitStep = {
 const migrateFromLegacyStorage = async (onStep: (step: InitStep) => void): Promise<boolean> => {
   const stepId = 'migrate';
   onStep({ id: stepId, message: 'Checking for legacy data...', status: 'running' });
-  
+
   try {
     let AsyncStorage;
     try {
@@ -219,31 +219,30 @@ const migrateFromLegacyStorage = async (onStep: (step: InitStep) => void): Promi
       onStep({ id: stepId, message: 'Legacy storage not available', status: 'done', detail: 'Skipped' });
       return false;
     }
-    
-    // Already migrated? Check if library file exists in new location
+
     const libraryFileInfo = await FileSystem.getInfoAsync(getLibraryFilePath());
     if (libraryFileInfo.exists) {
       onStep({ id: stepId, message: 'Already migrated', status: 'done', detail: 'Library data present' });
       return false;
     }
-    
+
     const legacyLibraryData = await AsyncStorage.getItem(LEGACY_ASYNC_KEYS.LIBRARY);
     if (!legacyLibraryData) {
       onStep({ id: stepId, message: 'No legacy data found', status: 'done' });
       return false;
     }
-    
+
     onStep({ id: stepId, message: 'Found legacy data! Migrating...', status: 'running' });
-    
+
     const parsed = JSON.parse(legacyLibraryData);
     await saveToFile(getLibraryFilePath(), parsed);
     const novelCount = Array.isArray(parsed) ? parsed.length : 0;
-    
+
     const legacySort = await AsyncStorage.getItem(LEGACY_ASYNC_KEYS.SORT_PREFERENCE);
     if (legacySort) {
       await saveToFile(getSortPreferenceFilePath(), legacySort);
     }
-    
+
     const legacyFontSize = await AsyncStorage.getItem(LEGACY_ASYNC_KEYS.FONT_SIZE);
     const legacyLineSpacing = await AsyncStorage.getItem(LEGACY_ASYNC_KEYS.LINE_SPACING);
     if (legacyFontSize || legacyLineSpacing) {
@@ -256,13 +255,8 @@ const migrateFromLegacyStorage = async (onStep: (step: InitStep) => void): Promi
         JSON.stringify(readerSettings)
       );
     }
-    
-    onStep({ 
-      id: stepId, 
-      message: 'Migration complete!', 
-      status: 'done', 
-      detail: `${novelCount} novels restored` 
-    });
+
+    onStep({ id: stepId, message: 'Migration complete!', status: 'done', detail: `${novelCount} novels restored` });
     return true;
   } catch (error: any) {
     onStep({ id: stepId, message: 'Migration failed', status: 'error', detail: error.message });
@@ -289,25 +283,21 @@ const findExistingData = async (): Promise<{ path: string; novelCount: number } 
 const recoverDataIfNeeded = async (onStep: (step: InitStep) => void): Promise<boolean> => {
   const stepId = 'recovery';
   onStep({ id: stepId, message: 'Scanning storage...', status: 'running' });
-  
+
   try {
     const primaryPath = getAppStoragePath();
     const primaryLibraryPath = getLibraryFilePath();
-    
+
     const primaryInfo = await FileSystem.getInfoAsync(primaryLibraryPath);
     if (primaryInfo.exists) {
       onStep({ id: stepId, message: 'Primary storage ready', status: 'done' });
       return false;
     }
-    
+
     const foundData = await findExistingData();
     if (foundData && foundData.path !== primaryPath) {
-      onStep({ 
-        id: stepId, 
-        message: `Recovering ${foundData.novelCount} novels...`, 
-        status: 'running' 
-      });
-      
+      onStep({ id: stepId, message: `Recovering ${foundData.novelCount} novels...`, status: 'running' });
+
       await ensureAppDirectoryExists();
       const items = await FileSystem.readDirectoryAsync(foundData.path);
       for (const item of items) {
@@ -324,16 +314,11 @@ const recoverDataIfNeeded = async (onStep: (step: InitStep) => void): Promise<bo
           console.error(`[Recovery] Failed to copy ${item}:`, copyError);
         }
       }
-      
-      onStep({ 
-        id: stepId, 
-        message: 'Recovery complete!', 
-        status: 'done', 
-        detail: `${foundData.novelCount} novels restored` 
-      });
+
+      onStep({ id: stepId, message: 'Recovery complete!', status: 'done', detail: `${foundData.novelCount} novels restored` });
       return true;
     }
-    
+
     onStep({ id: stepId, message: 'No alternate data found', status: 'done' });
     return false;
   } catch (error: any) {
@@ -357,9 +342,9 @@ type LibraryContextType = {
   removeNovels: (ids: string[]) => Promise<void>;
   getNovel: (id: string) => Novel | undefined;
   saveReadingProgress: (
-    novelId: string, 
-    chapterIndex: number, 
-    chapterTitle: string, 
+    novelId: string,
+    chapterIndex: number,
+    chapterTitle: string,
     scrollOffset: number
   ) => Promise<void>;
   setNovelStatus: (novelId: string, status: NovelStatus) => Promise<void>;
@@ -368,6 +353,7 @@ type LibraryContextType = {
   getSortedChapters: (chapters: Chapter[]) => Chapter[];
   saveChapterContent: (novelId: string, chapterIndex: number, title: string, url: string, content: string, chapterNumber?: number) => Promise<void>;
   loadChapterContent: (novelId: string, chapterIndex: number) => Promise<Chapter | null>;
+  refreshLibrary: () => Promise<void>;
 };
 
 const LibraryContext = createContext<LibraryContextType>({
@@ -387,22 +373,21 @@ const LibraryContext = createContext<LibraryContextType>({
   getSortedChapters: (chapters) => chapters,
   saveChapterContent: async () => {},
   loadChapterContent: async () => null,
+  refreshLibrary: async () => {},
 });
 
 // =============================================================================
-// CHAPTER NUMBER EXTRACTION (ENHANCED)
+// CHAPTER NUMBER EXTRACTION
 // =============================================================================
 
 function extractChapterNumber(chapter: Chapter): number {
-  // If chapterNumber is already stored, use it
   if (chapter.chapterNumber !== undefined && chapter.chapterNumber > 0) {
     return chapter.chapterNumber;
   }
-  
+
   const title = chapter.title || '';
   const url = chapter.url || '';
-  
-  // Enhanced patterns matching add.tsx and updates.tsx
+
   const patterns = [
     /chapter\s+(\d+(?:\.\d+)?)/i,
     /ch\.?\s*(\d+(?:\.\d+)?)/i,
@@ -416,7 +401,7 @@ function extractChapterNumber(chapter: Chapter): number {
     /\((\d+)\)/,
     /(\d+)\.html?$/,
   ];
-  
+
   for (const pattern of patterns) {
     const match = title.match(pattern) || url.match(pattern);
     if (match) {
@@ -425,6 +410,31 @@ function extractChapterNumber(chapter: Chapter): number {
   }
   return 0;
 }
+
+// =============================================================================
+// SHARED LIBRARY LOADER HELPER
+// =============================================================================
+
+const loadNovelsFromDisk = async (): Promise<{ novels: Novel[]; sortOrder: SortOrder }> => {
+  const sortData = await loadFromFile(getSortPreferenceFilePath());
+  const resolvedSortOrder: SortOrder = sortData === "descending" ? "descending" : "ascending";
+
+  const libraryData = await loadFromFile(getLibraryFilePath());
+  if (!libraryData) return { novels: [], sortOrder: resolvedSortOrder };
+
+  const parsed: Novel[] = JSON.parse(libraryData);
+  const novels = parsed.map((n) => ({
+    ...n,
+    status: n.status ?? (n.lastRead ? "reading" : "unread"),
+    chapters: n.chapters.map(ch => ({
+      title: ch.title,
+      url: ch.url,
+      chapterNumber: (ch as any).chapterNumber,
+    })),
+  }));
+
+  return { novels, sortOrder: resolvedSortOrder };
+};
 
 // =============================================================================
 // PROVIDER
@@ -451,120 +461,87 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const initializeStorage = async () => {
-      // If already fully initialized, skip the heavy logging and just load data
       const alreadyInit = await isInitialized();
       if (alreadyInit) {
         addInitStep({ id: 'start', message: 'Loading library...', status: 'done', detail: 'Already initialized' });
-        // Load preferences and data quickly
-        const sortData = await loadFromFile(getSortPreferenceFilePath());
-        if (sortData === "descending") setSortOrder("descending");
-        
-        const libraryData = await loadFromFile(getLibraryFilePath());
-        if (libraryData) {
-          try {
-            const parsed: Novel[] = JSON.parse(libraryData);
-            const migratedNovels = parsed.map((n) => ({
-              ...n,
-              status: n.status ?? (n.lastRead ? "reading" : "unread"),
-              chapters: n.chapters.map(ch => ({ 
-                title: ch.title, 
-                url: ch.url,
-                chapterNumber: (ch as any).chapterNumber // preserve if exists
-              }))
-            }));
-            setNovels(migratedNovels);
-          } catch {}
-        }
+        try {
+          const { novels: loaded, sortOrder: order } = await loadNovelsFromDisk();
+          setSortOrder(order);
+          setNovels(loaded);
+        } catch {}
         setInitComplete(true);
         setLoading(false);
         return;
       }
 
-      // First-time initialization with full migration/recovery sequence
       try {
         addInitStep({ id: 'start', message: 'Initializing storage...', status: 'running' });
-        
+
         const migrated = await migrateFromLegacyStorage(addInitStep);
         const recovered = await recoverDataIfNeeded(addInitStep);
-        
+
         await ensureAppDirectoryExists();
         await ensureDirectoryExists(getChaptersPath());
         addInitStep({ id: 'directory', message: 'Storage ready', status: 'done' });
-        
-        const sortData = await loadFromFile(getSortPreferenceFilePath());
-        if (sortData === "descending") setSortOrder("descending");
-        addInitStep({ id: 'preferences', message: 'Preferences loaded', status: 'done' });
-        
-        const libraryData = await loadFromFile(getLibraryFilePath());
+
         let totalChapters = 0;
-        if (libraryData) {
+        try {
+          const { novels: loaded, sortOrder: order } = await loadNovelsFromDisk();
+          setSortOrder(order);
+          setNovels(loaded);
+          addInitStep({ id: 'preferences', message: 'Preferences loaded', status: 'done' });
+
           try {
-            const parsed: Novel[] = JSON.parse(libraryData);
-            const migratedNovels = parsed.map((n) => ({
-              ...n,
-              status: n.status ?? (n.lastRead ? "reading" : "unread"),
-              chapters: n.chapters.map(ch => ({ 
-                title: ch.title, 
-                url: ch.url,
-                chapterNumber: (ch as any).chapterNumber
-              }))
-            }));
-            setNovels(migratedNovels);
-            
-            try {
-              const novelDirs = await FileSystem.readDirectoryAsync(getChaptersPath());
-              for (const dir of novelDirs) {
-                const dirInfo = await FileSystem.getInfoAsync(getNovelChaptersPath(dir));
-                if (dirInfo.exists && dirInfo.isDirectory) {
-                  const files = await FileSystem.readDirectoryAsync(getNovelChaptersPath(dir));
-                  totalChapters += files.length;
-                }
+            const novelDirs = await FileSystem.readDirectoryAsync(getChaptersPath());
+            for (const dir of novelDirs) {
+              const dirInfo = await FileSystem.getInfoAsync(getNovelChaptersPath(dir));
+              if (dirInfo.exists && dirInfo.isDirectory) {
+                const files = await FileSystem.readDirectoryAsync(getNovelChaptersPath(dir));
+                totalChapters += files.length;
               }
-            } catch {}
-            
-            addInitStep({ 
-              id: 'library', 
-              message: 'Library loaded', 
-              status: 'done', 
-              detail: `${migratedNovels.length} novels, ${totalChapters} chapters` 
-            });
-          } catch {
-            addInitStep({ id: 'library', message: 'Library repair needed', status: 'error' });
-          }
-        } else {
-          addInitStep({ id: 'library', message: 'Fresh start', status: 'done', detail: 'Welcome!' });
+            }
+          } catch {}
+
+          addInitStep({
+            id: 'library',
+            message: 'Library loaded',
+            status: 'done',
+            detail: `${loaded.length} novels, ${totalChapters} chapters`,
+          });
+        } catch {
+          addInitStep({ id: 'library', message: 'Library repair needed', status: 'error' });
         }
-        
-        // Mark as initialized so we never run the full sequence again
+
         await markInitialized();
-        
-        addInitStep({ 
-          id: 'complete', 
-          message: (migrated || recovered) ? '✅ Data restored' : '✅ Ready!', 
-          status: 'done' 
+
+        addInitStep({
+          id: 'complete',
+          message: (migrated || recovered) ? '✅ Data restored' : '✅ Ready!',
+          status: 'done',
         });
         setInitComplete(true);
         await new Promise(resolve => setTimeout(resolve, 800));
-        
+
       } catch (error: any) {
         addInitStep({ id: 'error', message: 'Initialization failed', status: 'error', detail: error.message });
       } finally {
         setLoading(false);
       }
     };
-    
+
     initializeStorage();
   }, [addInitStep]);
 
   // ── Library data management ──────────────────────────────────────────────
+
   const saveLibraryToFile = async (novelsData: Novel[]) => {
     const metadataOnly = novelsData.map(novel => ({
       ...novel,
-      chapters: novel.chapters.map(ch => ({ 
-        title: ch.title, 
+      chapters: novel.chapters.map(ch => ({
+        title: ch.title,
         url: ch.url,
-        chapterNumber: ch.chapterNumber // preserve chapterNumber in metadata
-      }))
+        chapterNumber: ch.chapterNumber,
+      })),
     }));
     await saveToFile(getLibraryFilePath(), metadataOnly);
   };
@@ -618,9 +595,9 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
   const getNovel = useCallback((id: string) => novels.find(n => n.id === id), [novels]);
 
   const saveReadingProgress = useCallback(async (
-    novelId: string, 
-    chapterIndex: number, 
-    chapterTitle: string, 
+    novelId: string,
+    chapterIndex: number,
+    chapterTitle: string,
     scrollOffset: number
   ) => {
     await updateNovel(novelId, {
@@ -658,10 +635,10 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
   );
 
   const saveChapterContent = useCallback(async (
-    novelId: string, 
-    chapterIndex: number, 
-    title: string, 
-    url: string, 
+    novelId: string,
+    chapterIndex: number,
+    title: string,
+    url: string,
     content: string,
     chapterNumber?: number
   ) => {
@@ -689,6 +666,18 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     return await loadChapterFromFile(novelId, chapterIndex);
   }, []);
 
+  // ── Refresh library from disk ────────────────────────────────────────────
+
+  const refreshLibrary = useCallback(async () => {
+    try {
+      const { novels: refreshed, sortOrder: order } = await loadNovelsFromDisk();
+      setSortOrder(order);
+      setNovels(refreshed);
+    } catch (error) {
+      console.error('[Library] Refresh failed:', error);
+    }
+  }, []);
+
   return (
     <LibraryContext.Provider
       value={{
@@ -708,6 +697,7 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
         getSortedChapters,
         saveChapterContent,
         loadChapterContent,
+        refreshLibrary,
       }}
     >
       {children}
