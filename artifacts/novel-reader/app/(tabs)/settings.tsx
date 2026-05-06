@@ -585,7 +585,7 @@ export default function SettingsScreen() {
                 `📚 ${backup.metadata.novelCount} novels\n` +
                 `📄 ${backup.metadata.totalChapters} chapters\n` +
                 (backup.asyncStorageData ? `🔄 Legacy data also restored\n\n` : "\n") +
-                `Please restart the app to see the changes.`,
+                `Please refresh the Library by pulling or pressing the refresh button.`,
                 [
                   {
                     text: "OK",
