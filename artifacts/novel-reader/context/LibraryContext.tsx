@@ -12,6 +12,7 @@ export type Chapter = {
   title: string;
   url: string;
   content?: string;
+  chapterNumber?: number; // Optional field for reliable sorting
 };
 
 export type NovelStatus = "unread" | "reading" | "completed";
@@ -128,7 +129,7 @@ const deleteFile = async (filePath: string) => {
   }
 };
 
-const saveChapterToFile = async (novelId: string, chapterIndex: number, chapterData: { title: string; url: string; content: string }) => {
+const saveChapterToFile = async (novelId: string, chapterIndex: number, chapterData: { title: string; url: string; content: string; chapterNumber?: number }) => {
   await ensureDirectoryExists(getNovelChaptersPath(novelId));
   await FileSystem.writeAsStringAsync(
     getChapterFilePath(novelId, chapterIndex),
@@ -163,7 +164,8 @@ const saveAllChaptersToFile = async (novelId: string, chapters: Chapter[]) => {
       await saveChapterToFile(novelId, i, {
         title: chapters[i].title,
         url: chapters[i].url,
-        content: chapters[i].content
+        content: chapters[i].content,
+        chapterNumber: chapters[i].chapterNumber,
       });
     }
   }
@@ -364,7 +366,7 @@ type LibraryContextType = {
   sortOrder: SortOrder;
   toggleSortOrder: () => void;
   getSortedChapters: (chapters: Chapter[]) => Chapter[];
-  saveChapterContent: (novelId: string, chapterIndex: number, title: string, url: string, content: string) => Promise<void>;
+  saveChapterContent: (novelId: string, chapterIndex: number, title: string, url: string, content: string, chapterNumber?: number) => Promise<void>;
   loadChapterContent: (novelId: string, chapterIndex: number) => Promise<Chapter | null>;
 };
 
@@ -388,23 +390,38 @@ const LibraryContext = createContext<LibraryContextType>({
 });
 
 // =============================================================================
-// HELPERS
+// CHAPTER NUMBER EXTRACTION (ENHANCED)
 // =============================================================================
 
 function extractChapterNumber(chapter: Chapter): number {
-  if (!chapter) return 0;
+  // If chapterNumber is already stored, use it
+  if (chapter.chapterNumber !== undefined && chapter.chapterNumber > 0) {
+    return chapter.chapterNumber;
+  }
+  
   const title = chapter.title || '';
   const url = chapter.url || '';
   
+  // Enhanced patterns matching add.tsx and updates.tsx
   const patterns = [
-    /chapter\s*(\d+)/i, /ch\.?\s*(\d+)/i, /^(\d+)[\.\s\-]/,
-    /\[(\d+)\]/, /\((\d+)\)/, /#(\d+)/,
-    /chapter[-/](\d+)/i, /ch[-/](\d+)/i, /(\d+)\.html?$/
+    /chapter\s+(\d+(?:\.\d+)?)/i,
+    /ch\.?\s*(\d+(?:\.\d+)?)/i,
+    /#(\d+(?:\.\d+)?)/,
+    /(\d+)(?:st|nd|rd|th)\s+chapter/i,
+    /^(\d+(?:\.\d+)?)[\s\-:]/,
+    /volume\s+\d+\s+chapter\s+(\d+)/i,
+    /chapter[-/](\d+)/i,
+    /ch[-/](\d+)/i,
+    /\[(\d+)\]/,
+    /\((\d+)\)/,
+    /(\d+)\.html?$/,
   ];
   
-  for (const p of patterns) {
-    const match = (title.match(p) || url.match(p));
-    if (match) return parseInt(match[1], 10);
+  for (const pattern of patterns) {
+    const match = title.match(pattern) || url.match(pattern);
+    if (match) {
+      return parseFloat(match[1]);
+    }
   }
   return 0;
 }
@@ -449,7 +466,11 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
             const migratedNovels = parsed.map((n) => ({
               ...n,
               status: n.status ?? (n.lastRead ? "reading" : "unread"),
-              chapters: n.chapters.map(ch => ({ title: ch.title, url: ch.url }))
+              chapters: n.chapters.map(ch => ({ 
+                title: ch.title, 
+                url: ch.url,
+                chapterNumber: (ch as any).chapterNumber // preserve if exists
+              }))
             }));
             setNovels(migratedNovels);
           } catch {}
@@ -482,7 +503,11 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
             const migratedNovels = parsed.map((n) => ({
               ...n,
               status: n.status ?? (n.lastRead ? "reading" : "unread"),
-              chapters: n.chapters.map(ch => ({ title: ch.title, url: ch.url }))
+              chapters: n.chapters.map(ch => ({ 
+                title: ch.title, 
+                url: ch.url,
+                chapterNumber: (ch as any).chapterNumber
+              }))
             }));
             setNovels(migratedNovels);
             
@@ -535,7 +560,11 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
   const saveLibraryToFile = async (novelsData: Novel[]) => {
     const metadataOnly = novelsData.map(novel => ({
       ...novel,
-      chapters: novel.chapters.map(ch => ({ title: ch.title, url: ch.url }))
+      chapters: novel.chapters.map(ch => ({ 
+        title: ch.title, 
+        url: ch.url,
+        chapterNumber: ch.chapterNumber // preserve chapterNumber in metadata
+      }))
     }));
     await saveToFile(getLibraryFilePath(), metadataOnly);
   };
@@ -633,18 +662,20 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     chapterIndex: number, 
     title: string, 
     url: string, 
-    content: string
+    content: string,
+    chapterNumber?: number
   ) => {
-    await saveChapterToFile(novelId, chapterIndex, { title, url, content });
+    await saveChapterToFile(novelId, chapterIndex, { title, url, content, chapterNumber });
     setNovels(current => {
       const idx = current.findIndex(n => n.id === novelId);
       if (idx === -1) return current;
       const novel = { ...current[idx] };
+      const newChapter = { title, url, chapterNumber };
       if (chapterIndex >= novel.chapters.length) {
-        novel.chapters = [...novel.chapters, { title, url }];
+        novel.chapters = [...novel.chapters, newChapter];
       } else {
         const chapters = [...novel.chapters];
-        chapters[chapterIndex] = { ...chapters[chapterIndex], title, url };
+        chapters[chapterIndex] = { ...chapters[chapterIndex], ...newChapter };
         novel.chapters = chapters;
       }
       const updated = [...current];
