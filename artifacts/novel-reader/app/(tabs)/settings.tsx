@@ -70,7 +70,6 @@ function ThemeButton({
 
 type ActivePanel = "comment" | "restore" | null;
 
-// ── Backup Types ────────────────────────────────────────────────────────────
 interface BackupMetadata {
   version: number;
   exportedAt: string;
@@ -86,7 +85,8 @@ interface FullBackup {
   sortPreference: string;
   readerSettings: any;
   appSettings: any;
-  chapters: Record<string, Record<string, any>>; // novelId -> { chapterIndex: chapterData }
+  chapters: Record<string, Record<string, any>>;
+  asyncStorageData?: Record<string, string>;  // new
 }
 
 export default function SettingsScreen() {
@@ -105,12 +105,21 @@ export default function SettingsScreen() {
   const [showWarningCard, setShowWarningCard] = useState(true);
   const [operationProgress, setOperationProgress] = useState("");
 
-  // File system paths
   const APP_DATA_DIR = `${FileSystem.documentDirectory}NovelDR/`;
   const BACKUP_DIR = `${FileSystem.documentDirectory}noveldrr-backups/`;
   const SETTINGS_FILE = `${APP_DATA_DIR}settings.json`;
 
-  // ── Settings helpers (replacing AsyncStorage) ─────────────────────────────
+  // ── AsyncStorage access helper ──────────────────────────────────────
+  const getAsyncStorage = async () => {
+    try {
+      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+      return AsyncStorage;
+    } catch {
+      return null;
+    }
+  };
+
+  // ── Settings helpers ────────────────────────────────────────────────
   const loadAppSettings = async (): Promise<Record<string, any>> => {
     try {
       const fileInfo = await FileSystem.getInfoAsync(SETTINGS_FILE);
@@ -133,7 +142,6 @@ export default function SettingsScreen() {
     }
   };
 
-  // Check if warning card should be shown
   useEffect(() => {
     const checkWarningStatus = async () => {
       try {
@@ -157,7 +165,7 @@ export default function SettingsScreen() {
     };
   }, []);
 
-  // ── Utility Functions ────────────────────────────────────────────────────
+  // ── Utility Functions ──────────────────────────────────────────────
   const ensureDir = async (dirPath: string) => {
     const info = await FileSystem.getInfoAsync(dirPath);
     if (!info.exists) await FileSystem.makeDirectoryAsync(dirPath, { intermediates: true });
@@ -169,7 +177,6 @@ export default function SettingsScreen() {
     return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}`;
   };
 
-  // ── Read file safely ─────────────────────────────────────────────────────
   const readFileSafe = async (path: string): Promise<string | null> => {
     try {
       const info = await FileSystem.getInfoAsync(path);
@@ -180,45 +187,59 @@ export default function SettingsScreen() {
     }
   };
 
-  // ── Collect all app data for backup ──────────────────────────────────────
+  // ── Collect all app data (file system + AsyncStorage) ──────────────
   const collectAppData = async (): Promise<FullBackup> => {
     setOperationProgress("Reading library data...");
-    
-    // Read all data files
+
     const libraryPath = `${APP_DATA_DIR}novel_library_v1.json`;
     const sortPath = `${APP_DATA_DIR}chapter_sort_preference.json`;
     const readerPath = `${APP_DATA_DIR}reader_settings.json`;
-    
-    const [libraryRaw, sortRaw, readerRaw, settingsData] = await Promise.all([
+
+    let [libraryRaw, sortRaw, readerRaw, settingsData] = await Promise.all([
       readFileSafe(libraryPath),
       readFileSafe(sortPath),
       readFileSafe(readerPath),
       loadAppSettings(),
     ]);
 
+    // Fallback to AsyncStorage if file data is missing
+    const AsyncStorage = await getAsyncStorage();
+    if (AsyncStorage && !libraryRaw) {
+      libraryRaw = await AsyncStorage.getItem('novel_library_v1');
+    }
+    if (AsyncStorage && !sortRaw) {
+      sortRaw = await AsyncStorage.getItem('chapter_sort_preference');
+    }
+    if (AsyncStorage && !readerRaw) {
+      const fontSize = await AsyncStorage.getItem('reader_font_size_idx');
+      const lineSpacing = await AsyncStorage.getItem('reader_line_spacing_idx');
+      if (fontSize || lineSpacing) {
+        readerRaw = JSON.stringify({
+          fontSizeIdx: fontSize ? parseInt(fontSize) : 1,
+          lineSpacingIdx: lineSpacing ? parseInt(lineSpacing) : 1,
+        });
+      }
+    }
+
     const libraryData = libraryRaw ? JSON.parse(libraryRaw) : [];
     const sortPreference = sortRaw || "ascending";
     const readerSettings = readerRaw ? JSON.parse(readerRaw) : {};
 
-    // Collect chapter files
+    // Collect chapters from file system
     const chapters: Record<string, Record<string, any>> = {};
     const chaptersDir = `${APP_DATA_DIR}chapters/`;
     const chaptersDirInfo = await FileSystem.getInfoAsync(chaptersDir);
-    
+
     if (chaptersDirInfo.exists) {
       const novelDirs = await FileSystem.readDirectoryAsync(chaptersDir);
       let processedCount = 0;
-      
       for (const novelId of novelDirs) {
         setOperationProgress(`Reading chapters... (${processedCount + 1}/${novelDirs.length})`);
-        
         const novelChapterDir = `${chaptersDir}${novelId}/`;
         const novelChapterInfo = await FileSystem.getInfoAsync(novelChapterDir);
-        
         if (novelChapterInfo.exists && novelChapterInfo.isDirectory) {
           const chapterFiles = await FileSystem.readDirectoryAsync(novelChapterDir);
           chapters[novelId] = {};
-          
           for (const chapterFile of chapterFiles) {
             const chapterPath = `${novelChapterDir}${chapterFile}`;
             const chapterRaw = await readFileSafe(chapterPath);
@@ -233,9 +254,30 @@ export default function SettingsScreen() {
     }
 
     const totalChapters = Object.values(chapters).reduce(
-      (sum, novelChapters) => sum + Object.keys(novelChapters).length, 
-      0
+      (sum, novelChapters) => sum + Object.keys(novelChapters).length, 0
     );
+
+    // Collect additional AsyncStorage data
+    let asyncStorageData: Record<string, string> = {};
+    if (AsyncStorage) {
+      try {
+        const keys = [
+          'novel_library_v1',
+          'chapter_sort_preference',
+          'reader_font_size_idx',
+          'reader_line_spacing_idx',
+          'noveldr_warning_dismissed',
+        ];
+        for (const key of keys) {
+          const value = await AsyncStorage.getItem(key);
+          if (value !== null) {
+            asyncStorageData[key] = value;
+          }
+        }
+      } catch (e) {
+        console.warn('Could not read all AsyncStorage keys:', e);
+      }
+    }
 
     return {
       metadata: {
@@ -251,69 +293,75 @@ export default function SettingsScreen() {
       readerSettings,
       appSettings: settingsData,
       chapters,
+      asyncStorageData,  // include legacy data
     };
   };
 
-  // ── Restore app data from backup ─────────────────────────────────────────
+  // ── Restore app data (file system + AsyncStorage) ──────────────────
   const restoreAppData = async (backup: FullBackup) => {
     setOperationProgress("Restoring data...");
-    
-    // Ensure app directory exists
     await ensureDir(APP_DATA_DIR);
-    
-    // Restore library data
+
     if (backup.libraryData) {
-      const libraryPath = `${APP_DATA_DIR}novel_library_v1.json`;
-      await FileSystem.writeAsStringAsync(libraryPath, JSON.stringify(backup.libraryData));
+      await FileSystem.writeAsStringAsync(
+        `${APP_DATA_DIR}novel_library_v1.json`,
+        JSON.stringify(backup.libraryData)
+      );
     }
-    
-    // Restore sort preference
+
     if (backup.sortPreference) {
-      const sortPath = `${APP_DATA_DIR}chapter_sort_preference.json`;
-      await FileSystem.writeAsStringAsync(sortPath, JSON.stringify(backup.sortPreference));
+      await FileSystem.writeAsStringAsync(
+        `${APP_DATA_DIR}chapter_sort_preference.json`,
+        JSON.stringify(backup.sortPreference)
+      );
     }
-    
-    // Restore reader settings
+
     if (backup.readerSettings) {
-      const readerPath = `${APP_DATA_DIR}reader_settings.json`;
-      await FileSystem.writeAsStringAsync(readerPath, JSON.stringify(backup.readerSettings));
+      await FileSystem.writeAsStringAsync(
+        `${APP_DATA_DIR}reader_settings.json`,
+        JSON.stringify(backup.readerSettings)
+      );
     }
-    
-    // Restore app settings
+
     if (backup.appSettings) {
       await saveAppSettings(backup.appSettings);
     }
-    
+
     // Restore chapters
     if (backup.chapters && Object.keys(backup.chapters).length > 0) {
       const chaptersDir = `${APP_DATA_DIR}chapters/`;
       await ensureDir(chaptersDir);
-      
       let restoredCount = 0;
       const novelIds = Object.keys(backup.chapters);
-      
       for (const novelId of novelIds) {
         setOperationProgress(`Restoring chapters... (${restoredCount + 1}/${novelIds.length})`);
-        
         const novelChapterDir = `${chaptersDir}${novelId}/`;
         await ensureDir(novelChapterDir);
-        
         const novelChapters = backup.chapters[novelId];
         const chapterIndices = Object.keys(novelChapters);
-        
         for (const chapterIndex of chapterIndices) {
           const chapterPath = `${novelChapterDir}chapter_${chapterIndex}.json`;
           await FileSystem.writeAsStringAsync(
-            chapterPath, 
+            chapterPath,
             JSON.stringify(novelChapters[chapterIndex])
           );
         }
         restoredCount++;
       }
     }
+
+    // Restore AsyncStorage data for backward compatibility
+    if (backup.asyncStorageData) {
+      const AsyncStorage = await getAsyncStorage();
+      if (AsyncStorage) {
+        for (const [key, value] of Object.entries(backup.asyncStorageData)) {
+          await AsyncStorage.setItem(key, value);
+        }
+      }
+    }
   };
 
-  // ── Export: Create full backup ───────────────────────────────────────────
+  // ── Export ──────────────────────────────────────────────────────────
   const handleExport = () => {
     if (novels.length === 0) return;
     setPendingComment("");
@@ -325,26 +373,26 @@ export default function SettingsScreen() {
       closePanel();
       setExporting(true);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      
+
       const backup = await collectAppData();
       setOperationProgress("Saving backup...");
-      
+
       await ensureDir(BACKUP_DIR);
-      
+
       const dateTag = formatDateTag();
       const tag = comment.trim().replace(/[^a-zA-Z0-9]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
       const filename = `noveldrr-backup-${dateTag}${tag ? "_" + tag : ""}.json`;
       const backupPath = `${BACKUP_DIR}${filename}`;
-      
+
       await FileSystem.writeAsStringAsync(
-        backupPath, 
+        backupPath,
         JSON.stringify(backup, null, 2),
         { encoding: FileSystem.EncodingType.UTF8 }
       );
-      
+
       const fileInfo = await FileSystem.getInfoAsync(backupPath);
       const sizeMB = fileInfo.exists ? ((fileInfo.size || 0) / (1024 * 1024)).toFixed(1) : "0";
-      
+
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert(
         "Backup Complete ✓",
@@ -352,7 +400,7 @@ export default function SettingsScreen() {
         `📚 ${backup.metadata.novelCount} novels\n` +
         `📄 ${backup.metadata.totalChapters} chapters\n` +
         `💾 ${sizeMB} MB\n\n` +
-        `All data backed up: library, chapters, progress, and settings.`,
+        `All data backed up including legacy AsyncStorage content.`,
         [
           { text: "OK" },
           {
@@ -360,9 +408,9 @@ export default function SettingsScreen() {
             onPress: async () => {
               const canShare = await Sharing.isAvailableAsync();
               if (canShare) {
-                await Sharing.shareAsync(backupPath, { 
-                  mimeType: "application/json", 
-                  dialogTitle: "Share NovelDRr Backup" 
+                await Sharing.shareAsync(backupPath, {
+                  mimeType: "application/json",
+                  dialogTitle: "Share NovelDRr Backup"
                 });
               }
             },
@@ -377,7 +425,7 @@ export default function SettingsScreen() {
     }
   };
 
-  // ── Load backup list ────────────────────────────────────────────────────
+  // ── Load backup list ────────────────────────────────────────────────
   const loadBackupList = async () => {
     try {
       await ensureDir(BACKUP_DIR);
@@ -386,8 +434,7 @@ export default function SettingsScreen() {
         .filter((f) => f.startsWith("noveldrr-backup-") && f.endsWith(".json"))
         .sort()
         .reverse();
-      
-      // Read metadata from each backup
+
       const backupsWithMeta = await Promise.all(
         jsonBackups.map(async (filename) => {
           const path = `${BACKUP_DIR}${filename}`;
@@ -403,7 +450,7 @@ export default function SettingsScreen() {
           }
         })
       );
-      
+
       setBackupList(backupsWithMeta);
       openPanel("restore");
     } catch (e) {
@@ -411,10 +458,11 @@ export default function SettingsScreen() {
     }
   };
 
-  // ── Import from backup file ──────────────────────────────────────────────
+  // ── Import from backup file ─────────────────────────────────────────
   const handleImportBackup = async (filename: string) => {
     const backupPath = `${BACKUP_DIR}${filename}`;
-    
+    const backup = backhttps://github.com/Moggle-Khraum/NovelDR/blob/v3.1/artifacts/novel-reader/app/(tabs)/settings.tsx
+
     Alert.alert(
       "Restore Backup",
       `This will replace ALL current data with the backup.\n\n` +
@@ -429,29 +477,30 @@ export default function SettingsScreen() {
             try {
               setImporting(true);
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              
+
               const raw = await FileSystem.readAsStringAsync(backupPath);
               const backup: FullBackup = JSON.parse(raw);
-              
+
               if (!backup.metadata || !backup.libraryData) {
                 Alert.alert("Invalid Backup", "This file is not a valid NovelDRr backup.");
                 return;
               }
-              
+
               await restoreAppData(backup);
-              
+
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               Alert.alert(
                 "Restore Complete ✓",
                 `Successfully restored:\n\n` +
                 `📚 ${backup.metadata.novelCount} novels\n` +
-                `📄 ${backup.metadata.totalChapters} chapters\n\n` +
+                `📄 ${backup.metadata.totalChapters} chapters\n` +
+                (backup.asyncStorageData ? `🔄 Legacy data also restored\n\n` : "\n") +
                 `Please restart the app to see the changes.`,
                 [
                   {
                     text: "OK",
                     onPress: () => {
-                      // Reload the app
+                      // Reload the app (Android)
                       if (Platform.OS === 'android') {
                         IntentLauncher.startActivityAsync('android.intent.action.MAIN');
                       }
@@ -459,7 +508,6 @@ export default function SettingsScreen() {
                   }
                 ]
               );
-              
               closePanel();
             } catch (e) {
               Alert.alert("Import Failed", String(e));
@@ -473,16 +521,16 @@ export default function SettingsScreen() {
     );
   };
 
-  // ── Import from external file ────────────────────────────────────────────
+  // ── Import from external file ───────────────────────────────────────
   const handleImportFromPicker = async () => {
     try {
-      const result = await DocumentPicker.getDocumentAsync({ 
-        type: "application/json", 
-        copyToCacheDirectory: true 
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "application/json",
+        copyToCacheDirectory: true
       });
-      
+
       if (result.canceled) return;
-      
+
       Alert.alert(
         "Restore Backup",
         "This will replace ALL current data with the selected backup.\n\n⚠️ Continue?",
@@ -495,17 +543,17 @@ export default function SettingsScreen() {
               try {
                 setImporting(true);
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                
+
                 const raw = await FileSystem.readAsStringAsync(result.assets[0].uri);
                 const backup: FullBackup = JSON.parse(raw);
-                
+
                 if (!backup.metadata || !backup.libraryData) {
                   Alert.alert("Invalid Backup", "This file is not a valid NovelDRr backup.");
                   return;
                 }
-                
+
                 await restoreAppData(backup);
-                
+
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                 Alert.alert(
                   "Restore Complete ✓",
@@ -527,7 +575,7 @@ export default function SettingsScreen() {
     }
   };
 
-  // ── Delete backup ────────────────────────────────────────────────────────
+  // ── Delete backup ───────────────────────────────────────────────────
   const handleDeleteBackup = (filename: string) => {
     Alert.alert("Delete Backup", `Delete "${filename}"?`, [
       { text: "Cancel", style: "cancel" },
@@ -543,7 +591,6 @@ export default function SettingsScreen() {
     ]);
   };
 
-  // ── Parse filename for display ───────────────────────────────────────────
   const parseFilename = (filename: string) => {
     const base = filename.replace("noveldrr-backup-", "").replace(".json", "");
     const [datePart, timePart, ...rest] = base.split("_");
@@ -553,10 +600,9 @@ export default function SettingsScreen() {
     return { date, time, tag };
   };
 
-  // ── Warning card handlers ────────────────────────────────────────────────
+  // ── Warning card handlers ───────────────────────────────────────────
   const openUnusedAppSettings = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    
     if (Platform.OS === 'android') {
       try {
         await IntentLauncher.startActivityAsync('android.settings.MANAGE_UNUSED_APPS');
@@ -580,10 +626,13 @@ export default function SettingsScreen() {
             Alert.alert(
               'Manual Steps Required',
               'Go to Settings > Apps > Novel DR\nTurn off: Pause app activity if unused & Remove permissions',
-              [{ text: 'OK', onPress: async () => {
-                await saveAppSettings({ warningDismissed: true });
-                setShowWarningCard(false);
-              }}]
+              [{
+                text: 'OK',
+                onPress: async () => {
+                  await saveAppSettings({ warningDismissed: true });
+                  setShowWarningCard(false);
+                }
+              }]
             );
           }
         }
@@ -688,11 +737,10 @@ export default function SettingsScreen() {
         <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>BACKUP & RESTORE</Text>
         <View style={[styles.backupCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.backupDesc, { color: colors.textSecondary }]}>
-            Creates a complete backup of all app data including novels, chapters, reading progress, and settings.
-            Everything is stored in a single file for easy sharing and restoration.
+            Creates a complete backup of all app data including novels, chapters, reading progress, settings, and legacy
+            AsyncStorage data. Everything is stored in a single file for easy sharing and restoration.
           </Text>
 
-          {/* Operation Progress */}
           {(exporting || importing) && (
             <View style={styles.progressContainer}>
               <ActivityIndicator size="small" color={colors.accent} />
@@ -702,7 +750,6 @@ export default function SettingsScreen() {
             </View>
           )}
 
-          {/* Backup Buttons */}
           <View style={styles.backupRow}>
             <Pressable
               style={[
@@ -737,7 +784,6 @@ export default function SettingsScreen() {
             </Pressable>
           </View>
 
-          {/* Import from File */}
           <Pressable
             style={[
               styles.backupBtn,
@@ -803,9 +849,9 @@ export default function SettingsScreen() {
                         onPress={async () => {
                           const canShare = await Sharing.isAvailableAsync();
                           if (canShare) {
-                            await Sharing.shareAsync(BACKUP_DIR + backup.name, { 
-                              mimeType: "application/json", 
-                              dialogTitle: "Share Backup" 
+                            await Sharing.shareAsync(BACKUP_DIR + backup.name, {
+                              mimeType: "application/json",
+                              dialogTitle: "Share Backup"
                             });
                           }
                         }}
@@ -813,8 +859,8 @@ export default function SettingsScreen() {
                       >
                         <Ionicons name="share-outline" size={18} color={colors.accent} />
                       </Pressable>
-                      <Pressable 
-                        onPress={() => handleDeleteBackup(backup.name)} 
+                      <Pressable
+                        onPress={() => handleDeleteBackup(backup.name)}
                         style={styles.backupItemAction}
                       >
                         <Ionicons name="trash-outline" size={18} color="#FF4444" />
@@ -944,7 +990,7 @@ export default function SettingsScreen() {
         </View>
 
         <View style={[styles.versionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Text style={[styles.versionText, { color: colors.textMuted }]}>Novel DR — v1.3.12</Text>
+          <Text style={[styles.versionText, { color: colors.textMuted }]}>Novel DR — v1.13.12-rev138</Text>
           <Text style={[styles.madeByText, { color: colors.textMuted }]}>Made by Moggs ☕</Text>
         </View>
       </ScrollView>
