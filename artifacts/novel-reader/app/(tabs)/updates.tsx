@@ -68,6 +68,8 @@ function LogLine({ entry }: { entry: LogEntry }) {
     if (text.includes("Starting update")) return "🚀";
     if (text.includes("Update finished")) return "✨";
     if (text.includes("Starting from chapter")) return "📍";
+    if (text.includes("Chapters sorted")) return "📚";
+    if (text.includes("Chapter number")) return "🔢";
     return "";
   };
 
@@ -158,6 +160,26 @@ export default function UpdatesScreen() {
       clearInterval(timerIntervalRef.current);
       timerIntervalRef.current = null;
     }
+  };
+
+  // Extract chapter number from title
+  const extractChapterNumber = (title: string): number => {
+    const patterns = [
+      /chapter\s+(\d+(?:\.\d+)?)/i,      // "Chapter 1", "Chapter 1.5"
+      /ch\.?\s*(\d+(?:\.\d+)?)/i,         // "Ch. 1", "Ch 1.5"
+      /#(\d+(?:\.\d+)?)/,                  // "#1", "#1.5"
+      /(\d+)(?:st|nd|rd|th)\s+chapter/i,  // "1st chapter"
+      /^(\d+(?:\.\d+)?)[\s\-:]/,           // "1 - Title" or "1: Title"
+      /volume\s+\d+\s+chapter\s+(\d+)/i,  // "Volume 1 Chapter 2"
+    ];
+    
+    for (const pattern of patterns) {
+      const match = title.match(pattern);
+      if (match) {
+        return parseFloat(match[1]);
+      }
+    }
+    return 0; // Fallback for unparseable titles
   };
 
   // Download and save cover image to local file system
@@ -332,7 +354,7 @@ export default function UpdatesScreen() {
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
       // ========== DOWNLOAD NEW CHAPTERS ==========
-      const newChapters: Chapter[] = [];
+      const newChapters: (Chapter & { chapterNumber: number })[] = [];
       let downloaded = 0;
       let consecutiveErrors = 0;
 
@@ -355,10 +377,13 @@ export default function UpdatesScreen() {
 
           // Check if chapter already exists in library
           if (!chapterExists(currentUrl, existingChapters) && !chapterExists(currentUrl, newChapters)) {
+            const chapterNumber = extractChapterNumber(data.title);
+            
             newChapters.push({
               title: data.title,
               url: currentUrl,
               content: data.content,
+              chapterNumber: chapterNumber,
             });
             downloaded++;
             consecutiveErrors = 0;
@@ -366,7 +391,7 @@ export default function UpdatesScreen() {
             if (downloaded % 5 === 0) {
               addLog(`💾 Saved ${downloaded} new chapter${downloaded !== 1 ? "s" : ""} so far`, "success");
             } else {
-              addLog(`💾 Saved: ${data.title}`, "success");
+              addLog(`💾 Saved: ${data.title} (Chapter ${chapterNumber})`, "success");
             }
           } else {
             addLog(`⏭️ SKIPPED: Chapter ${chapterNum} already exists`, "warning");
@@ -405,7 +430,56 @@ export default function UpdatesScreen() {
         await new Promise((r) => setTimeout(r, 200));
       }
 
-      // ========== FINALIZE ==========
+      // ========== FINALIZE MERGE WITH SORTING ==========
+      if (downloaded > 0 || updatedCoverUrl !== selectedNovel.coverUrl) {
+        // Merge existing chapters with new chapters
+        const allChapters = [...existingChapters];
+        
+        // Add new chapters (converting from temp type to Chapter type)
+        newChapters.forEach((newCh) => {
+          if (!chapterExists(newCh.url, allChapters)) {
+            // Remove the chapterNumber property before saving (or keep it if your Chapter type supports it)
+            const { chapterNumber, ...chapterData } = newCh;
+            allChapters.push(chapterData);
+          }
+        });
+
+        // Sort by extracted chapter number (from title)
+        addLog(`📚 Sorting ${allChapters.length} chapters by chapter number...`, "info");
+        
+        allChapters.sort((a, b) => {
+          const numA = extractChapterNumber(a.title);
+          const numB = extractChapterNumber(b.title);
+          
+          if (numA === 0 && numB === 0) {
+            // If both have no numbers, maintain original order by URL
+            return (a.url || '').localeCompare(b.url || '');
+          }
+          return numA - numB;
+        });
+
+        // Log the chapter range after sorting
+        const chapterNums = allChapters.map(c => extractChapterNumber(c.title));
+        const validNums = chapterNums.filter(n => n > 0);
+        if (validNums.length > 0) {
+          const minCh = Math.min(...validNums);
+          const maxCh = Math.max(...validNums);
+          const missingCount = allChapters.length - validNums.length;
+          addLog(`📚 Chapters sorted: ${minCh} → ${maxCh} (${allChapters.length} total${missingCount > 0 ? `, ${missingCount} untitled` : ""})`, "success");
+        }
+
+        await updateNovel(selectedNovel.id, {
+          chapters: allChapters,
+          coverUrl: updatedCoverUrl,
+          author: meta.author,
+          synopsis: meta.synopsis,
+        });
+        
+        if (downloaded > 0) {
+          addLog(`✅ Novel updated with ${downloaded} new chapters!`, "success");
+        }
+      }
+
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
       if (stopRef.current) {
@@ -421,26 +495,6 @@ export default function UpdatesScreen() {
       }
 
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-
-      if (downloaded > 0 || updatedCoverUrl !== selectedNovel.coverUrl) {
-        // Merge existing chapters with new chapters, ensuring no duplicates
-        const allChapters = [...existingChapters];
-        newChapters.forEach((newCh) => {
-          if (!chapterExists(newCh.url, allChapters)) {
-            allChapters.push(newCh);
-          }
-        });
-        
-        // Sort chapters by their original order (assuming they're in sequence)
-        // Update novel with new chapters and potentially new cover/metadata
-        await updateNovel(selectedNovel.id, { 
-          chapters: allChapters,
-          coverUrl: updatedCoverUrl,
-          author: meta.author, // Update author if changed
-          synopsis: meta.synopsis, // Update synopsis if changed
-        });
-      }
-
       setProgress(100);
     } catch (e: any) {
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "error");
@@ -947,4 +1001,3 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   }
 });
-
