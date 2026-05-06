@@ -86,7 +86,7 @@ interface FullBackup {
   readerSettings: any;
   appSettings: any;
   chapters: Record<string, Record<string, any>>;
-  asyncStorageData?: Record<string, string>;  // new
+  asyncStorageData?: Record<string, string>;
 }
 
 export default function SettingsScreen() {
@@ -104,12 +104,12 @@ export default function SettingsScreen() {
   const [activePanel, setActivePanel] = useState<ActivePanel>(null);
   const [showWarningCard, setShowWarningCard] = useState(true);
   const [operationProgress, setOperationProgress] = useState("");
+  const [backupLogs, setBackupLogs] = useState<string[]>([]);
 
   const APP_DATA_DIR = `${FileSystem.documentDirectory}NovelDR/`;
   const BACKUP_DIR = `${FileSystem.documentDirectory}noveldrr-backups/`;
   const SETTINGS_FILE = `${APP_DATA_DIR}settings.json`;
 
-  // ── AsyncStorage access helper ──────────────────────────────────────
   const getAsyncStorage = async () => {
     try {
       const AsyncStorage = require('@react-native-async-storage/async-storage').default;
@@ -119,7 +119,6 @@ export default function SettingsScreen() {
     }
   };
 
-  // ── Settings helpers ────────────────────────────────────────────────
   const loadAppSettings = async (): Promise<Record<string, any>> => {
     try {
       const fileInfo = await FileSystem.getInfoAsync(SETTINGS_FILE);
@@ -165,7 +164,6 @@ export default function SettingsScreen() {
     };
   }, []);
 
-  // ── Utility Functions ──────────────────────────────────────────────
   const ensureDir = async (dirPath: string) => {
     const info = await FileSystem.getInfoAsync(dirPath);
     if (!info.exists) await FileSystem.makeDirectoryAsync(dirPath, { intermediates: true });
@@ -187,9 +185,15 @@ export default function SettingsScreen() {
     }
   };
 
-  // ── Collect all app data (file system + AsyncStorage) ──────────────
+  const addBackupLog = (msg: string) => {
+    setBackupLogs(prev => [...prev, msg]);
+    setOperationProgress(msg);
+  };
+
+  // ── Collect all app data with activity logging ──────────────────────
   const collectAppData = async (): Promise<FullBackup> => {
-    setOperationProgress("Reading library data...");
+    setBackupLogs([]);
+    addBackupLog("📂 Reading library data...");
 
     const libraryPath = `${APP_DATA_DIR}novel_library_v1.json`;
     const sortPath = `${APP_DATA_DIR}chapter_sort_preference.json`;
@@ -202,10 +206,11 @@ export default function SettingsScreen() {
       loadAppSettings(),
     ]);
 
-    // Fallback to AsyncStorage if file data is missing
     const AsyncStorage = await getAsyncStorage();
     if (AsyncStorage && !libraryRaw) {
+      addBackupLog("📦 Checking legacy storage...");
       libraryRaw = await AsyncStorage.getItem('novel_library_v1');
+      if (libraryRaw) addBackupLog("✅ Found legacy library data");
     }
     if (AsyncStorage && !sortRaw) {
       sortRaw = await AsyncStorage.getItem('chapter_sort_preference');
@@ -222,44 +227,105 @@ export default function SettingsScreen() {
     }
 
     const libraryData = libraryRaw ? JSON.parse(libraryRaw) : [];
+    const novelCount = Array.isArray(libraryData) ? libraryData.length : 0;
     const sortPreference = sortRaw || "ascending";
     const readerSettings = readerRaw ? JSON.parse(readerRaw) : {};
 
-    // Collect chapters from file system
+    addBackupLog(`📚 Found ${novelCount} novels in library`);
+
+    // Collect ALL chapters
     const chapters: Record<string, Record<string, any>> = {};
     const chaptersDir = `${APP_DATA_DIR}chapters/`;
-    const chaptersDirInfo = await FileSystem.getInfoAsync(chaptersDir);
-
-    if (chaptersDirInfo.exists) {
-      const novelDirs = await FileSystem.readDirectoryAsync(chaptersDir);
-      let processedCount = 0;
-      for (const novelId of novelDirs) {
-        setOperationProgress(`Reading chapters... (${processedCount + 1}/${novelDirs.length})`);
-        const novelChapterDir = `${chaptersDir}${novelId}/`;
-        const novelChapterInfo = await FileSystem.getInfoAsync(novelChapterDir);
-        if (novelChapterInfo.exists && novelChapterInfo.isDirectory) {
-          const chapterFiles = await FileSystem.readDirectoryAsync(novelChapterDir);
-          chapters[novelId] = {};
-          for (const chapterFile of chapterFiles) {
-            const chapterPath = `${novelChapterDir}${chapterFile}`;
-            const chapterRaw = await readFileSafe(chapterPath);
-            if (chapterRaw) {
-              const chapterIndex = chapterFile.replace("chapter_", "").replace(".json", "");
-              chapters[novelId][chapterIndex] = JSON.parse(chapterRaw);
+    
+    addBackupLog("🔍 Scanning chapter files...");
+    
+    try {
+      const chaptersDirInfo = await FileSystem.getInfoAsync(chaptersDir);
+      
+      if (chaptersDirInfo.exists && chaptersDirInfo.isDirectory) {
+        const novelDirs = await FileSystem.readDirectoryAsync(chaptersDir);
+        addBackupLog(`📁 Found ${novelDirs.length} novel directories`);
+        
+        let totalChaptersFound = 0;
+        
+        for (const novelId of novelDirs) {
+          const novelChapterDir = `${chaptersDir}${novelId}/`;
+          const novelChapterInfo = await FileSystem.getInfoAsync(novelChapterDir);
+          
+          if (novelChapterInfo.exists && novelChapterInfo.isDirectory) {
+            const chapterFiles = await FileSystem.readDirectoryAsync(novelChapterDir);
+            const jsonFiles = chapterFiles.filter(f => f.startsWith('chapter_') && f.endsWith('.json'));
+            
+            if (jsonFiles.length > 0) {
+              chapters[novelId] = {};
+              
+              for (const chapterFile of jsonFiles) {
+                const chapterPath = `${novelChapterDir}${chapterFile}`;
+                try {
+                  const chapterRaw = await FileSystem.readAsStringAsync(chapterPath);
+                  if (chapterRaw) {
+                    const chapterData = JSON.parse(chapterRaw);
+                    const chapterIndex = chapterFile.replace("chapter_", "").replace(".json", "");
+                    chapters[novelId][chapterIndex] = chapterData;
+                    totalChaptersFound++;
+                  }
+                } catch (err) {
+                  addBackupLog(`⚠️ Skipped corrupted: ${chapterFile}`);
+                }
+              }
+              
+              // Find novel title for better logging
+              const novelData = Array.isArray(libraryData) ? libraryData.find((n: any) => n.id === novelId) : null;
+              const novelTitle = novelData?.title || novelId.slice(0, 12);
+              addBackupLog(`   📄 ${novelTitle}: ${jsonFiles.length} chapters`);
             }
           }
         }
-        processedCount++;
+        
+        addBackupLog(`📊 Total chapters found: ${totalChaptersFound}`);
+      } else {
+        addBackupLog("⚠️ No chapters folder found");
+        
+        // Try AsyncStorage for chapters
+        if (AsyncStorage && Array.isArray(libraryData)) {
+          addBackupLog("🔍 Checking AsyncStorage for chapter content...");
+          let asyncChapterCount = 0;
+          for (const novel of libraryData) {
+            if (novel.chapters && Array.isArray(novel.chapters)) {
+              const contentChapters = novel.chapters.filter((ch: any) => ch.content);
+              if (contentChapters.length > 0) {
+                chapters[novel.id] = {};
+                for (let i = 0; i < novel.chapters.length; i++) {
+                  if (novel.chapters[i].content) {
+                    chapters[novel.id][i.toString()] = {
+                      title: novel.chapters[i].title || `Chapter ${i + 1}`,
+                      url: novel.chapters[i].url || '',
+                      content: novel.chapters[i].content
+                    };
+                    asyncChapterCount++;
+                  }
+                }
+                addBackupLog(`   📄 ${novel.title}: ${contentChapters.length} chapters from legacy storage`);
+              }
+            }
+          }
+          if (asyncChapterCount > 0) {
+            addBackupLog(`📊 Total legacy chapters: ${asyncChapterCount}`);
+          }
+        }
       }
+    } catch (chaptersError) {
+      addBackupLog(`❌ Error scanning chapters: ${String(chaptersError)}`);
     }
 
     const totalChapters = Object.values(chapters).reduce(
       (sum, novelChapters) => sum + Object.keys(novelChapters).length, 0
     );
 
-    // Collect additional AsyncStorage data
+    // Collect AsyncStorage data
     let asyncStorageData: Record<string, string> = {};
     if (AsyncStorage) {
+      addBackupLog("📦 Saving legacy preferences...");
       try {
         const keys = [
           'novel_library_v1',
@@ -274,17 +340,20 @@ export default function SettingsScreen() {
             asyncStorageData[key] = value;
           }
         }
+        addBackupLog("✅ Legacy preferences saved");
       } catch (e) {
-        console.warn('Could not read all AsyncStorage keys:', e);
+        addBackupLog("⚠️ Could not read all legacy settings");
       }
     }
 
+    addBackupLog(`✅ Backup ready: ${novelCount} novels, ${totalChapters} chapters`);
+    
     return {
       metadata: {
         version: 3,
         exportedAt: new Date().toISOString(),
         comment: pendingComment.trim() || null,
-        novelCount: Array.isArray(libraryData) ? libraryData.length : 0,
+        novelCount,
         totalChapters,
         includesChapters: totalChapters > 0,
       },
@@ -293,20 +362,24 @@ export default function SettingsScreen() {
       readerSettings,
       appSettings: settingsData,
       chapters,
-      asyncStorageData,  // include legacy data
+      asyncStorageData,
     };
   };
 
-  // ── Restore app data (file system + AsyncStorage) ──────────────────
+  // ── Restore app data with activity logging ─────────────────────────
   const restoreAppData = async (backup: FullBackup) => {
-    setOperationProgress("Restoring data...");
+    setBackupLogs([]);
+    addBackupLog("🔄 Starting restore...");
     await ensureDir(APP_DATA_DIR);
 
     if (backup.libraryData) {
+      addBackupLog("📚 Restoring library metadata...");
       await FileSystem.writeAsStringAsync(
         `${APP_DATA_DIR}novel_library_v1.json`,
         JSON.stringify(backup.libraryData)
       );
+      const novelCount = Array.isArray(backup.libraryData) ? backup.libraryData.length : 0;
+      addBackupLog(`✅ ${novelCount} novels restored`);
     }
 
     if (backup.sortPreference) {
@@ -317,6 +390,7 @@ export default function SettingsScreen() {
     }
 
     if (backup.readerSettings) {
+      addBackupLog("⚙️ Restoring reader settings...");
       await FileSystem.writeAsStringAsync(
         `${APP_DATA_DIR}reader_settings.json`,
         JSON.stringify(backup.readerSettings)
@@ -327,44 +401,61 @@ export default function SettingsScreen() {
       await saveAppSettings(backup.appSettings);
     }
 
-    // Restore chapters
     if (backup.chapters && Object.keys(backup.chapters).length > 0) {
       const chaptersDir = `${APP_DATA_DIR}chapters/`;
       await ensureDir(chaptersDir);
-      let restoredCount = 0;
+      
+      let totalChaptersRestored = 0;
       const novelIds = Object.keys(backup.chapters);
+      
+      addBackupLog(`📄 Restoring chapters for ${novelIds.length} novels...`);
+      
       for (const novelId of novelIds) {
-        setOperationProgress(`Restoring chapters... (${restoredCount + 1}/${novelIds.length})`);
         const novelChapterDir = `${chaptersDir}${novelId}/`;
         await ensureDir(novelChapterDir);
+        
         const novelChapters = backup.chapters[novelId];
         const chapterIndices = Object.keys(novelChapters);
+        
         for (const chapterIndex of chapterIndices) {
           const chapterPath = `${novelChapterDir}chapter_${chapterIndex}.json`;
-          await FileSystem.writeAsStringAsync(
-            chapterPath,
-            JSON.stringify(novelChapters[chapterIndex])
-          );
+          try {
+            await FileSystem.writeAsStringAsync(
+              chapterPath,
+              JSON.stringify(novelChapters[chapterIndex])
+            );
+            totalChaptersRestored++;
+          } catch (err) {
+            addBackupLog(`⚠️ Failed chapter ${chapterIndex}`);
+          }
         }
-        restoredCount++;
+        
+        addBackupLog(`   ✅ Novel ${novelId.slice(0, 8)}...: ${chapterIndices.length} chapters`);
       }
+      
+      addBackupLog(`📊 Total chapters restored: ${totalChaptersRestored}`);
+    } else {
+      addBackupLog("⚠️ No chapters to restore");
     }
 
-    // Restore AsyncStorage data for backward compatibility
     if (backup.asyncStorageData) {
+      addBackupLog("📦 Restoring legacy data...");
       const AsyncStorage = await getAsyncStorage();
       if (AsyncStorage) {
         for (const [key, value] of Object.entries(backup.asyncStorageData)) {
           await AsyncStorage.setItem(key, value);
         }
+        addBackupLog("✅ Legacy data restored");
       }
     }
+
+    addBackupLog("✅ Restore complete!");
   };
 
-  // ── Export ──────────────────────────────────────────────────────────
   const handleExport = () => {
     if (novels.length === 0) return;
     setPendingComment("");
+    setBackupLogs([]);
     openPanel("comment");
   };
 
@@ -375,7 +466,7 @@ export default function SettingsScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
       const backup = await collectAppData();
-      setOperationProgress("Saving backup...");
+      addBackupLog("💾 Saving backup file...");
 
       await ensureDir(BACKUP_DIR);
 
@@ -392,6 +483,8 @@ export default function SettingsScreen() {
 
       const fileInfo = await FileSystem.getInfoAsync(backupPath);
       const sizeMB = fileInfo.exists ? ((fileInfo.size || 0) / (1024 * 1024)).toFixed(1) : "0";
+
+      addBackupLog(`✅ Backup saved: ${filename} (${sizeMB} MB)`);
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert(
@@ -418,14 +511,13 @@ export default function SettingsScreen() {
         ]
       );
     } catch (e) {
+      addBackupLog(`❌ Export failed: ${String(e)}`);
       Alert.alert("Export Failed", String(e));
     } finally {
       setExporting(false);
-      setOperationProgress("");
     }
   };
 
-  // ── Load backup list ────────────────────────────────────────────────
   const loadBackupList = async () => {
     try {
       await ensureDir(BACKUP_DIR);
@@ -458,7 +550,6 @@ export default function SettingsScreen() {
     }
   };
 
-  // ── Import from backup file ─────────────────────────────────────────
   const handleImportBackup = async (filename: string) => {
     const backupPath = `${BACKUP_DIR}${filename}`;
     
@@ -499,7 +590,6 @@ export default function SettingsScreen() {
                   {
                     text: "OK",
                     onPress: () => {
-                      // Reload the app (Android)
                       if (Platform.OS === 'android') {
                         IntentLauncher.startActivityAsync('android.intent.action.MAIN');
                       }
@@ -512,7 +602,6 @@ export default function SettingsScreen() {
               Alert.alert("Import Failed", String(e));
             } finally {
               setImporting(false);
-              setOperationProgress("");
             }
           },
         },
@@ -520,7 +609,6 @@ export default function SettingsScreen() {
     );
   };
 
-  // ── Import from external file ───────────────────────────────────────
   const handleImportFromPicker = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -563,7 +651,6 @@ export default function SettingsScreen() {
                 Alert.alert("Import Failed", String(e));
               } finally {
                 setImporting(false);
-                setOperationProgress("");
               }
             },
           },
@@ -574,7 +661,6 @@ export default function SettingsScreen() {
     }
   };
 
-  // ── Delete backup ───────────────────────────────────────────────────
   const handleDeleteBackup = (filename: string) => {
     Alert.alert("Delete Backup", `Delete "${filename}"?`, [
       { text: "Cancel", style: "cancel" },
@@ -599,7 +685,6 @@ export default function SettingsScreen() {
     return { date, time, tag };
   };
 
-  // ── Warning card handlers ───────────────────────────────────────────
   const openUnusedAppSettings = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (Platform.OS === 'android') {
@@ -662,7 +747,6 @@ export default function SettingsScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header */}
       <View style={[styles.header, { paddingTop: topPad + 12, borderBottomColor: colors.border }]}>
         <View style={styles.headerTitleContainer}>
           <Ionicons name="settings" size={22} color={colors.accent} />
@@ -677,7 +761,6 @@ export default function SettingsScreen() {
         contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 100 }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Android Warning Card */}
         {showWarningCard && Platform.OS === 'android' && (
           <Pressable
             style={[styles.warningCard, { backgroundColor: colors.surface, borderColor: "#ffb300" }]}
@@ -704,7 +787,6 @@ export default function SettingsScreen() {
           </Pressable>
         )}
 
-        {/* Library Statistics */}
         <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>LIBRARY STATISTICS</Text>
         <View style={[styles.statsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.statItem}>
@@ -724,7 +806,6 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* Theme */}
         <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>APP THEME</Text>
         <View style={styles.themeRow}>
           <ThemeButton label="Dark" icon="moon" themeKey="dark" active={theme === "dark"} onPress={() => handleThemeChange("dark")} />
@@ -732,7 +813,6 @@ export default function SettingsScreen() {
           <ThemeButton label="Sepia" icon="book" themeKey="sepia" active={theme === "sepia"} onPress={() => handleThemeChange("sepia")} />
         </View>
 
-        {/* Backup Section */}
         <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>BACKUP & RESTORE</Text>
         <View style={[styles.backupCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.backupDesc, { color: colors.textSecondary }]}>
@@ -746,6 +826,32 @@ export default function SettingsScreen() {
               <Text style={[styles.progressText, { color: colors.textSecondary }]}>
                 {operationProgress || (exporting ? "Creating backup..." : "Restoring...")}
               </Text>
+            </View>
+          )}
+
+          {/* Backup Activity Log */}
+          {backupLogs.length > 0 && (
+            <View style={[styles.backupActivityLog, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <View style={styles.backupActivityLogHeader}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="sync" size={14} color={colors.accent} />
+                  <Text style={[styles.backupActivityLogTitle, { color: colors.textSecondary }]}>Activity Log</Text>
+                </View>
+                <Pressable onPress={() => setBackupLogs([])}>
+                  <Text style={[styles.backupClearLog, { color: colors.textMuted }]}>Clear</Text>
+                </Pressable>
+              </View>
+              <ScrollView 
+                style={styles.backupActivityLogScroll}
+                nestedScrollEnabled={true}
+                showsVerticalScrollIndicator={true}
+              >
+                {backupLogs.map((log, index) => (
+                  <Text key={index} style={[styles.backupActivityLogLine, { color: colors.text }]}>
+                    {log}
+                  </Text>
+                ))}
+              </ScrollView>
             </View>
           )}
 
@@ -807,7 +913,6 @@ export default function SettingsScreen() {
           )}
         </View>
 
-        {/* Restore Panel */}
         {activePanel === "restore" && (
           <View style={[styles.backupListCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <View style={styles.backupListHeader}>
@@ -872,7 +977,6 @@ export default function SettingsScreen() {
           </View>
         )}
 
-        {/* Comment Panel */}
         {activePanel === "comment" && (
           <View style={[styles.commentCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Text style={[styles.commentTitle, { color: colors.text }]}>Label this backup</Text>
@@ -906,7 +1010,6 @@ export default function SettingsScreen() {
           </View>
         )}
 
-        {/* Developer Modal */}
         <Modal visible={showDevProfile} transparent animationType="fade">
           <View style={styles.modalOverlay}>
             <View style={[styles.devCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -952,7 +1055,6 @@ export default function SettingsScreen() {
           </View>
         </Modal>
 
-        {/* About */}
         <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>ABOUT</Text>
         <View style={[styles.aboutCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.aboutRow}>
@@ -1028,250 +1130,87 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
-  dismissButton: {
-    padding: 4,
-  },
+  dismissButton: { padding: 4 },
   warningTitle: { fontFamily: "Inter_700Bold", fontSize: 14 },
   warningText: { fontFamily: "Inter_400Regular", fontSize: 12, lineHeight: 18 },
-  warningTapHint: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 11,
-    marginTop: 6,
-    textAlign: 'center',
-  },
-  statsCard: {
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    padding: 20,
-  },
+  warningTapHint: { fontFamily: "Inter_500Medium", fontSize: 11, marginTop: 6, textAlign: 'center' },
+  statsCard: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, flexDirection: "row", padding: 20 },
   statItem: { flex: 1, flexDirection: "row", alignItems: "center", gap: 12 },
   statDivider: { width: StyleSheet.hairlineWidth, marginVertical: 4 },
   statValue: { fontFamily: "Inter_700Bold", fontSize: 24 },
   statLabel: { fontFamily: "Inter_400Regular", fontSize: 12, marginTop: 2 },
   themeRow: { flexDirection: "row", gap: 10 },
   themeBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 6, paddingVertical: 12, borderRadius: 12, borderWidth: 1,
   },
   themeBtnLabel: { fontFamily: "Inter_600SemiBold", fontSize: 13 },
-  aboutCard: {
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 16,
-    gap: 10,
-  },
+  aboutCard: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, padding: 16, gap: 10 },
   aboutRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   aboutText: { fontFamily: "Inter_400Regular", fontSize: 13, flex: 1 },
   aboutSite: { fontFamily: "Inter_500Medium", fontSize: 13 },
   divider: { height: StyleSheet.hairlineWidth, marginVertical: 4 },
-  versionCard: {
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 14,
-    alignItems: "center",
-    marginTop: 4,
-  },
+  versionCard: { borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, padding: 14, alignItems: "center", marginTop: 4 },
   versionText: { fontFamily: "Inter_400Regular", fontSize: 12 },
   madeByText: { fontFamily: "Inter_400Regular", fontSize: 11, marginTop: 6, textAlign: "center" },
-  backupCard: {
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 16,
-    gap: 12,
-  },
-  backupDesc: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    lineHeight: 19,
-  },
+  backupCard: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, padding: 16, gap: 12 },
+  backupDesc: { fontFamily: "Inter_400Regular", fontSize: 13, lineHeight: 19 },
   progressContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: "rgba(0,0,0,0.05)",
-    borderRadius: 8,
+    flexDirection: "row", alignItems: "center", gap: 8,
+    paddingVertical: 8, paddingHorizontal: 12,
+    backgroundColor: "rgba(0,0,0,0.05)", borderRadius: 8,
   },
-  progressText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-  },
-  backupRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
+  progressText: { fontFamily: "Inter_400Regular", fontSize: 12 },
+  backupRow: { flexDirection: "row", gap: 8 },
   backupBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 12,
-    borderRadius: 12,
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 6, paddingVertical: 12, borderRadius: 12,
   },
-  backupBtnText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 13,
-    color: "#fff",
+  backupBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: "#fff" },
+  backupHint: { fontFamily: "Inter_400Regular", fontSize: 12, textAlign: "center" },
+  // Backup Activity Log
+  backupActivityLog: {
+    borderRadius: 10, borderWidth: StyleSheet.hairlineWidth,
+    padding: 10, maxHeight: 200, minHeight: 100,
   },
-  backupHint: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    textAlign: "center",
+  backupActivityLogHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    marginBottom: 8, paddingBottom: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#e0e0e0',
   },
-  backupListCard: {
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 16,
-    gap: 10,
-  },
-  backupListHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 4,
-  },
-  backupListTitle: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 15,
-  },
-  backupItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingTop: 12,
-    paddingBottom: 4,
-    gap: 8,
-  },
-  backupItemInfo: {
-    flex: 1,
-    gap: 3,
-  },
-  backupItemMeta: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  backupItemDate: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-  },
-  backupItemTag: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 13,
-  },
-  backupItemStats: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 11,
-    marginTop: 2,
-  },
-  backupItemActions: {
-    flexDirection: "row",
-    gap: 4,
-  },
-  backupItemAction: {
-    padding: 6,
-  },
-  commentCard: {
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 16,
-    gap: 12,
-  },
-  commentTitle: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 15,
-  },
-  commentSub: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    lineHeight: 18,
-  },
+  backupActivityLogTitle: { fontFamily: "Inter_600SemiBold", fontSize: 11, letterSpacing: 0.5 },
+  backupClearLog: { fontFamily: "Inter_500Medium", fontSize: 11 },
+  backupActivityLogScroll: { maxHeight: 150 },
+  backupActivityLogLine: { fontFamily: "Inter_400Regular", fontSize: 11, lineHeight: 16, marginBottom: 3, paddingLeft: 4 },
+  backupListCard: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, padding: 16, gap: 10 },
+  backupListHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
+  backupListTitle: { fontFamily: "Inter_600SemiBold", fontSize: 15 },
+  backupItem: { flexDirection: "row", alignItems: "center", borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 12, paddingBottom: 4, gap: 8 },
+  backupItemInfo: { flex: 1, gap: 3 },
+  backupItemMeta: { flexDirection: "row", alignItems: "center", gap: 4 },
+  backupItemDate: { fontFamily: "Inter_400Regular", fontSize: 12 },
+  backupItemTag: { fontFamily: "Inter_600SemiBold", fontSize: 13 },
+  backupItemStats: { fontFamily: "Inter_400Regular", fontSize: 11, marginTop: 2 },
+  backupItemActions: { flexDirection: "row", gap: 4 },
+  backupItemAction: { padding: 6 },
+  commentCard: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, padding: 16, gap: 12 },
+  commentTitle: { fontFamily: "Inter_600SemiBold", fontSize: 15 },
+  commentSub: { fontFamily: "Inter_400Regular", fontSize: 13, lineHeight: 18 },
   commentInput: {
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
+    borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
+    fontFamily: "Inter_400Regular", fontSize: 14,
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  devCard: {
-    borderRadius: 20,
-    borderWidth: 1,
-    padding: 20,
-    gap: 16,
-  },
-  devHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 4,
-  },
-  devTitle: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 18,
-  },
-  devProfileRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 16,
-    marginBottom: 8,
-  },
-  profileImage: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  devInfo: {
-    flex: 1,
-    gap: 4,
-  },
-  devLabel: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 12,
-    letterSpacing: 0.5,
-  },
-  devValue: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 18,
-  },
-  devLinkRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 6,
-    paddingVertical: 4,
-  },
-  devLinkLabel: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 14,
-  },
-  devLinkText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 14,
-    textDecorationLine: "underline",
-  },
-  devIssueText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: 8,
-    textAlign: "center",
-  },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 20 },
+  devCard: { borderRadius: 20, borderWidth: 1, padding: 20, gap: 16 },
+  devHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
+  devTitle: { fontFamily: "Inter_700Bold", fontSize: 18 },
+  devProfileRow: { flexDirection: "row", alignItems: "center", gap: 16, marginBottom: 8 },
+  profileImage: { width: 70, height: 70, borderRadius: 35, justifyContent: "center", alignItems: "center" },
+  devInfo: { flex: 1, gap: 4 },
+  devLabel: { fontFamily: "Inter_500Medium", fontSize: 12, letterSpacing: 0.5 },
+  devValue: { fontFamily: "Inter_600SemiBold", fontSize: 18 },
+  devLinkRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6, paddingVertical: 4 },
+  devLinkLabel: { fontFamily: "Inter_500Medium", fontSize: 14 },
+  devLinkText: { fontFamily: "Inter_500Medium", fontSize: 14, textDecorationLine: "underline" },
+  devIssueText: { fontFamily: "Inter_400Regular", fontSize: 13, lineHeight: 18, marginTop: 8, textAlign: "center" },
 });
