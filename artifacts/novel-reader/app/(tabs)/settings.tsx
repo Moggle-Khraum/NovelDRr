@@ -461,8 +461,7 @@ export default function SettingsScreen() {
   // ── Import from backup file ─────────────────────────────────────────
   const handleImportBackup = async (filename: string) => {
     const backupPath = `${BACKUP_DIR}${filename}`;
-    const backup = backhttps://github.com/Moggle-Khraum/NovelDR/blob/v3.1/artifacts/novel-reader/app/(tabs)/settings.tsx
-
+    
     Alert.alert(
       "Restore Backup",
       `This will replace ALL current data with the backup.\n\n` +
