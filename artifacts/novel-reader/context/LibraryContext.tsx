@@ -52,9 +52,6 @@ const POSSIBLE_STORAGE_LOCATIONS = [
 ];
 
 const getAppStoragePath = () => {
-  if (Platform.OS === 'android') {
-    return `${FileSystem.documentDirectory}${APP_FOLDER_NAME}/`;
-  }
   return `${FileSystem.documentDirectory}${APP_FOLDER_NAME}/`;
 };
 
@@ -71,7 +68,6 @@ const getChapterFilePath = (novelId: string, chapterIndex: number) => `${getNove
 const ensureAppDirectoryExists = async () => {
   const appDir = getAppStoragePath();
   const dirInfo = await FileSystem.getInfoAsync(appDir);
-  
   if (!dirInfo.exists) {
     await FileSystem.makeDirectoryAsync(appDir, { intermediates: true });
     console.log('[Storage] Created app directory:', appDir);
@@ -87,14 +83,11 @@ const ensureDirectoryExists = async (dirPath: string) => {
 
 const copyDirectory = async (fromPath: string, toPath: string) => {
   await ensureDirectoryExists(toPath);
-  
   try {
     const items = await FileSystem.readDirectoryAsync(fromPath);
-    
     for (const item of items) {
       const sourceItemPath = `${fromPath}${item}`;
       const destItemPath = `${toPath}${item}`;
-      
       try {
         const itemInfo = await FileSystem.getInfoAsync(sourceItemPath);
         if (itemInfo.exists && itemInfo.isDirectory) {
@@ -209,9 +202,7 @@ type InitStep = {
   detail?: string;
 };
 
-const migrateFromLegacyStorage = async (
-  onStep: (step: InitStep) => void
-): Promise<boolean> => {
+const migrateFromLegacyStorage = async (onStep: (step: InitStep) => void): Promise<boolean> => {
   const stepId = 'migrate';
   onStep({ id: stepId, message: 'Checking for legacy data...', status: 'running' });
   
@@ -231,7 +222,6 @@ const migrateFromLegacyStorage = async (
     }
     
     const legacyLibraryData = await AsyncStorage.getItem(LEGACY_ASYNC_KEYS.LIBRARY);
-    
     if (!legacyLibraryData) {
       onStep({ id: stepId, message: 'No legacy data found', status: 'done', detail: 'Starting fresh' });
       return false;
@@ -250,7 +240,6 @@ const migrateFromLegacyStorage = async (
     
     const legacyFontSize = await AsyncStorage.getItem(LEGACY_ASYNC_KEYS.FONT_SIZE);
     const legacyLineSpacing = await AsyncStorage.getItem(LEGACY_ASYNC_KEYS.LINE_SPACING);
-    
     if (legacyFontSize || legacyLineSpacing) {
       const readerSettings = {
         fontSizeIdx: legacyFontSize ? parseInt(legacyFontSize) : 1,
@@ -268,7 +257,6 @@ const migrateFromLegacyStorage = async (
       status: 'done', 
       detail: `${novelCount} novels restored` 
     });
-    
     return true;
   } catch (error: any) {
     onStep({ id: stepId, message: 'Migration failed', status: 'error', detail: error.message });
@@ -277,29 +265,22 @@ const migrateFromLegacyStorage = async (
 };
 
 const findExistingData = async (): Promise<{ path: string; novelCount: number } | null> => {
-  const libraryFileName = 'novel_library_v1.json';
-  
   for (const getPath of POSSIBLE_STORAGE_LOCATIONS) {
     try {
       const location = getPath();
-      const filePath = `${location}${libraryFileName}`;
+      const filePath = `${location}${LIBRARY_FILE_NAME}`;
       const fileInfo = await FileSystem.getInfoAsync(filePath);
-      
       if (fileInfo.exists) {
         const content = await FileSystem.readAsStringAsync(filePath);
         const data = JSON.parse(content);
-        const novelCount = Array.isArray(data) ? data.length : 0;
-        return { path: location, novelCount };
+        return { path: location, novelCount: Array.isArray(data) ? data.length : 0 };
       }
     } catch {}
   }
-  
   return null;
 };
 
-const recoverDataIfNeeded = async (
-  onStep: (step: InitStep) => void
-): Promise<boolean> => {
+const recoverDataIfNeeded = async (onStep: (step: InitStep) => void): Promise<boolean> => {
   const stepId = 'recovery';
   onStep({ id: stepId, message: 'Scanning storage locations...', status: 'running' });
   
@@ -316,7 +297,6 @@ const recoverDataIfNeeded = async (
     onStep({ id: stepId, message: 'Searching alternate locations...', status: 'running' });
     
     const foundData = await findExistingData();
-    
     if (foundData && foundData.path !== primaryPath) {
       onStep({ 
         id: stepId, 
@@ -326,13 +306,10 @@ const recoverDataIfNeeded = async (
       });
       
       await ensureAppDirectoryExists();
-      
       const items = await FileSystem.readDirectoryAsync(foundData.path);
-      
       for (const item of items) {
         const sourcePath = `${foundData.path}${item}`;
         const destPath = `${primaryPath}${item}`;
-        
         try {
           const sourceInfo = await FileSystem.getInfoAsync(sourcePath);
           if (sourceInfo.exists && sourceInfo.isDirectory) {
@@ -351,7 +328,6 @@ const recoverDataIfNeeded = async (
         status: 'done', 
         detail: `${foundData.novelCount} novels restored` 
       });
-      
       return true;
     }
     
@@ -415,11 +391,35 @@ const LibraryContext = createContext<LibraryContextType>({
 // =============================================================================
 
 function extractChapterNumber(chapter: Chapter): number {
-  const titleMatch = chapter.title.match(/chapter\s*(\d+)/i);
-  if (titleMatch) return parseInt(titleMatch[1], 10);
+  if (!chapter) return 0;
   
-  const urlMatch = chapter.url.match(/chapter[-/](\d+)/i);
-  if (urlMatch) return parseInt(urlMatch[1], 10);
+  const title = chapter.title || '';
+  const url = chapter.url || '';
+  
+  // Try multiple title patterns
+  const titlePatterns = [
+    /chapter\s*(\d+)/i,
+    /ch\.?\s*(\d+)/i,
+    /^(\d+)[\.\s\-]/,
+    /\[(\d+)\]/,
+    /\((\d+)\)/,
+    /#(\d+)/,
+  ];
+  for (const pattern of titlePatterns) {
+    const match = title.match(pattern);
+    if (match) return parseInt(match[1], 10);
+  }
+  
+  // Try URL patterns
+  const urlPatterns = [
+    /chapter[-/](\d+)/i,
+    /ch[-/](\d+)/i,
+    /(\d+)\.html?$/,
+  ];
+  for (const pattern of urlPatterns) {
+    const match = url.match(pattern);
+    if (match) return parseInt(match[1], 10);
+  }
   
   return 0;
 }
@@ -450,128 +450,78 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const initializeStorage = async () => {
       try {
-        addInitStep({ 
-          id: 'start', 
-          message: 'Initializing storage system...', 
-          status: 'running' 
-        });
+        addInitStep({ id: 'start', message: 'Initializing storage system...', status: 'running' });
         
-        // Step 1: Try migration from AsyncStorage
+        // Step 1: Migration
         const migrated = await migrateFromLegacyStorage(addInitStep);
         
-        // Step 2: Try recovery from alternative locations
+        // Step 2: Recovery
         const recovered = await recoverDataIfNeeded(addInitStep);
         
-        // Step 3: Ensure directory exists
-        addInitStep({ 
-          id: 'directory', 
-          message: 'Setting up storage directory...', 
-          status: 'running' 
-        });
+        // Step 3: Ensure directories
+        addInitStep({ id: 'directory', message: 'Setting up storage directories...', status: 'running' });
         await ensureAppDirectoryExists();
-        addInitStep({ 
-          id: 'directory', 
-          message: 'Storage directory ready', 
-          status: 'done' 
-        });
+        await ensureDirectoryExists(getChaptersPath());
+        addInitStep({ id: 'directory', message: 'Storage directories ready', status: 'done' });
         
         // Step 4: Load preferences
-        addInitStep({ 
-          id: 'preferences', 
-          message: 'Loading preferences...', 
-          status: 'running' 
-        });
+        addInitStep({ id: 'preferences', message: 'Loading preferences...', status: 'running' });
         const sortData = await loadFromFile(getSortPreferenceFilePath());
-        if (sortData === "descending") {
-          setSortOrder("descending");
-        }
-        addInitStep({ 
-          id: 'preferences', 
-          message: 'Preferences loaded', 
-          status: 'done' 
-        });
+        if (sortData === "descending") setSortOrder("descending");
+        addInitStep({ id: 'preferences', message: 'Preferences loaded', status: 'done' });
         
         // Step 5: Load library data
-        addInitStep({ 
-          id: 'library', 
-          message: 'Loading library...', 
-          status: 'running' 
-        });
+        addInitStep({ id: 'library', message: 'Loading library...', status: 'running' });
         const libraryData = await loadFromFile(getLibraryFilePath());
-        
         if (libraryData) {
           try {
             const parsed: Novel[] = JSON.parse(libraryData);
-            const migrated = parsed.map((n) => ({
+            const migratedNovels = parsed.map((n) => ({
               ...n,
               status: n.status ?? (n.lastRead ? "reading" : "unread"),
-              chapters: n.chapters.map(ch => ({
-                title: ch.title,
-                url: ch.url
-              }))
+              chapters: n.chapters.map(ch => ({ title: ch.title, url: ch.url })) // keep metadata only
             }));
-            setNovels(migrated);
+            setNovels(migratedNovels);
             
-            // Count total chapters
             let totalChapters = 0;
-            for (const dir of await FileSystem.readDirectoryAsync(getChaptersPath()).catch(() => [])) {
-              const dirPath = getNovelChaptersPath(dir);
-              const dirInfo = await FileSystem.getInfoAsync(dirPath);
-              if (dirInfo.exists && dirInfo.isDirectory) {
-                const files = await FileSystem.readDirectoryAsync(dirPath);
-                totalChapters += files.length;
+            try {
+              const chaptersDir = getChaptersPath();
+              const novelDirs = await FileSystem.readDirectoryAsync(chaptersDir);
+              for (const dir of novelDirs) {
+                const dirPath = getNovelChaptersPath(dir);
+                const dirInfo = await FileSystem.getInfoAsync(dirPath);
+                if (dirInfo.exists && dirInfo.isDirectory) {
+                  const files = await FileSystem.readDirectoryAsync(dirPath);
+                  totalChapters += files.length;
+                }
               }
-            }
+            } catch {}
             
             addInitStep({ 
               id: 'library', 
               message: 'Library loaded successfully', 
               status: 'done', 
-              detail: `${migrated.length} novels, ${totalChapters} chapters` 
+              detail: `${migratedNovels.length} novels, ${totalChapters} chapters` 
             });
           } catch (error) {
-            addInitStep({ 
-              id: 'library', 
-              message: 'Library loaded', 
-              status: 'done', 
-              detail: 'Data needs repair' 
-            });
+            addInitStep({ id: 'library', message: 'Library data needs repair', status: 'error' });
           }
         } else {
-          addInitStep({ 
-            id: 'library', 
-            message: 'No library data found', 
-            status: 'done', 
-            detail: 'Welcome! Start by adding novels.' 
-          });
+          addInitStep({ id: 'library', message: 'No library data found', status: 'done', detail: 'Welcome! Add novels to get started.' });
         }
         
         // Step 6: Complete
         addInitStep({ 
           id: 'complete', 
-          message: migrated || recovered 
-            ? '✅ Data restored successfully!' 
-            : '✅ Ready to use!', 
+          message: migrated || recovered ? '✅ Data restored successfully!' : '✅ Ready!', 
           status: 'done',
-          detail: migrated 
-            ? 'Migrated from previous version' 
-            : recovered 
-              ? 'Recovered from backup' 
-              : undefined
+          detail: migrated ? 'Migrated from previous version' : recovered ? 'Recovered from backup' : undefined
         });
-        
         setInitComplete(true);
-        
-        // Brief delay to show completion
         await new Promise(resolve => setTimeout(resolve, 500));
         
       } catch (error: any) {
-        addInitStep({ 
-          id: 'error', 
-          message: 'Initialization failed', 
-          status: 'error', 
-          detail: error.message 
-        });
+        addInitStep({ id: 'error', message: 'Initialization failed', status: 'error', detail: error.message });
       } finally {
         setLoading(false);
       }
@@ -580,181 +530,140 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     initializeStorage();
   }, [addInitStep]);
 
+  // ── Library data management ──────────────────────────────────────────────
   const saveLibraryToFile = async (novelsData: Novel[]) => {
     const metadataOnly = novelsData.map(novel => ({
       ...novel,
-      chapters: novel.chapters.map(ch => ({
-        title: ch.title,
-        url: ch.url
-      }))
+      chapters: novel.chapters.map(ch => ({ title: ch.title, url: ch.url }))
     }));
     await saveToFile(getLibraryFilePath(), metadataOnly);
   };
 
-  const addNovel = useCallback(
-    async (novel: Novel) => {
-      setNovels((currentNovels) => {
-        const existingIndex = currentNovels.findIndex((n) => n.id === novel.id);
-        
-        if (existingIndex !== -1) {
-          const existing = currentNovels[existingIndex];
-          const existingUrls = new Set(existing.chapters.map((ch) => ch.url));
-          const newChapters = novel.chapters.filter((ch) => !existingUrls.has(ch.url));
-          
-          const mergedNovel: Novel = {
-            ...existing,
-            title: novel.title,
-            author: novel.author,
-            synopsis: novel.synopsis || existing.synopsis,
-            coverUrl: novel.coverUrl || existing.coverUrl,
-            chapters: [...existing.chapters, ...newChapters],
-          };
-          
-          const updated = [...currentNovels];
-          updated[existingIndex] = mergedNovel;
-          
-          saveAllChaptersToFile(novel.id, newChapters);
-          saveLibraryToFile(updated);
-          
-          return updated;
-        } else {
-          const updated = [novel, ...currentNovels];
-          
-          saveAllChaptersToFile(novel.id, novel.chapters);
-          saveLibraryToFile(updated);
-          
-          return updated;
-        }
-      });
-    },
-    []
-  );
-
-  const updateNovel = useCallback(
-    async (id: string, updates: Partial<Novel>) => {
-      setNovels((currentNovels) => {
-        const updated = currentNovels.map((n) =>
-          n.id === id ? { ...n, ...updates } : n
-        );
+  const addNovel = useCallback(async (novel: Novel) => {
+    setNovels(current => {
+      const existingIndex = current.findIndex(n => n.id === novel.id);
+      if (existingIndex >= 0) {
+        const existing = current[existingIndex];
+        const existingUrls = new Set(existing.chapters.map(ch => ch.url));
+        const newChapters = novel.chapters.filter(ch => !existingUrls.has(ch.url));
+        const merged = { ...existing, ...novel, chapters: [...existing.chapters, ...newChapters] };
+        const updated = [...current];
+        updated[existingIndex] = merged;
+        saveAllChaptersToFile(novel.id, newChapters);
         saveLibraryToFile(updated);
         return updated;
-      });
-    },
-    []
-  );
-
-  const removeNovel = useCallback(
-    async (id: string) => {
-      setNovels((currentNovels) => {
-        const updated = currentNovels.filter((n) => n.id !== id);
+      } else {
+        const updated = [novel, ...current];
+        saveAllChaptersToFile(novel.id, novel.chapters);
         saveLibraryToFile(updated);
-        deleteNovelChapters(id);
         return updated;
-      });
-    },
-    []
-  );
+      }
+    });
+  }, []);
 
-  const removeNovels = useCallback(
-    async (ids: string[]) => {
-      setNovels((currentNovels) => {
-        const updated = currentNovels.filter((n) => !ids.includes(n.id));
-        saveLibraryToFile(updated);
-        ids.forEach(id => deleteNovelChapters(id));
-        return updated;
-      });
-    },
-    []
-  );
+  const updateNovel = useCallback(async (id: string, updates: Partial<Novel>) => {
+    setNovels(current => {
+      const updated = current.map(n => n.id === id ? { ...n, ...updates } : n);
+      saveLibraryToFile(updated);
+      return updated;
+    });
+  }, []);
 
-  const getNovel = useCallback(
-    (id: string) => novels.find((n) => n.id === id),
-    [novels]
-  );
+  const removeNovel = useCallback(async (id: string) => {
+    setNovels(current => {
+      const updated = current.filter(n => n.id !== id);
+      saveLibraryToFile(updated);
+      deleteNovelChapters(id);
+      return updated;
+    });
+  }, []);
 
-  const saveReadingProgress = useCallback(
-    async (
-      novelId: string, 
-      chapterIndex: number, 
-      chapterTitle: string, 
-      scrollOffset: number
-    ) => {
-      await updateNovel(novelId, {
-        lastRead: { 
-          chapterIndex, 
-          chapterTitle, 
-          scrollOffset 
-        },
-        status: "reading",
-      });
-    },
-    [updateNovel]
-  );
+  const removeNovels = useCallback(async (ids: string[]) => {
+    setNovels(current => {
+      const updated = current.filter(n => !ids.includes(n.id));
+      saveLibraryToFile(updated);
+      ids.forEach(id => deleteNovelChapters(id));
+      return updated;
+    });
+  }, []);
 
-  const setNovelStatus = useCallback(
-    async (novelId: string, status: NovelStatus) => {
-      await updateNovel(novelId, { status });
-    },
-    [updateNovel]
-  );
+  const getNovel = useCallback((id: string) => novels.find(n => n.id === id), [novels]);
+
+  const saveReadingProgress = useCallback(async (
+    novelId: string, 
+    chapterIndex: number, 
+    chapterTitle: string, 
+    scrollOffset: number
+  ) => {
+    await updateNovel(novelId, {
+      lastRead: { chapterIndex, chapterTitle, scrollOffset },
+      status: "reading",
+    });
+  }, [updateNovel]);
+
+  const setNovelStatus = useCallback(async (novelId: string, status: NovelStatus) => {
+    await updateNovel(novelId, { status });
+  }, [updateNovel]);
 
   const toggleSortOrder = useCallback(() => {
-    setSortOrder((prev) => {
+    setSortOrder(prev => {
       const next = prev === "ascending" ? "descending" : "ascending";
       saveToFile(getSortPreferenceFilePath(), next);
       return next;
     });
   }, []);
 
+  // ── FIX #4: Robust chapter sorting ────────────────────────────────────────
   const getSortedChapters = useCallback(
     (chapters: Chapter[]): Chapter[] => {
+      if (!chapters || chapters.length === 0) return [];
+      
       const sorted = [...chapters].sort((a, b) => {
         const numA = extractChapterNumber(a);
         const numB = extractChapterNumber(b);
-        return numA - numB;
+        if (numA > 0 && numB > 0) return numA - numB;
+        if (numA > 0) return -1;
+        if (numB > 0) return 1;
+        return (a.title || '').localeCompare(b.title || '');
       });
       
-      if (sortOrder === "descending") {
-        return sorted.reverse();
-      }
-      return sorted;
+      return sortOrder === "descending" ? sorted.reverse() : sorted;
     },
     [sortOrder]
   );
 
-  const saveChapterContent = useCallback(
-    async (novelId: string, chapterIndex: number, title: string, url: string, content: string) => {
-      await saveChapterToFile(novelId, chapterIndex, { title, url, content });
+  const saveChapterContent = useCallback(async (
+    novelId: string, 
+    chapterIndex: number, 
+    title: string, 
+    url: string, 
+    content: string
+  ) => {
+    await saveChapterToFile(novelId, chapterIndex, { title, url, content });
+    
+    setNovels(current => {
+      const novelIndex = current.findIndex(n => n.id === novelId);
+      if (novelIndex === -1) return current;
       
-      setNovels((currentNovels) => {
-        const novelIndex = currentNovels.findIndex(n => n.id === novelId);
-        if (novelIndex === -1) return currentNovels;
-        
-        const updated = [...currentNovels];
-        const novel = { ...updated[novelIndex] };
-        
-        if (chapterIndex >= novel.chapters.length) {
-          novel.chapters = [...novel.chapters, { title, url }];
-        } else {
-          const chapters = [...novel.chapters];
-          chapters[chapterIndex] = { ...chapters[chapterIndex], title, url };
-          novel.chapters = chapters;
-        }
-        
-        updated[novelIndex] = novel;
-        saveLibraryToFile(updated);
-        return updated;
-      });
-    },
-    []
-  );
+      const novel = { ...current[novelIndex] };
+      if (chapterIndex >= novel.chapters.length) {
+        novel.chapters = [...novel.chapters, { title, url }];
+      } else {
+        const chapters = [...novel.chapters];
+        chapters[chapterIndex] = { ...chapters[chapterIndex], title, url };
+        novel.chapters = chapters;
+      }
+      
+      const updated = [...current];
+      updated[novelIndex] = novel;
+      saveLibraryToFile(updated);
+      return updated;
+    });
+  }, []);
 
-  const loadChapterContent = useCallback(
-    async (novelId: string, chapterIndex: number): Promise<Chapter | null> => {
-      return await loadChapterFromFile(novelId, chapterIndex);
-    },
-    []
-  );
+  const loadChapterContent = useCallback(async (novelId: string, chapterIndex: number) => {
+    return await loadChapterFromFile(novelId, chapterIndex);
+  }, []);
 
   return (
     <LibraryContext.Provider
@@ -778,10 +687,16 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
       }}
     >
       {children}
-    </LibraryContext.Provider>
+    </LibraryContextLibraryContext.Provider.Provider>
+ >
   );
+ );
 }
 
-export function useLibrary() {
-  return useContext(LibraryContext);
+export function}
+
+export function useLibrary useLibrary() {
+  return() {
+  return useContext(L useContext(LibraryContext);
+ibraryContext);
 }
