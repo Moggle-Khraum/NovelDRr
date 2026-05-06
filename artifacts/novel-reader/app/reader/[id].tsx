@@ -12,6 +12,7 @@ import {
   StyleSheet,
   Text,
   View,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -39,20 +40,86 @@ const loadReaderSettings = async () => {
 
 const saveReaderSettings = async (settings: { fontSizeIdx?: number; lineSpacingIdx?: number }) => {
   try {
-    // Ensure directory exists
     const dir = `${FileSystem.documentDirectory}NovelDR/`;
     const dirInfo = await FileSystem.getInfoAsync(dir);
     if (!dirInfo.exists) {
       await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
     }
     
-    // Load existing settings and merge
     const current = await loadReaderSettings();
     const updated = { ...current, ...settings };
     await FileSystem.writeAsStringAsync(READER_SETTINGS_FILE, JSON.stringify(updated));
   } catch (error) {
     console.error('Failed to save reader settings:', error);
   }
+};
+
+// ── FIX #2: Load content with AsyncStorage fallback ─────────────────────────
+const loadChapterContentWithFallback = async (
+  novelId: string,
+  chapterIndex: number,
+  chapter: { title: string; url: string; content?: string },
+  loadFromFileSystem: (novelId: string, chapterIndex: number) => Promise<any>
+): Promise<string> => {
+  // Try file system first
+  try {
+    const fileChapter = await loadFromFileSystem(novelId, chapterIndex);
+    if (fileChapter && fileChapter.content) {
+      console.log(`[Reader] Loaded chapter from file system: ${fileChapter.title}`);
+      return fileChapter.content;
+    }
+  } catch (error) {
+    console.log('[Reader] File system load failed, trying fallbacks...');
+  }
+  
+  // Fallback 1: Check if content is in memory (from AsyncStorage migration or direct download)
+  if (chapter.content && chapter.content.trim().length > 0) {
+    console.log('[Reader] Using in-memory content fallback');
+    return chapter.content;
+  }
+  
+  // Fallback 2: Try AsyncStorage directly (for legacy data that wasn't migrated)
+  try {
+    const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+    const libraryData = await AsyncStorage.getItem('novel_library_v1');
+    if (libraryData) {
+      const novels = JSON.parse(libraryData);
+      const novel = novels.find((n: any) => n.id === novelId);
+      if (novel && novel.chapters && novel.chapters[chapterIndex]) {
+        const legacyChapter = novel.chapters[chapterIndex];
+        if (legacyChapter.content && legacyChapter.content.trim().length > 0) {
+          console.log('[Reader] Loaded from legacy AsyncStorage!');
+          return legacyChapter.content;
+        }
+      }
+    }
+  } catch (asyncError) {
+    console.log('[Reader] AsyncStorage fallback failed:', asyncError);
+  }
+  
+  // Fallback 3: Try alternative file locations
+  try {
+    const altPaths = [
+      `${FileSystem.documentDirectory}noveldr/chapters/${novelId}/chapter_${chapterIndex}.json`,
+      `${FileSystem.cacheDirectory}../NovelDR/chapters/${novelId}/chapter_${chapterIndex}.json`,
+    ];
+    
+    for (const altPath of altPaths) {
+      const fileInfo = await FileSystem.getInfoAsync(altPath);
+      if (fileInfo.exists) {
+        const content = await FileSystem.readAsStringAsync(altPath);
+        const chapterData = JSON.parse(content);
+        if (chapterData.content) {
+          console.log(`[Reader] Found content in alternative location: ${altPath}`);
+          return chapterData.content;
+        }
+      }
+    }
+  } catch (altError) {
+    console.log('[Reader] Alternative path fallback failed');
+  }
+  
+  return "Content not available for this chapter. It may still be downloading or wasn't saved properly. Try re-downloading the novel from the Updates tab.";
 };
 
 export default function ReaderScreen() {
@@ -84,17 +151,20 @@ export default function ReaderScreen() {
   const hasRestoredScrollRef = useRef(false);
   const restoredChapterRef = useRef<number>(-1);
   const forceTopRef = useRef(false);
+  const isTransitioningRef = useRef(false);
 
   // Chapter content state
   const [chapterContent, setChapterContent] = useState<string>("");
   const [contentLoading, setContentLoading] = useState(false);
+  const [previousContent, setPreviousContent] = useState<string>("");
 
   const novel = getNovel(id);
   
-  // Get sorted chapters for TOC display only
+  // ── FIX #4: Sort chapters properly for TOC ─────────────────────────────────
+  // Use getSortedChapters for TOC display
   const sortedChapters = novel ? getSortedChapters(novel.chapters) : [];
   
-  // Use original chapters for reading (chapterIndex refers to original array)
+  // Use original chapters array for reading (chapterIndex refers to original array)
   const chapter = novel?.chapters[chapterIndex];
   
   // Find current chapter's position in sorted list (for TOC highlighting)
@@ -126,32 +196,41 @@ export default function ReaderScreen() {
     loadSettings();
   }, []);
 
+  // ── FIX #1: Prevent flashing when changing chapters ───────────────────────
   // Load chapter content when chapter changes
   useEffect(() => {
     const loadContent = async () => {
       if (novel && chapter) {
+        isTransitioningRef.current = true;
         setContentLoading(true);
+        
+        // Keep showing previous content while loading new one
+        // This prevents the flash of "Loading..." text
+        
         try {
-          // Try to load from file system first
-          const fileChapter = await loadChapterContent(novel.id, chapterIndex);
-          if (fileChapter && fileChapter.content) {
-            setChapterContent(fileChapter.content);
-          } else if (chapter.content) {
-            // Fallback to in-memory content (for backward compatibility)
-            setChapterContent(chapter.content);
-          } else {
-            setChapterContent("Content not available for this chapter. It may still be downloading or wasn't saved properly.");
-          }
+          const content = await loadChapterContentWithFallback(
+            novel.id,
+            chapterIndex,
+            chapter,
+            loadChapterContent
+          );
+          
+          // Small delay to ensure smooth transition
+          await new Promise(resolve => setTimeout(resolve, 50));
+          
+          setPreviousContent(chapterContent);
+          setChapterContent(content);
         } catch (error) {
           console.error('Error loading chapter content:', error);
           setChapterContent("Error loading chapter content. Please try again.");
         } finally {
           setContentLoading(false);
+          isTransitioningRef.current = false;
         }
       }
     };
     loadContent();
-  }, [chapterIndex, novel?.id, chapter, novel, loadChapterContent]);
+  }, [chapterIndex, novel?.id]);
 
   const handleFontSizeChange = async (newIdx: number) => {
     setFontSizeIdx(newIdx);
@@ -175,15 +254,16 @@ export default function ReaderScreen() {
         );
       }
     };
-  }, [chapterIndex, novel?.id, novel, chapter, saveReadingProgress]);
+  }, [chapterIndex, novel?.id]);
 
   // Restore scroll position when chapter changes
   useEffect(() => {
     if (!settingsLoaded) return;
-    if (contentLoading) return; // Wait for content to load
+    if (contentLoading) return;
 
     if (forceTopRef.current) {
       forceTopRef.current = false;
+      scrollRef.current?.scrollTo({ y: 0, animated: false });
       return;
     }
 
@@ -197,21 +277,19 @@ export default function ReaderScreen() {
       : 0;
 
     if (!hasRestoredScrollRef.current) {
-      if (savedOffset > 0) {
-        const timer = setTimeout(() => {
+      const timer = setTimeout(() => {
+        if (savedOffset > 0) {
           scrollRef.current?.scrollTo({
             y: savedOffset,
             animated: false,
           });
-          hasRestoredScrollRef.current = true;
-          restoredChapterRef.current = chapterIndex;
-        }, 200);
-        return () => clearTimeout(timer);
-      } else {
-        scrollRef.current?.scrollTo({ y: 0, animated: false });
+        } else {
+          scrollRef.current?.scrollTo({ y: 0, animated: false });
+        }
         hasRestoredScrollRef.current = true;
         restoredChapterRef.current = chapterIndex;
-      }
+      }, 100);
+      return () => clearTimeout(timer);
     }
   }, [chapterIndex, novel?.lastRead, settingsLoaded, contentLoading]);
 
@@ -279,11 +357,12 @@ export default function ReaderScreen() {
     updateReadingProgress();
   };
 
+  // ── FIX #4: Proper chapter selection in TOC ────────────────────────────────
   const handleChapterSelect = (sortedIndex: number) => {
-    // Find the chapter in sorted list, then get its original index
     const selectedChapter = sortedChapters[sortedIndex];
     if (!selectedChapter) return;
     
+    // Find the EXACT original index by matching URL
     const originalIndex = novel?.chapters.findIndex(c => c.url === selectedChapter.url) ?? 0;
     
     if (novel && chapter) {
@@ -298,7 +377,6 @@ export default function ReaderScreen() {
     scrollYRef.current = 0;
     hasRestoredScrollRef.current = false;
     forceTopRef.current = true;
-    scrollRef.current?.scrollTo({ y: 0, animated: false });
     
     setChapterIndex(originalIndex);
     setShowTOC(false);
@@ -308,7 +386,8 @@ export default function ReaderScreen() {
   if (!novel || !chapter || !settingsLoaded) {
     return (
       <View style={[styles.center, { backgroundColor: colors.background }]}>
-        <Text style={{ color: colors.text }}>Loading...</Text>
+        <ActivityIndicator size="large" color={colors.accent} />
+        <Text style={{ color: colors.textSecondary, marginTop: 12 }}>Loading reader...</Text>
       </View>
     );
   }
@@ -317,6 +396,7 @@ export default function ReaderScreen() {
   const lineSpacing = LINE_SPACINGS[lineSpacingIdx];
   const currentSpeed = AUTO_SCROLL_SPEEDS[autoScrollSpeedIdx];
 
+  // ── FIX #1: Smooth chapter transitions ─────────────────────────────────────
   const goChapter = (dir: 1 | -1) => {
     const next = chapterIndex + dir;
     if (next < 0 || next >= (novel?.chapters.length ?? 0)) {
@@ -336,7 +416,6 @@ export default function ReaderScreen() {
     scrollYRef.current = 0;
     hasRestoredScrollRef.current = false;
     forceTopRef.current = true;
-    scrollRef.current?.scrollTo({ y: 0, animated: false });
     
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setChapterIndex(next);
@@ -409,6 +488,7 @@ export default function ReaderScreen() {
         </View>
       )}
 
+      {/* ── FIX #1: Show previous content while loading to prevent flash ── */}
       <ScrollView
         ref={scrollRef}
         style={styles.scrollArea}
@@ -421,13 +501,16 @@ export default function ReaderScreen() {
       >
         <Text style={[styles.chapterHeader, { color: colors.accent }]}>{chapter.title}</Text>
         
-        {contentLoading ? (
+        {contentLoading && !chapterContent ? (
           <View style={styles.loadingContainer}>
-            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading chapter content...</Text>
+            <ActivityIndicator size="small" color={colors.accent} />
+            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
+              Loading chapter...
+            </Text>
           </View>
         ) : (
           <Text style={[styles.content, { color: colors.text, fontSize, lineHeight: fontSize * lineSpacing }]}>
-            {chapterContent}
+            {chapterContent || previousContent || "Loading..."}
           </Text>
         )}
       </ScrollView>
@@ -478,7 +561,7 @@ export default function ReaderScreen() {
         </Pressable>
       </View>
 
-      {/* Table of Contents Modal */}
+      {/* ── FIX #4: Table of Contents with correct sorting ── */}
       <Modal
         visible={showTOC}
         animationType="slide"
@@ -509,34 +592,40 @@ export default function ReaderScreen() {
               </View>
             </View>
             <ScrollView style={styles.modalScrollView}>
-              {sortedChapters.map((ch, idx) => (
-                <Pressable
-                  key={idx}
-                  style={[
-                    styles.tocItem,
-                    idx === currentSortedIndex && [styles.tocItemActive, { backgroundColor: colors.accent + '20' }]
-                  ]}
-                  onPress={() => handleChapterSelect(idx)}
-                >
-                  <View style={styles.tocItemContent}>
-                    <Text style={[
-                      styles.tocChapterNum,
-                      { color: idx === currentSortedIndex ? colors.accent : colors.textSecondary }
-                    ]}>
-                      Chapter {idx + 1}
-                    </Text>
-                    <Text style={[
-                      styles.tocChapterTitle,
-                      { color: idx === currentSortedIndex ? colors.accent : colors.text }
-                    ]}>
-                      {ch.title}
-                    </Text>
-                  </View>
-                  {idx === currentSortedIndex && (
-                    <Ionicons name="checkmark-circle" size={20} color={colors.accent} />
-                  )}
-                </Pressable>
-              ))}
+              {sortedChapters.map((ch, idx) => {
+                // Find the ORIGINAL index for this chapter
+                const originalIndex = novel.chapters.findIndex(c => c.url === ch.url);
+                const isCurrent = chapterIndex === originalIndex;
+                
+                return (
+                  <Pressable
+                    key={ch.url || idx}
+                    style={[
+                      styles.tocItem,
+                      isCurrent && [styles.tocItemActive, { backgroundColor: colors.accent + '20' }]
+                    ]}
+                    onPress={() => handleChapterSelect(idx)}
+                  >
+                    <View style={styles.tocItemContent}>
+                      <Text style={[
+                        styles.tocChapterNum,
+                        { color: isCurrent ? colors.accent : colors.textSecondary }
+                      ]}>
+                        Chapter {originalIndex + 1}
+                      </Text>
+                      <Text style={[
+                        styles.tocChapterTitle,
+                        { color: isCurrent ? colors.accent : colors.text }
+                      ]}>
+                        {ch.title}
+                      </Text>
+                    </View>
+                    {isCurrent && (
+                      <Ionicons name="checkmark-circle" size={20} color={colors.accent} />
+                    )}
+                  </Pressable>
+                );
+              })}
             </ScrollView>
           </View>
         </View>
@@ -586,7 +675,8 @@ const styles = StyleSheet.create({
   },
   loadingText: { 
     fontFamily: "Inter_400Regular", 
-    fontSize: 14 
+    fontSize: 14,
+    marginTop: 8,
   },
   bottomNav: { 
     flexDirection: "row", 
