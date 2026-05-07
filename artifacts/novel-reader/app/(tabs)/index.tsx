@@ -618,7 +618,7 @@ export default function LibraryScreen() {
             styles.fab,
             {
               backgroundColor: colors.card,
-              borderColor: colors.border,
+              borderColor: colors.accent,
               bottom: bottomPad + 90,
             },
           ]}
