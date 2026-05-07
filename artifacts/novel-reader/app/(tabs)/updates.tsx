@@ -291,58 +291,62 @@ export default function UpdatesScreen() {
 
       // ========== SKIP CHAPTERS BEFORE START CHAPTER ==========
       if (startCh > 1) {
-        addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-        addLog(`Skipping to chapter ${startCh}...`, "downloading");
-        
-        let tempUrl: string | null = meta.firstChapterUrl;
-        let tempNum = 1;
-        let skippedCount = 0;
-        
-        while (tempUrl && tempNum < startCh && !stopRef.current) {
-          try {
-            const { nextUrl } = await getChapterMetadata(tempUrl, tempNum);
-            tempUrl = nextUrl;
-            tempNum++;
-            skippedCount++;
-            
-            // Log every 30 chapters
-            if (skippedCount % 30 === 0) {
-              addLog(`[SKIPPED] ${skippedCount} chapters`, "warning");
-            }
-          } catch (err) {
-            addLog(`Failed to skip chapter ${tempNum}`, "error");
-            break;
-          }
-          await new Promise((r) => setTimeout(r, 50));
-        }
-        
-        if (skippedCount % 30 !== 0 && skippedCount > 0) {
-          addLog(`[SKIPPED] ${skippedCount} chapters total`, "warning");
-        }
-        
-        if (tempUrl) {
-          addLog(`Ready to start from chapter ${startCh}`, "success");
           addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
-        } else {
-          addLog(`Could not reach chapter ${startCh}. Update aborted.`, "error");
-          stopTimer();
-          setIsUpdating(false);
-          return;
+          addLog(`⏭️ Skipping to chapter ${startCh}...`, "downloading");
+          
+          let tempUrl: string | null = meta.firstChapterUrl;
+          let tempNum = 1;
+          let skippedCount = 0;
+          let lastLoggedPercent = 0;
+          const totalToSkip = startCh - 1;
+          
+          while (tempUrl && tempNum < startCh && !stopRef.current) {
+            try {
+              const { nextUrl } = await getChapterMetadata(tempUrl, tempNum);
+              tempUrl = nextUrl;
+              tempNum++;
+              skippedCount++;
+              
+              // Log at 25%, 50%, 75%
+              const percent = Math.floor((skippedCount / totalToSkip) * 100);
+              if (percent >= lastLoggedPercent + 25 && percent < 100) {
+                addLog(`⏭️ Skipping... ${percent}% complete (${skippedCount}/${totalToSkip} chapters)`, "warning");
+                lastLoggedPercent = percent;
+              }
+            } catch (err) {
+              addLog(`Failed to skip chapter ${tempNum}`, "error");
+              break;
+            }
+            await new Promise((r) => setTimeout(r, 50));
+          }
+          
+          // Final summary log
+          if (skippedCount > 0) {
+            addLog(`✅ Skipped ${skippedCount} chapters, ready at chapter ${startCh}`, "success");
+          }
+          
+          if (tempUrl) {
+            addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
+          } else {
+            addLog(`Could not reach chapter ${startCh}. Update aborted.`, "error");
+            stopTimer();
+            setIsUpdating(false);
+            return;
+          }
         }
-      }
-
-      // ========== FIND STARTING POINT ==========
-      let currentUrl: string | null = meta.firstChapterUrl;
-      let chapterNum = 1;
-
-      // Navigate to start chapter
-      while (currentUrl && chapterNum < startCh && !stopRef.current) {
-        const { nextUrl } = await getChapterMetadata(currentUrl, chapterNum);
-        if (!nextUrl) break;
-        currentUrl = nextUrl;
-        chapterNum++;
-      }
-
+      
+        // ========== FIND STARTING POINT ==========
+        let currentUrl: string | null = meta.firstChapterUrl;
+        let chapterNum = 1;
+      
+        // Navigate to start chapter
+        while (currentUrl && chapterNum < startCh && !stopRef.current) {
+          const { nextUrl } = await getChapterMetadata(currentUrl, chapterNum);
+          if (!nextUrl) break;
+          currentUrl = nextUrl;
+          chapterNum++;
+        }
+      
       if (!currentUrl) {
         addLog(`Could not find chapter ${startCh}`, "error");
         stopTimer();
