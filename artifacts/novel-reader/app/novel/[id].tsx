@@ -38,33 +38,95 @@ const EXPORT_OPTIONS: { format: ExportFormat; label: string; icon: string; color
 
 // ── Export Functions ────────────────────────────────────────────────────────
 
-async function loadFullNovelContent(novelId: string, chapters: { title: string; url: string }[]): Promise<{ title: string; content: string }[]> {
+async function loadFullNovelContent(novelId: string, chapters: { title: string; url: string; content?: string }[]): Promise<{ title: string; content: string }[]> {
   const chaptersDir = `${FileSystem.documentDirectory}NovelDR/chapters/${novelId}/`;
   const result: { title: string; content: string }[] = [];
 
+  // Pre-load AsyncStorage data once for legacy novels
+  let legacyNovel: any = null;
+  try {
+    const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+    const libraryData = await AsyncStorage.getItem('novel_library_v1');
+    if (libraryData) {
+      const novels = JSON.parse(libraryData);
+      legacyNovel = novels.find((n: any) => n.id === novelId);
+    }
+  } catch (e) {
+    // AsyncStorage not available
+  }
+
+  // Alternative chapter file locations for recovery
+  const altChapterDirs = [
+    `${FileSystem.documentDirectory}noveldr/chapters/${novelId}/`,
+    `${FileSystem.cacheDirectory}../NovelDR/chapters/${novelId}/`,
+  ];
+
   for (let i = 0; i < chapters.length; i++) {
-    const chapterPath = `${chaptersDir}chapter_${i}.json`;
+    let title = chapters[i]?.title || `Chapter ${i + 1}`;
+    let content: string | null = null;
+
+    // Source 1: Primary file system (new storage)
     try {
+      const chapterPath = `${chaptersDir}chapter_${i}.json`;
       const fileInfo = await FileSystem.getInfoAsync(chapterPath);
       if (fileInfo.exists) {
         const raw = await FileSystem.readAsStringAsync(chapterPath);
         const chapterData = JSON.parse(raw);
-        result.push({
-          title: chapterData.title || chapters[i].title || `Chapter ${i + 1}`,
-          content: chapterData.content || "",
-        });
-      } else if (chapters[i].title) {
-        result.push({
-          title: chapters[i].title,
-          content: `[Content not available for this chapter. Please re-download.]`,
-        });
+        if (chapterData.content && chapterData.content.trim().length > 0) {
+          content = chapterData.content;
+          if (chapterData.title) title = chapterData.title;
+        }
       }
-    } catch {
-      result.push({
-        title: chapters[i]?.title || `Chapter ${i + 1}`,
-        content: `[Error loading chapter content.]`,
-      });
+    } catch (e) {
+      // Continue to next source
     }
+
+    // Source 2: Legacy AsyncStorage (by index)
+    if (!content && legacyNovel?.chapters?.[i]?.content?.trim()) {
+      content = legacyNovel.chapters[i].content;
+      if (legacyNovel.chapters[i].title) title = legacyNovel.chapters[i].title;
+    }
+
+    // Source 3: In-memory content (from chapters array)
+    if (!content && chapters[i]?.content?.trim()) {
+      content = chapters[i].content!;
+    }
+
+    // Source 4: Alternative file locations
+    if (!content) {
+      for (const altDir of altChapterDirs) {
+        try {
+          const altPath = `${altDir}chapter_${i}.json`;
+          const fileInfo = await FileSystem.getInfoAsync(altPath);
+          if (fileInfo.exists) {
+            const raw = await FileSystem.readAsStringAsync(altPath);
+            const chapterData = JSON.parse(raw);
+            if (chapterData.content && chapterData.content.trim().length > 0) {
+              content = chapterData.content;
+              if (chapterData.title) title = chapterData.title;
+              break;
+            }
+          }
+        } catch (e) {
+          // Continue to next alt path
+        }
+      }
+    }
+
+    // Source 5: Legacy AsyncStorage (by URL match)
+    if (!content && legacyNovel?.chapters && chapters[i]?.url) {
+      const targetUrl = chapters[i].url;
+      const matchedChapter = legacyNovel.chapters.find((ch: any) => ch.url === targetUrl);
+      if (matchedChapter?.content?.trim()) {
+        content = matchedChapter.content;
+        if (matchedChapter.title) title = matchedChapter.title;
+      }
+    }
+
+    result.push({
+      title,
+      content: content || `[Content not available for this chapter. Open it in the reader first to migrate the data.]`,
+    });
   }
 
   return result;
@@ -88,15 +150,22 @@ function generateEPUB(novelTitle: string, author: string, chapters: { title: str
   let epub = `<?xml version="1.0" encoding="UTF-8"?>\n`;
   epub += `<!DOCTYPE html>\n`;
   epub += `<html xmlns="http://www.w3.org/1999/xhtml">\n`;
-  epub += `<head><title>${escapeXML(novelTitle)}</title></head>\n`;
+  epub += `<head><title>${escapeXML(novelTitle)}</title>\n`;
+  epub += `<style>body { font-family: serif; line-height: 1.6; } p { margin: 0 0 0.5em 0; }</style></head>\n`;
   epub += `<body>\n`;
   epub += `<h1>${escapeXML(novelTitle)}</h1>\n`;
-  epub += `<p>by ${escapeXML(author)}</p>\n`;
+  epub += `<p><em>by ${escapeXML(author)}</em></p>\n`;
   epub += `<hr/>\n`;
 
   for (const ch of chapters) {
     epub += `<h2>${escapeXML(ch.title)}</h2>\n`;
-    epub += `<p>${escapeXML(ch.content).replace(/\n/g, '<br/>')}</p>\n`;
+    const paragraphs = ch.content.split(/\n\n+/);
+    for (const paragraph of paragraphs) {
+      if (paragraph.trim()) {
+        const formatted = paragraph.trim().replace(/\n/g, '<br/>\n');
+        epub += `<p>${escapeXMLContent(formatted)}</p>\n`;
+      }
+    }
     epub += `<hr/>\n`;
   }
 
@@ -176,7 +245,8 @@ async function generatePDF(novelTitle: string, author: string, chapters: { title
 
 function generateDOCX(novelTitle: string, author: string, chapters: { title: string; content: string }[]): string {
   let docx = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word">\n`;
-  docx += `<head><meta charset="UTF-8"/><title>${escapeXML(novelTitle)}</title></head>\n`;
+  docx += `<head><meta charset="UTF-8"/><title>${escapeXML(novelTitle)}</title>\n`;
+  docx += `<style>body { font-family: 'Times New Roman', serif; line-height: 1.5; } p { margin: 0 0 6pt 0; }</style></head>\n`;
   docx += `<body>\n`;
   docx += `<h1>${escapeXML(novelTitle)}</h1>\n`;
   docx += `<p><strong>by ${escapeXML(author)}</strong></p>\n`;
@@ -184,7 +254,13 @@ function generateDOCX(novelTitle: string, author: string, chapters: { title: str
 
   for (const ch of chapters) {
     docx += `<h2>${escapeXML(ch.title)}</h2>\n`;
-    docx += `<p>${escapeXML(ch.content).replace(/\n/g, '<br/>')}</p>\n`;
+    const paragraphs = ch.content.split(/\n\n+/);
+    for (const paragraph of paragraphs) {
+      if (paragraph.trim()) {
+        const formatted = paragraph.trim().replace(/\n/g, '<br/>\n');
+        docx += `<p>${escapeXMLContent(formatted)}</p>\n`;
+      }
+    }
     docx += `<br/>\n`;
   }
 
@@ -214,15 +290,25 @@ function generateMOBI(novelTitle: string, author: string, chapters: { title: str
 }
 
 function escapeXML(str: string): string {
+  if (!str) return '';
   return str
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
+    .replace(/'/g, '&apos;')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+}
+
+function escapeXMLContent(str: string): string {
+  const brPlaceholder = '___BR_PLACEHOLDER___';
+  const withProtected = str.replace(/<br\/>/g, brPlaceholder);
+  const escaped = escapeXML(withProtected);
+  return escaped.replace(new RegExp(brPlaceholder, 'g'), '<br/>');
 }
 
 function escapeRTF(str: string): string {
+  if (!str) return '';
   return str
     .replace(/\\/g, '\\\\')
     .replace(/{/g, '\\{')
@@ -322,7 +408,6 @@ export default function NovelDetailScreen() {
       const filePath = `${exportDir}${filename}`;
 
       if (format === "pdf") {
-        // PDF is already generated as a file URI by expo-print
         await FileSystem.copyAsync({ from: content as string, to: filePath });
       } else {
         await FileSystem.writeAsStringAsync(filePath, content as string, {
@@ -351,7 +436,6 @@ export default function NovelDetailScreen() {
     }
   };
 
-  // Memoized chapter render function
   const renderChapterItem = useCallback(({ item: ch, index: i }: { item: typeof sortedChapters[0], index: number }) => {
     const originalIndex = novel.chapters.findIndex(c => c.url === ch.url);
     const isCurrent = novel.lastRead?.chapterIndex === originalIndex;
@@ -539,93 +623,48 @@ export default function NovelDetailScreen() {
         </View>
       </ScrollView>
 
-      {/* Menu Modal */}
-      <Modal
-        visible={showMenu}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowMenu(false)}
-      >
+      <Modal visible={showMenu} transparent animationType="fade" onRequestClose={() => setShowMenu(false)}>
         <Pressable style={styles.menuOverlay} onPress={() => setShowMenu(false)}>
           <View style={[styles.menuContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Text style={[styles.menuTitle, { color: colors.text }]} numberOfLines={1}>{novel.title}</Text>
-            
-            <Pressable
-              style={[styles.menuItem, { borderColor: colors.border }]}
-              onPress={() => {
-                setShowMenu(false);
-                setShowExportModal(true);
-              }}
-            >
+            <Pressable style={[styles.menuItem, { borderColor: colors.border }]} onPress={() => { setShowMenu(false); setShowExportModal(true); }}>
               <Ionicons name="download-outline" size={20} color={colors.accent} />
               <Text style={[styles.menuItemText, { color: colors.text }]}>Export Novel</Text>
             </Pressable>
-
-            <Pressable
-              style={[styles.menuItem, { borderColor: colors.border }]}
-              onPress={() => {
-                setShowMenu(false);
-              }}
-            >
+            <Pressable style={[styles.menuItem, { borderColor: colors.border }]} onPress={() => setShowMenu(false)}>
               <Ionicons name="information-circle-outline" size={20} color={colors.textSecondary} />
               <Text style={[styles.menuItemText, { color: colors.text }]}>Novel Info</Text>
             </Pressable>
-
-            <Pressable
-              style={[styles.menuCancelBtn, { borderColor: colors.border }]}
-              onPress={() => setShowMenu(false)}
-            >
+            <Pressable style={[styles.menuCancelBtn, { borderColor: colors.border }]} onPress={() => setShowMenu(false)}>
               <Text style={[styles.menuCancelText, { color: colors.textSecondary }]}>Cancel</Text>
             </Pressable>
           </View>
         </Pressable>
       </Modal>
 
-      {/* Export Format Modal */}
-      <Modal
-        visible={showExportModal}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowExportModal(false)}
-      >
+      <Modal visible={showExportModal} transparent animationType="slide" onRequestClose={() => setShowExportModal(false)}>
         <Pressable style={styles.menuOverlay} onPress={() => setShowExportModal(false)}>
           <View style={[styles.exportContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Text style={[styles.menuTitle, { color: colors.text }]}>Export as...</Text>
-            
             {EXPORT_OPTIONS.map((option) => (
-              <Pressable
-                key={option.format}
-                style={[styles.exportItem, { borderColor: colors.border }]}
-                onPress={() => handleExport(option.format)}
-              >
+              <Pressable key={option.format} style={[styles.exportItem, { borderColor: colors.border }]} onPress={() => handleExport(option.format)}>
                 <Ionicons name={option.icon as any} size={20} color={option.color} />
                 <Text style={[styles.menuItemText, { color: colors.text }]}>{option.label}</Text>
               </Pressable>
             ))}
-
-            <Pressable
-              style={[styles.menuCancelBtn, { borderColor: colors.border }]}
-              onPress={() => setShowExportModal(false)}
-            >
+            <Pressable style={[styles.menuCancelBtn, { borderColor: colors.border }]} onPress={() => setShowExportModal(false)}>
               <Text style={[styles.menuCancelText, { color: colors.textSecondary }]}>Cancel</Text>
             </Pressable>
           </View>
         </Pressable>
       </Modal>
 
-      {/* Export Progress Modal */}
-      <Modal
-        visible={exporting}
-        transparent={true}
-        animationType="fade"
-      >
+      <Modal visible={exporting} transparent animationType="fade">
         <View style={styles.menuOverlay}>
           <View style={[styles.progressModal, { backgroundColor: colors.card }]}>
             <ActivityIndicator size="large" color={colors.accent} />
             <Text style={[styles.progressText, { color: colors.text }]}>{exportProgress}</Text>
-            <Text style={[styles.progressSubText, { color: colors.textSecondary }]}>
-              This may take a moment for large novels...
-            </Text>
+            <Text style={[styles.progressSubText, { color: colors.textSecondary }]}>This may take a moment for large novels...</Text>
           </View>
         </View>
       </Modal>
@@ -636,79 +675,23 @@ export default function NovelDetailScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  navBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 8,
-    paddingBottom: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  backBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    minWidth: 70,
-  },
+  navBar: { flexDirection: "row", alignItems: "center", paddingHorizontal: 8, paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth },
+  backBtn: { flexDirection: "row", alignItems: "center", paddingVertical: 6, paddingHorizontal: 8, minWidth: 70 },
   backLabel: { fontFamily: "Inter_500Medium", fontSize: 15 },
-  navTitle: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 15,
-    flex: 1,
-    textAlign: "center",
-  },
-  menuBtn: {
-    width: 44,
-    height: 44,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  hero: {
-    flexDirection: "row",
-    padding: 20,
-    gap: 16,
-    alignItems: "flex-start",
-  },
-  coverWrap: {
-    width: 100,
-    height: 140,
-    borderRadius: 12,
-    overflow: "hidden",
-    flexShrink: 0,
-    shadowColor: "#000",
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
-  },
+  navTitle: { fontFamily: "Inter_600SemiBold", fontSize: 15, flex: 1, textAlign: "center" },
+  menuBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  hero: { flexDirection: "row", padding: 20, gap: 16, alignItems: "flex-start" },
+  coverWrap: { width: 100, height: 140, borderRadius: 12, overflow: "hidden", flexShrink: 0, shadowColor: "#000", shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
   cover: { width: "100%", height: "100%" },
-  coverPlaceholder: {
-    width: "100%",
-    height: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  coverPlaceholder: { width: "100%", height: "100%", alignItems: "center", justifyContent: "center" },
   heroInfo: { flex: 1, gap: 6 },
   heroTitle: { fontFamily: "Inter_700Bold", fontSize: 17, lineHeight: 24 },
   heroAuthor: { fontFamily: "Inter_400Regular", fontSize: 13 },
   heroButtons: { marginTop: 10 },
-  readBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 10,
-    alignSelf: "flex-start",
-  },
+  readBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, alignSelf: "flex-start" },
   readBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: "#fff" },
   content: { paddingHorizontal: 16, gap: 12 },
-  progressCard: {
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 14,
-    gap: 8,
-  },
+  progressCard: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, padding: 14, gap: 8 },
   progressTop: { flexDirection: "row", justifyContent: "space-between" },
   progressLabel: { fontFamily: "Inter_500Medium", fontSize: 13 },
   progressCount: { fontFamily: "Inter_700Bold", fontSize: 13 },
@@ -716,128 +699,28 @@ const styles = StyleSheet.create({
   progressFill: { height: "100%", borderRadius: 2 },
   lastReadLabel: { fontFamily: "Inter_400Regular", fontSize: 12 },
   sectionTitle: { fontFamily: "Inter_700Bold", fontSize: 17 },
-  synopsisCard: {
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 14,
-    gap: 8,
-  },
+  synopsisCard: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, padding: 14, gap: 8 },
   synopsisText: { fontFamily: "Inter_400Regular", fontSize: 14, lineHeight: 22 },
   seeMoreRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   seeMore: { fontFamily: "Inter_500Medium", fontSize: 13 },
-  chapterHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  sortBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  sortBtnText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 12,
-  },
-  chapterListContainer: {
-    minHeight: 200,
-  },
-  chapterRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 14,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    marginBottom: 6,
-  },
+  chapterHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  sortBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1 },
+  sortBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 12 },
+  chapterListContainer: { minHeight: 200 },
+  chapterRow: { flexDirection: "row", alignItems: "center", padding: 14, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, marginBottom: 6 },
   chapterTitle: { fontFamily: "Inter_500Medium", fontSize: 14, flex: 1 },
-  emptyChapters: {
-    padding: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    textAlign: 'center',
-  },
-  menuOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  menuContainer: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 20,
-    gap: 4,
-  },
-  menuTitle: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 17,
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  menuItemText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 15,
-  },
-  menuCancelBtn: {
-    marginTop: 12,
-    paddingVertical: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    alignItems: 'center',
-  },
-  menuCancelText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 15,
-  },
-  exportContainer: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 20,
-    gap: 4,
-    maxHeight: '70%',
-  },
-  exportItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  progressModal: {
-    marginHorizontal: 40,
-    borderRadius: 16,
-    padding: 30,
-    alignItems: 'center',
-    gap: 12,
-    alignSelf: 'center',
-    marginTop: 'auto',
-    marginBottom: 'auto',
-  },
-  progressText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 16,
-    textAlign: 'center',
-  },
-  progressSubText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    textAlign: 'center',
-  },
+  emptyChapters: { padding: 20, alignItems: 'center', justifyContent: 'center' },
+  emptyText: { fontFamily: "Inter_400Regular", fontSize: 14, textAlign: 'center' },
+  menuOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  menuContainer: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: StyleSheet.hairlineWidth, padding: 20, gap: 4 },
+  menuTitle: { fontFamily: "Inter_700Bold", fontSize: 17, marginBottom: 12, textAlign: 'center' },
+  menuItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth },
+  menuItemText: { fontFamily: "Inter_500Medium", fontSize: 15 },
+  menuCancelBtn: { marginTop: 12, paddingVertical: 14, borderRadius: 12, borderWidth: 1, alignItems: 'center' },
+  menuCancelText: { fontFamily: "Inter_600SemiBold", fontSize: 15 },
+  exportContainer: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: StyleSheet.hairlineWidth, padding: 20, gap: 4, maxHeight: '70%' },
+  exportItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth },
+  progressModal: { marginHorizontal: 40, borderRadius: 16, padding: 30, alignItems: 'center', gap: 12, alignSelf: 'center', marginTop: 'auto', marginBottom: 'auto' },
+  progressText: { fontFamily: "Inter_600SemiBold", fontSize: 16, textAlign: 'center' },
+  progressSubText: { fontFamily: "Inter_400Regular", fontSize: 13, textAlign: 'center' },
 });
