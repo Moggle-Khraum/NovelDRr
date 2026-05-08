@@ -267,15 +267,13 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
       const titleMatch = safeMatch(html, /<h1[^>]*class="novel-title"[^>]*>([^<]+)<\/h1>/i);
       if (titleMatch) title = decodeEntities(titleMatch);
 
-        // Fix: Extract author from the anchor tag inside novel-author paragraph
       const authorMatch = safeMatch(html, /<p[^>]*class="novel-author"[^>]*>[\s\S]*?<a[^>]*class="author-link"[^>]*>([^<]+)<\/a>/i);
       if (authorMatch) {
         author = decodeEntities(authorMatch.trim());
       } else {
-       // Fallback: try to get text content and strip tags
-      const authorFallback = safeMatch(html, /<p[^>]*class="novel-author"[^>]*>([\s\S]*?)<\/p>/i);
-      if (authorFallback) {
-        author = decodeEntities(stripTags(authorFallback).replace(/^Author:\s*/i, '').trim());
+        const authorFallback = safeMatch(html, /<p[^>]*class="novel-author"[^>]*>([\s\S]*?)<\/p>/i);
+        if (authorFallback) {
+          author = decodeEntities(stripTags(authorFallback).replace(/^Author:\s*/i, '').trim());
         }
       }
       const coverMatch = safeMatch(html, /<img[^>]*class="novel-cover"[^>]*src="([^"]+)"/i) ||
@@ -323,7 +321,63 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
 
     const html = await fetchWithFallback(url, isFreeWebNovel);
     
+    // Default title
     let title = `Chapter ${chapterNum}`;
+    
+    // ── Extract real chapter title ───────────────────────────────────────────
+    
+    if (isReadNovelFull || isNovelFull) {
+      const titleMatch = safeMatch(html, /<(?:h2|h3)[^>]*class="(?:chapter-title|title|chapter)"[^>]*>([^<]+)<\/(?:h2|h3)>/i) ||
+                         safeMatch(html, /<(?:h2|h3)[^>]*>([^<]*Chapter[^<]*)<\/(?:h2|h3)>/i);
+      if (titleMatch) title = decodeEntities(titleMatch.trim());
+    }
+    
+    if (isFreeWebNovel) {
+      const titleMatch = safeMatch(html, /<h1[^>]*class="tit"[^>]*>([^<]+)<\/h1>/i) ||
+                         safeMatch(html, /<h4[^>]*>([^<]*Chapter[^<]*)<\/h4>/i) ||
+                         safeMatch(html, /<h2[^>]*>([^<]*Chapter[^<]*)<\/h2>/i);
+      if (titleMatch) title = decodeEntities(titleMatch.trim());
+    }
+    
+    if (isNovelBin) {
+      const titleMatch = safeMatch(html, /<h3[^>]*class="title"[^>]*>([^<]+)<\/h3>/i) ||
+                         safeMatch(html, /<(?:h2|h3)[^>]*>([^<]*Chapter[^<]*)<\/(?:h2|h3)>/i) ||
+                         safeMatch(html, /<a[^>]*class="chr-title"[^>]*>([^<]+)<\/a>/i);
+      if (titleMatch) title = decodeEntities(titleMatch.trim());
+    }
+    
+    if (isLightNovelWorld) {
+      const titleMatch = safeMatch(html, /<h1[^>]*class="chapter-title"[^>]*>([^<]+)<\/h1>/i) ||
+                         safeMatch(html, /<h2[^>]*class="chapter-title"[^>]*>([^<]+)<\/h2>/i) ||
+                         safeMatch(html, /<h1[^>]*>([^<]*Chapter[^<]*)<\/h1>/i) ||
+                         safeMatch(html, /<span[^>]*class="chapter-title"[^>]*>([^<]+)<\/span>/i);
+      if (titleMatch) title = decodeEntities(titleMatch.trim());
+    }
+    
+    // Generic fallback
+    if (title === `Chapter ${chapterNum}`) {
+      const genericMatch = safeMatch(html, /<(?:h1|h2|h3)[^>]*>([^<]*(?:Chapter|Ch\.|Volume|Vol\.|Part|Book)[^<]*)<\/(?:h1|h2|h3)>/i);
+      if (genericMatch) title = decodeEntities(genericMatch.trim());
+    }
+    
+    // Clean up the title
+    title = title
+      .replace(/\s+/g, ' ')
+      .replace(/^\s*Chapter\s+(\d+)\s*[:.-]?\s*/i, 'Chapter $1: ')
+      .trim();
+    
+    // First line fallback
+    if (title === `Chapter ${chapterNum}` || title.match(/^Chapter\s+\d+$/i)) {
+      const firstLineMatch = html.match(/<p[^>]*>([^<]*Chapter[^<]*)<\/p>/i);
+      if (firstLineMatch) {
+        const extractedTitle = decodeEntities(stripTags(firstLineMatch[1])).trim();
+        if (extractedTitle.length > 0 && extractedTitle.length < 100) {
+          title = extractedTitle;
+        }
+      }
+    }
+    
+    console.log('[Scraper] Extracted title:', title);
     
     // --- Extract chapter content ---
     let paragraphMatches: string[] | null = null;
@@ -382,6 +436,35 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
         'report error',
         'novelbin.com',
         'novelbin.me',
+      ];
+      const filtered = validParagraphs.filter(text => {
+        const lower = text.toLowerCase();
+        return !junkPhrases.some(phrase => lower.includes(phrase));
+      });
+      content = filtered.join('\n\n') || validParagraphs.join('\n\n');
+
+    } else if (isFreeWebNovel && validParagraphs.length > 0) {
+      const junkPhrases = [
+        'panda',
+        'novɐ1',
+        'com',
+        'freewebnovel.com',
+        'freewebnovel',
+        'bednovel.com',
+        'bednovel',
+        'please visit',
+        'for a better experience',
+        'click here',
+        'download the app',
+        'read latest chapters',
+        'follow on',
+        'facebook',
+        'twitter',
+        'instagram',
+        'discord',
+        'support the author',
+        'donate',
+        'patreon',
       ];
       const filtered = validParagraphs.filter(text => {
         const lower = text.toLowerCase();
@@ -529,7 +612,7 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
   }
 };
 
- /**
+/**
  * Downloads all chapters of a novel by following the "next chapter" links.
  * Saves each chapter as soon as it's fetched, allowing incremental progress.
  *
