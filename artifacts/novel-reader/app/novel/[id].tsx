@@ -44,16 +44,30 @@ async function loadFullNovelContent(
 ): Promise<{ title: string; content: string }[]> {
   const chaptersDir = `${FileSystem.documentDirectory}NovelDR/chapters/${novelId}/`;
   
-  // ── SORT chapters by number first ────────────────────────────────
-  const sortedChapters = [...chapters].sort((a, b) => {
-    const getNum = (title: string, url: string): number => {
-      const titleMatch = (title || '').match(/chapter\s*(\d+)/i);
-      if (titleMatch) return parseInt(titleMatch[1]);
-      const urlMatch = (url || '').match(/chapter[-/](\d+)/i);
-      if (urlMatch) return parseInt(urlMatch[1]);
-      return 9999;
-    };
-    return getNum(a.title, a.url) - getNum(b.title, b.url);
+  // ── Helper: Check if content has enough words to be real ─────────
+  const hasRealContent = (text: string | null | undefined): boolean => {
+    if (!text || !text.trim()) return false;
+    const wordCount = text.trim().split(/\s+/).length;
+    return wordCount >= 100; // At least 100 words to be considered real content
+  };
+  
+  // ── DEDUPLICATE: Keep only one entry per chapter number, prefer ones with real content ─
+  const seenNumbers = new Map<number, { title: string; url: string; content?: string }>();
+  
+  for (const ch of chapters) {
+    const num = extractChapterNumber(ch.title, ch.url);
+    const existing = seenNumbers.get(num);
+    
+    if (!existing || (hasRealContent(ch.content) && !hasRealContent(existing.content))) {
+      seenNumbers.set(num, { ...ch });
+    }
+  }
+  
+  // Sort by chapter number
+  const sortedChapters = Array.from(seenNumbers.values()).sort((a, b) => {
+    const numA = extractChapterNumber(a.title, a.url);
+    const numB = extractChapterNumber(b.title, b.url);
+    return numA - numB;
   });
 
   const result: { title: string; content: string }[] = [];
@@ -74,42 +88,52 @@ async function loadFullNovelContent(
     let title = ch.title || `Chapter ${i + 1}`;
     let content: string | null = null;
 
-    // Try file system first
+    // Check file system
     try {
       const chapterPath = `${chaptersDir}chapter_${i}.json`;
       const fileInfo = await FileSystem.getInfoAsync(chapterPath);
       if (fileInfo.exists) {
         const raw = await FileSystem.readAsStringAsync(chapterPath);
         const chapterData = JSON.parse(raw);
-        if (chapterData.content?.trim()) {
+        if (hasRealContent(chapterData.content)) {
           content = chapterData.content;
           if (chapterData.title) title = chapterData.title;
         }
       }
     } catch (e) {}
 
-    // Fallback to AsyncStorage
+    // Fallback to AsyncStorage (only if real content exists)
     if (!content && legacyNovel?.chapters) {
-      // Try URL match first
-      const urlMatch = legacyNovel.chapters.find((lc: any) => lc.url === ch.url);
-      if (urlMatch?.content?.trim()) {
+      const urlMatch = legacyNovel.chapters.find(
+        (lc: any) => lc.url === ch.url && hasRealContent(lc.content)
+      );
+      if (urlMatch) {
         content = urlMatch.content;
         if (urlMatch.title) title = urlMatch.title;
       }
     }
 
     // Fallback to in-memory
-    if (!content && ch.content?.trim()) {
+    if (!content && hasRealContent(ch.content)) {
       content = ch.content;
     }
 
     result.push({
       title,
-      content: content || `[Content not available for this chapter.]`,
+      content: content || `[Content not available for this chapter. Open it in the reader first to migrate the data.]`,
     });
   }
 
   return result;
+}
+
+// Helper to extract chapter number
+function extractChapterNumber(title: string, url: string): number {
+  const titleMatch = (title || '').match(/chapter\s*(\d+)/i);
+  if (titleMatch) return parseInt(titleMatch[1]);
+  const urlMatch = (url || '').match(/chapter[-/](\d+)/i);
+  if (urlMatch) return parseInt(urlMatch[1]);
+  return 9999;
 }
 
 
