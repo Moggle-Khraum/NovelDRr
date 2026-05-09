@@ -141,6 +141,9 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
     const domainLower = url.toLowerCase();
     const isReadNovelFull = domainLower.includes('readnovelfull');
     const isNovelFull = domainLower.includes('novelfull') && !isReadNovelFull;
+    const isNovelFullCom = domainLower.includes('novelfull.com');  // ✅ ADD
+    const isAllNovel = domainLower.includes('allnovel.org');        // ✅ ADD
+    const isNovgo = domainLower.includes('novgo.net');              // ✅ ADD
     const isFreeWebNovel = domainLower.includes('freewebnovel') || domainLower.includes('bednovel');
     const isNovelBin = domainLower.includes('novelbin');
     const isLightNovelWorld = domainLower.includes('lightnovelworld');
