@@ -43,97 +43,69 @@ async function loadFullNovelContent(
   chapters: { title: string; url: string; content?: string }[]
 ): Promise<{ title: string; content: string }[]> {
   const chaptersDir = `${FileSystem.documentDirectory}NovelDR/chapters/${novelId}/`;
+  
+  // ── SORT chapters by number first ────────────────────────────────
+  const sortedChapters = [...chapters].sort((a, b) => {
+    const getNum = (title: string, url: string): number => {
+      const titleMatch = (title || '').match(/chapter\s*(\d+)/i);
+      if (titleMatch) return parseInt(titleMatch[1]);
+      const urlMatch = (url || '').match(/chapter[-/](\d+)/i);
+      if (urlMatch) return parseInt(urlMatch[1]);
+      return 9999;
+    };
+    return getNum(a.title, a.url) - getNum(b.title, b.url);
+  });
+
   const result: { title: string; content: string }[] = [];
 
-  // Pre-load AsyncStorage data once for legacy novels
+  // Pre-load AsyncStorage data once
   let legacyNovel: any = null;
   try {
-    const AsyncStorage =
-      require('@react-native-async-storage/async-storage').default;
+    const AsyncStorage = require('@react-native-async-storage/async-storage').default;
     const libraryData = await AsyncStorage.getItem('novel_library_v1');
     if (libraryData) {
       const novels = JSON.parse(libraryData);
       legacyNovel = novels.find((n: any) => n.id === novelId);
     }
-  } catch (e) {
-    // AsyncStorage not available – that's fine
-  }
+  } catch (e) {}
 
-  // Alternative chapter file locations for recovery
-  const altChapterDirs = [
-    `${FileSystem.documentDirectory}noveldr/chapters/${novelId}/`,
-    `${FileSystem.cacheDirectory}../NovelDR/chapters/${novelId}/`,
-  ];
-
-  for (let i = 0; i < chapters.length; i++) {
-    let title = chapters[i]?.title || `Chapter ${i + 1}`;
+  for (let i = 0; i < sortedChapters.length; i++) {
+    const ch = sortedChapters[i];
+    let title = ch.title || `Chapter ${i + 1}`;
     let content: string | null = null;
 
-    // ── PRIORITY: AsyncStorage first ──────────────────────────────
-    // Try by index
-    if (legacyNovel?.chapters?.[i]?.content?.trim()) {
-      content = legacyNovel.chapters[i].content;
-      if (legacyNovel.chapters[i].title) title = legacyNovel.chapters[i].title;
-    }
-    // Try by URL if index didn't match
-    else if (legacyNovel?.chapters && chapters[i]?.url) {
-      const matched = legacyNovel.chapters.find(
-        (ch: any) => ch.url === chapters[i].url
-      );
-      if (matched?.content?.trim()) {
-        content = matched.content;
-        if (matched.title) title = matched.title;
-      }
-    }
-
-    // ── Fallback to file system ───────────────────────────────────
-    if (!content) {
-      try {
-        const chapterPath = `${chaptersDir}chapter_${i}.json`;
-        const fileInfo = await FileSystem.getInfoAsync(chapterPath);
-        if (fileInfo.exists) {
-          const raw = await FileSystem.readAsStringAsync(chapterPath);
-          const chapterData = JSON.parse(raw);
-          if (chapterData.content && chapterData.content.trim().length > 0) {
-            content = chapterData.content;
-            if (chapterData.title) title = chapterData.title;
-          }
-        }
-      } catch (e) {
-        // Continue to next fallback
-      }
-    }
-
-    // ── Other fallbacks (in‑memory, alternative locations) ────────
-    if (!content && chapters[i]?.content?.trim()) {
-      content = chapters[i].content!;
-    }
-
-    if (!content) {
-      for (const altDir of altChapterDirs) {
-        try {
-          const altPath = `${altDir}chapter_${i}.json`;
-          const fileInfo = await FileSystem.getInfoAsync(altPath);
-          if (fileInfo.exists) {
-            const raw = await FileSystem.readAsStringAsync(altPath);
-            const chapterData = JSON.parse(raw);
-            if (chapterData.content && chapterData.content.trim().length > 0) {
-              content = chapterData.content;
-              if (chapterData.title) title = chapterData.title;
-              break;
-            }
-          }
-        } catch (e) {
-          // Try next alternative
+    // Try file system first
+    try {
+      const chapterPath = `${chaptersDir}chapter_${i}.json`;
+      const fileInfo = await FileSystem.getInfoAsync(chapterPath);
+      if (fileInfo.exists) {
+        const raw = await FileSystem.readAsStringAsync(chapterPath);
+        const chapterData = JSON.parse(raw);
+        if (chapterData.content?.trim()) {
+          content = chapterData.content;
+          if (chapterData.title) title = chapterData.title;
         }
       }
+    } catch (e) {}
+
+    // Fallback to AsyncStorage
+    if (!content && legacyNovel?.chapters) {
+      // Try URL match first
+      const urlMatch = legacyNovel.chapters.find((lc: any) => lc.url === ch.url);
+      if (urlMatch?.content?.trim()) {
+        content = urlMatch.content;
+        if (urlMatch.title) title = urlMatch.title;
+      }
+    }
+
+    // Fallback to in-memory
+    if (!content && ch.content?.trim()) {
+      content = ch.content;
     }
 
     result.push({
       title,
-      content:
-        content ||
-        `[Content not available for this chapter. Open it in the reader first to migrate the data.]`,
+      content: content || `[Content not available for this chapter.]`,
     });
   }
 
