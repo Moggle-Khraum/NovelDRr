@@ -38,21 +38,25 @@ const EXPORT_OPTIONS: { format: ExportFormat; label: string; icon: string; color
 
 // ── Export Functions ────────────────────────────────────────────────────────
 
-async function loadFullNovelContent(novelId: string, chapters: { title: string; url: string; content?: string }[]): Promise<{ title: string; content: string }[]> {
+async function loadFullNovelContent(
+  novelId: string,
+  chapters: { title: string; url: string; content?: string }[]
+): Promise<{ title: string; content: string }[]> {
   const chaptersDir = `${FileSystem.documentDirectory}NovelDR/chapters/${novelId}/`;
   const result: { title: string; content: string }[] = [];
 
   // Pre-load AsyncStorage data once for legacy novels
   let legacyNovel: any = null;
   try {
-    const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+    const AsyncStorage =
+      require('@react-native-async-storage/async-storage').default;
     const libraryData = await AsyncStorage.getItem('novel_library_v1');
     if (libraryData) {
       const novels = JSON.parse(libraryData);
       legacyNovel = novels.find((n: any) => n.id === novelId);
     }
   } catch (e) {
-    // AsyncStorage not available
+    // AsyncStorage not available – that's fine
   }
 
   // Alternative chapter file locations for recovery
@@ -65,34 +69,46 @@ async function loadFullNovelContent(novelId: string, chapters: { title: string; 
     let title = chapters[i]?.title || `Chapter ${i + 1}`;
     let content: string | null = null;
 
-    // Source 1: Primary file system (new storage)
-    try {
-      const chapterPath = `${chaptersDir}chapter_${i}.json`;
-      const fileInfo = await FileSystem.getInfoAsync(chapterPath);
-      if (fileInfo.exists) {
-        const raw = await FileSystem.readAsStringAsync(chapterPath);
-        const chapterData = JSON.parse(raw);
-        if (chapterData.content && chapterData.content.trim().length > 0) {
-          content = chapterData.content;
-          if (chapterData.title) title = chapterData.title;
-        }
-      }
-    } catch (e) {
-      // Continue to next source
-    }
-
-    // Source 2: Legacy AsyncStorage (by index)
-    if (!content && legacyNovel?.chapters?.[i]?.content?.trim()) {
+    // ── PRIORITY: AsyncStorage first ──────────────────────────────
+    // Try by index
+    if (legacyNovel?.chapters?.[i]?.content?.trim()) {
       content = legacyNovel.chapters[i].content;
       if (legacyNovel.chapters[i].title) title = legacyNovel.chapters[i].title;
     }
+    // Try by URL if index didn't match
+    else if (legacyNovel?.chapters && chapters[i]?.url) {
+      const matched = legacyNovel.chapters.find(
+        (ch: any) => ch.url === chapters[i].url
+      );
+      if (matched?.content?.trim()) {
+        content = matched.content;
+        if (matched.title) title = matched.title;
+      }
+    }
 
-    // Source 3: In-memory content (from chapters array)
+    // ── Fallback to file system ───────────────────────────────────
+    if (!content) {
+      try {
+        const chapterPath = `${chaptersDir}chapter_${i}.json`;
+        const fileInfo = await FileSystem.getInfoAsync(chapterPath);
+        if (fileInfo.exists) {
+          const raw = await FileSystem.readAsStringAsync(chapterPath);
+          const chapterData = JSON.parse(raw);
+          if (chapterData.content && chapterData.content.trim().length > 0) {
+            content = chapterData.content;
+            if (chapterData.title) title = chapterData.title;
+          }
+        }
+      } catch (e) {
+        // Continue to next fallback
+      }
+    }
+
+    // ── Other fallbacks (in‑memory, alternative locations) ────────
     if (!content && chapters[i]?.content?.trim()) {
       content = chapters[i].content!;
     }
 
-    // Source 4: Alternative file locations
     if (!content) {
       for (const altDir of altChapterDirs) {
         try {
@@ -108,29 +124,22 @@ async function loadFullNovelContent(novelId: string, chapters: { title: string; 
             }
           }
         } catch (e) {
-          // Continue to next alt path
+          // Try next alternative
         }
-      }
-    }
-
-    // Source 5: Legacy AsyncStorage (by URL match)
-    if (!content && legacyNovel?.chapters && chapters[i]?.url) {
-      const targetUrl = chapters[i].url;
-      const matchedChapter = legacyNovel.chapters.find((ch: any) => ch.url === targetUrl);
-      if (matchedChapter?.content?.trim()) {
-        content = matchedChapter.content;
-        if (matchedChapter.title) title = matchedChapter.title;
       }
     }
 
     result.push({
       title,
-      content: content || `[Content not available for this chapter. Open it in the reader first to migrate the data.]`,
+      content:
+        content ||
+        `[Content not available for this chapter. Open it in the reader first to migrate the data.]`,
     });
   }
 
   return result;
 }
+
 
 function generateTXT(novelTitle: string, author: string, chapters: { title: string; content: string }[]): string {
   let txt = `${novelTitle}\n`;
