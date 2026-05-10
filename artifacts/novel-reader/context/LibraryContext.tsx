@@ -377,7 +377,6 @@ export default function Library() {
       } else {
         return b.title.localeCompare(a.title);
       }
-      return [...prev, step];
     });
     
     return sorted;
@@ -508,38 +507,6 @@ export default function Library() {
       </View>
     );
   }
-
-  const saveChapterContent = useCallback(async (
-    novelId: string,
-    chapterIndex: number,
-    title: string,
-    url: string,
-    content: string,
-    chapterNumber?: number
-  ) => {
-    await saveChapterToFile(novelId, chapterIndex, { title, url, content, chapterNumber });
-    setNovels(current => {
-      const idx = current.findIndex(n => n.id === novelId);
-      if (idx === -1) return current;
-      const novel = { ...current[idx] };
-      const newChapter = { title, url, chapterNumber };
-      if (chapterIndex >= novel.chapters.length) {
-        novel.chapters = [...novel.chapters, newChapter];
-      } else {
-        const chapters = [...novel.chapters];
-        chapters[chapterIndex] = { ...chapters[chapterIndex], ...newChapter };
-        novel.chapters = chapters;
-      }
-      const updated = [...current];
-      updated[idx] = novel;
-      saveLibraryToFile(updated);
-      return updated;
-    });
-  }, []);
-
-  const loadChapterContent = useCallback(async (novelId: string, chapterIndex: number) => {
-    return await loadChapterFromFile(novelId, chapterIndex);
-  }, []);
 
   return (
     <View className="flex-1 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
