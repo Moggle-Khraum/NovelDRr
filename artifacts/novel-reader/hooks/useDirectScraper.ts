@@ -552,6 +552,7 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
         'com',
         'freewebnovel.com',
         'freewebnovel',
+        '𝕗𝚛𝚎𝚎𝐰𝗲𝗯𝗻𝚘𝚟𝚎𝗹.𝕔𝐨𝕞',
         'bednovel.com',
         'bednovel',
         'please visit',
