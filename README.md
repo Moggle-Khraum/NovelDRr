@@ -4,7 +4,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-v1.3.10rev131-brightgreen)
+![Version](https://img.shields.io/badge/version-v1.4.0rev147-brightgreen)
 ![Android](https://img.shields.io/badge/Android-8.0%2B-8f5e4e?logo=android)
 ![Size](https://img.shields.io/badge/size-~92.93_MB-5a3e36)
 ![Malware](https://img.shields.io/badge/Jotti's_Malware-Clean_✓_(0/15)-4caf50)
@@ -31,7 +31,7 @@ NovelDR is a free, open-source Android application that lets you download webnov
 | **🔄 One-Tap Updates** | Select a novel and tap Update to fetch new chapters |
 | **🎨 3 Reading Themes** | Dark, Light, and Sepia modes |
 | **📖 Reading Customization** | Adjustable font size, line spacing, and auto-scroll |
-| **💾 Data Control** | JSON Backup, Restore & Import system |
+| **💾 Data Control** | Full File Backup , Restore & Import system |
 | **⏭️ Smart Skipper** | Skip existing chapters when downloading to avoid duplicates |
 | **🔒 Fully Offline** | Everything stored locally — no account or internet needed after download |
 
@@ -56,6 +56,7 @@ NovelDR is a free, open-source Android application that lets you download webnov
 | [NovelBin](https://novelbin.com) | ✅ Full support |
 | [LightNovelWorld](https://lightnovelworld.org) | ✅ Full support |
 
+
 ## 📲 Download & Install
 
 ### Latest Version: v1.3.11rev137
@@ -71,7 +72,7 @@ NovelDR is a free, open-source Android application that lets you download webnov
 🔗 Mirror Link(Latest): [NovelDR v1.3.11rev137](https://www.mediafire.com/file/qcqnjoqm828753c/NovelDR_v1.3.11rev137.apk/file)
 
 
-### Quick Install Guide
+## 🚀 Quick Install Guide
 
 1. Download the APK from [Releases](https://github.com/Moggle-Khraum/noveldr-site/releases) or from [Website](https://moggle.is-a-good.dev/#)
 2. Open your file manager and locate the `.apk` file
@@ -81,30 +82,8 @@ NovelDR is a free, open-source Android application that lets you download webnov
 
 **Looking for older versions?** Browse the [Archives](https://github.com/Moggle-Khraum/noveldr-site/releases).
 
-## 🛠️ Tech Stack
-
-| Layer | Technology |
-|---|---|
-| **Mobile App** | React Native / Expo (managed workflow) |
-| **Navigation** | Expo Router (file-based routing) |
-| **Local Storage** | AsyncStorage + FileSystem |
-| **Backend Scraper** | Express + node-html-parser |
-| **Animations** | React Native Reanimated |
-| **Monorepo** | pnpm workspaces |
-| **CI/CD** | GitHub Actions (APK builds) |
-
-## 📝 Version History
-
-| Version | Date | Highlights |
-|---|---|---|
-| v1.3.10rev131 | Apr 25, 2026 | Duplicity Guard, NovelBin junk filters, download freeze fix |
-| v1.3.9rev128 | Apr 21, 2026 | Local cover storage, batch delete, Starting Chapter field |
-| v1.3.8rev118 | Apr 15, 2026 | LightNovelWorld support, Import function, About Developer tab |
-| v1.0.3rev055 | Apr 13, 2026 | NovelBin + FreeWebNovel, library filters, Backup & Restore |
-| v1.0.2rev36 | Mar 27, 2026 | Activity logs, stabilized downloader |
-| v1.0.1rev16 | Mar 27, 2026 | Initial release with ReadNovelFull + NovelFull support |
-
-See the [full changelog](https://github.com/Moggle-Khraum/noveldr-site/releases) for detailed release notes.
+## 📜 Changelog
+See the full changelog [here](https://github.com/Moggle-Khraum/noveldr-site/releases) for the latest release notes.
 
 ## 🤝 Contributing
 
