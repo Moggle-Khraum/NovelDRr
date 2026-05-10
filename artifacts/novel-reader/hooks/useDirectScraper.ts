@@ -187,13 +187,90 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
           }
         }
       }
+
+      // --- READNOVELFULL SYNOPSIS ---
+      if (isReadNovelFull) {
+        const descMatch = safeMatch(html, /<div[^>]*itemprop="description"[^>]*>([\s\S]*?)<\/div>/i);
+        if (descMatch) {
+          const paragraphs = descMatch.match(/<p[^>]*>(.*?)<\/p>/gis);
+          if (paragraphs) {
+            synopsis = paragraphs.map(p => decodeEntities(stripTags(p))).join('\n\n');
+          } else {
+            synopsis = decodeEntities(stripTags(descMatch));
+          }
+        }
+      }
       
-      if (isNovelFull || isNovelFullCom || isAllNovel || isNovgo) {
+      // --- NOVELFULL (without .com) SYNOPSIS ---
+      if (isNovelFull && !isNovelFullCom) {
         const descMatch = safeMatch(html, /<div[^>]*class="desc-text"[^>]*>([\s\S]*?)<\/div>/i);
         if (descMatch) {
           const paragraphs = descMatch.match(/<p[^>]*>(.*?)<\/p>/gis);
           if (paragraphs) {
             synopsis = paragraphs.map(p => decodeEntities(stripTags(p))).join('\n\n');
+          } else {
+            synopsis = decodeEntities(stripTags(descMatch));
+          }
+        }
+      }
+      
+      // --- NOVELFULL.COM SYNOPSIS ---
+      if (isNovelFullCom) {
+        const descMatch = safeMatch(html, /<div[^>]*class="desc-text"[^>]*>([\s\S]*?)<\/div>/i);
+        if (descMatch) {
+          const paragraphs = descMatch.match(/<p[^>]*>(.*?)<\/p>/gis);
+          if (paragraphs) {
+            const cleanedParagraphs = [];
+            for (const p of paragraphs) {
+              let text = p.replace(/<\/?p[^>]*>/gi, '');
+              text = decodeEntities(stripTags(text));
+              if (text.trim()) {
+                cleanedParagraphs.push(text.trim());
+              }
+            }
+            synopsis = cleanedParagraphs.join('\n\n');
+          } else {
+            synopsis = decodeEntities(stripTags(descMatch));
+          }
+        }
+      }
+      
+      // --- ALLNOVEL SYNOPSIS ---
+      if (isAllNovel) {
+        const descMatch = safeMatch(html, /<div[^>]*class="desc-text"[^>]*>([\s\S]*?)<\/div>/i);
+        if (descMatch) {
+          const paragraphs = descMatch.match(/<p[^>]*>(.*?)<\/p>/gis);
+          if (paragraphs) {
+            const cleanedParagraphs = [];
+            for (const p of paragraphs) {
+              let text = p.replace(/<\/?p[^>]*>/gi, '');
+              text = decodeEntities(stripTags(text));
+              if (text.trim()) {
+                cleanedParagraphs.push(text.trim());
+              }
+            }
+            synopsis = cleanedParagraphs.join('\n\n');
+          } else {
+            synopsis = decodeEntities(stripTags(descMatch));
+          }
+        }
+      }
+      
+      // --- NOVGO SYNOPSIS ---
+      if (isNovgo) {
+        const descMatch = safeMatch(html, /<div[^>]*class="desc-text"[^>]*>([\s\S]*?)<\/div>/i);
+        if (descMatch) {
+          const paragraphs = descMatch.match(/<p[^>]*>(.*?)<\/p>/gis);
+          if (paragraphs) {
+            const cleanedParagraphs = [];
+            for (const p of paragraphs) {
+              let text = p.replace(/<\/?p[^>]*>/gi, '');
+              text = decodeEntities(stripTags(text));
+              if (text.trim()) {
+                cleanedParagraphs.push(text.trim());
+              }
+            }
+            synopsis = cleanedParagraphs.join('\n\n');
           } else {
             synopsis = decodeEntities(stripTags(descMatch));
           }
