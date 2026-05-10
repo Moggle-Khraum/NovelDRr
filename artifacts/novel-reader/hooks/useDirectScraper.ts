@@ -529,6 +529,16 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
         'report error',
         'novelbin.com',
         'novelbin.me',
+        'Community',
+        'Share your thoughts',
+        'react to the',
+        'latest chapter',
+        'or reply',
+        'to other readers',
+        'Thoughful comments',
+        'make this page',
+        'more useful',
+        'for everyone.'
       ];
       const filtered = validParagraphs.filter(text => {
         const lower = text.toLowerCase();
