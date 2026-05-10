@@ -443,7 +443,7 @@ export default function AddNovelScreen() {
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.cardLabel, { color: colors.textSecondary }]}>SUPPORTED SITES</Text>
           <Text style={[styles.cardValue, { color: colors.text }]}>
-            ReadNovelFull • NovelFull • FreeWebNovel • NovelBin • LightNovelWorld • NovelFull.com • AllNovel.org • Novgo.net
+            ReadNovelFull • NovelFull.net • FreeWebNovel • NovelBin • LightNovelWorld • NovelFull.com • AllNovel.org • Novgo.net
           </Text>
         </View>
 
@@ -561,9 +561,6 @@ export default function AddNovelScreen() {
           <View style={styles.logHeader}>
             <Ionicons name="sync" size={15} color={colors.accent} />
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Activity Log</Text>
-            <Pressable onPress={() => setLogs([])}>
-              <Text style={[styles.clearLog, { color: colors.textMuted }]}>Clear</Text>
-            </Pressable>
           </View>
           <ScrollView
             ref={logScrollRef}
