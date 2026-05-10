@@ -43,11 +43,13 @@ const getSourceDisplayName = (sourceUrl: string): string => {
       "freewebnovel.org": "FreeWebNovel",
       "bednovel.com": "BedNovel",
       "readnovelfull.com": "ReadNovelFull",
+      "novelfull.net": "NovelFull
       "novelfull.com": "NovelFull",
       "allnovel.org": "AllNovel",
       "novgo.net": "NovGo",
       "novelbin.com": "NovelBin",
-      "lightnovelworld.com": "LightNovelWorld",
+      "novelbin.me": "NovelBin",
+      "lightnovelworld.org": "LightNovelWorld",
     };
     return siteNames[clean] || clean.split(".")[0];
   } catch {
