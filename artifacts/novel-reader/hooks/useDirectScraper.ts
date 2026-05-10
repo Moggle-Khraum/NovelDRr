@@ -140,7 +140,7 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
   try {
     const domainLower = url.toLowerCase();
     const isReadNovelFull = domainLower.includes('readnovelfull');
-    const isNovelFull = domainLower.includes('novelfull') && !isReadNovelFull;
+    const isNovelFullNet = domainLower.includes('novelfull.net') && !isReadNovelFull;
     const isNovelFullCom = domainLower.includes('novelfull.com');
     const isAllNovel = domainLower.includes('allnovel.org');
     const isNovgo = domainLower.includes('novgo.net');
@@ -156,8 +156,8 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
     let coverUrl = '';
     let firstChapterUrl: string | null = null;
     
-    // --- READNOVELFULL, NOVELFULL, NOVELFULL.COM, ALLNOVEL, NOVGO ---
-    if (isReadNovelFull || isNovelFull || isNovelFullCom || isAllNovel || isNovgo) {
+    // --- READNOVELFULL, NOVELFULL.NET, NOVELFULL.COM, ALLNOVEL, NOVGO ---
+    if (isReadNovelFull || isNovelFullNet || isNovelFullCom || isAllNovel || isNovgo) {
       const titleMatch = safeMatch(html, /<h3[^>]*class="title"[^>]*>([^<]+)<\/h3>/i) ||
                          safeMatch(html, /<h1[^>]*class="title"[^>]*>([^<]+)<\/h1>/i) ||
                          safeMatch(html, /<div[^>]*class="book-title"[^>]*>([^<]+)<\/div>/i);
@@ -169,23 +169,10 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
         if (authorMatch) author = decodeEntities(authorMatch);
       }
       
-      // All Novelfull-style sites (novelfull, novelfull.com, allnovel.org, novgo.net) use the same info div
-      if (isNovelFull || isNovelFullCom || isAllNovel || isNovgo) {
+      // All Novelfull-style sites (novelfull.net, novelfull.com, allnovel.org, novgo.net) use the same info div
+      if (isNovelFullNet || isNovelFullCom || isAllNovel || isNovgo) {
         const authorMatch = safeMatch(html, /<div[^>]*class="info"[^>]*>[\s\S]*?<h3>Author:<\/h3>\s*<a[^>]*>([^<]+)<\/a>/i);
         if (authorMatch) author = decodeEntities(authorMatch);
-      }
-      
-      // Synopsis extraction
-      if (isReadNovelFull) {
-        const descMatch = safeMatch(html, /<div[^>]*itemprop="description"[^>]*>([\s\S]*?)<\/div>/i);
-        if (descMatch) {
-          const paragraphs = descMatch.match(/<p[^>]*>(.*?)<\/p>/gis);
-          if (paragraphs) {
-            synopsis = paragraphs.map(p => decodeEntities(stripTags(p))).join('\n\n');
-          } else {
-            synopsis = decodeEntities(stripTags(descMatch));
-          }
-        }
       }
 
       // --- READNOVELFULL SYNOPSIS ---
@@ -202,7 +189,7 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
       }
       
       // --- NOVELFULL (without .com) SYNOPSIS ---
-      if (isNovelFull && !isNovelFullCom) {
+      if (isNovelFullNet && !isNovelFullCom) {
         const descMatch = safeMatch(html, /<div[^>]*class="desc-text"[^>]*>([\s\S]*?)<\/div>/i);
         if (descMatch) {
           const paragraphs = descMatch.match(/<p[^>]*>(.*?)<\/p>/gis);
@@ -418,7 +405,7 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
   try {
     const domainLower = url.toLowerCase();
     const isReadNovelFull = domainLower.includes('readnovelfull');
-    const isNovelFull = domainLower.includes('novelfull') && !isReadNovelFull;
+    const isNovelFullNet = domainLower.includes('novelfull.net') && !isReadNovelFull;
     const isNovelFullCom = domainLower.includes('novelfull.com');
     const isAllNovel = domainLower.includes('allnovel.org');
     const isNovgo = domainLower.includes('novgo.net');
@@ -432,7 +419,7 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
     let title = `Chapter ${chapterNum}`;
     
     // Extract real chapter title
-    if (isReadNovelFull || isNovelFull || isNovelFullCom || isAllNovel || isNovgo) {
+    if (isReadNovelFull || isNovelFullNet || isNovelFullCom || isAllNovel || isNovgo) {
       const titleMatch = safeMatch(html, /<(?:h2|h3)[^>]*class="(?:chapter-title|title|chapter)"[^>]*>([^<]+)<\/(?:h2|h3)>/i) ||
                          safeMatch(html, /<(?:h2|h3)[^>]*>([^<]*Chapter[^<]*)<\/(?:h2|h3)>/i);
       if (titleMatch) title = decodeEntities(titleMatch.trim());
@@ -627,7 +614,7 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
       if (!content.trim()) {
         content = validParagraphs.join('\n\n');
       }
-    } else if ((isNovelFull || isReadNovelFull || isNovelFullCom || isAllNovel || isNovgo) && validParagraphs.length > 0) {
+    } else if ((isNovelFullNet || isReadNovelFull || isNovelFullCom || isAllNovel || isNovgo) && validParagraphs.length > 0) {
       const junkPhrases = [
         'we are offering free books',
         'read novel updated daily',
