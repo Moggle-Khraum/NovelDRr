@@ -1063,7 +1063,7 @@ export default function SettingsScreen() {
               Download novels from popular supported sites & more to come.
             </Text>
           </View>
-          {["ReadNovelFull.com", "NovelFull.net", "FreeWebNovel.com", "Novelbin.com", "LightNovelWorld.org"].map((site) => (
+          {["ReadNovelFull.com", "NovelFull.net", "FreeWebNovel.com", "Novelbin.com", "LightNovelWorld.org", "NovelFull.com", "AllNovel.org", "Novgo.net"].map((site) => (
             <View key={site} style={styles.aboutRow}>
               <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
               <Text style={[styles.aboutSite, { color: colors.textSecondary }]}>{site}</Text>
