@@ -44,35 +44,28 @@ async function loadFullNovelContent(
 ): Promise<{ title: string; content: string }[]> {
   const chaptersDir = `${FileSystem.documentDirectory}NovelDR/chapters/${novelId}/`;
   
-  // ── Helper: Check if content has enough words to be real ─────────
+  // Helper: real content must have ≥100 words
   const hasRealContent = (text: string | null | undefined): boolean => {
     if (!text || !text.trim()) return false;
-    const wordCount = text.trim().split(/\s+/).length;
-    return wordCount >= 100; // At least 100 words to be considered real content
+    return text.trim().split(/\s+/).length >= 100;
   };
-  
-  // ── DEDUPLICATE: Keep only one entry per chapter number, prefer ones with real content ─
+
+  // 1. Deduplicate: keep one entry per chapter number, prefer ones with real content
   const seenNumbers = new Map<number, { title: string; url: string; content?: string }>();
-  
   for (const ch of chapters) {
     const num = extractChapterNumber(ch.title, ch.url);
     const existing = seenNumbers.get(num);
-    
     if (!existing || (hasRealContent(ch.content) && !hasRealContent(existing.content))) {
       seenNumbers.set(num, { ...ch });
     }
   }
-  
-  // Sort by chapter number
+
+  // 2. Sort by chapter number
   const sortedChapters = Array.from(seenNumbers.values()).sort((a, b) => {
-    const numA = extractChapterNumber(a.title, a.url);
-    const numB = extractChapterNumber(b.title, b.url);
-    return numA - numB;
+    return extractChapterNumber(a.title, a.url) - extractChapterNumber(b.title, b.url);
   });
 
-  const result: { title: string; content: string }[] = [];
-
-  // Pre-load AsyncStorage data once
+  // 3. Pre-load AsyncStorage once
   let legacyNovel: any = null;
   try {
     const AsyncStorage = require('@react-native-async-storage/async-storage').default;
@@ -83,12 +76,14 @@ async function loadFullNovelContent(
     }
   } catch (e) {}
 
+  const result: { title: string; content: string }[] = [];
+
   for (let i = 0; i < sortedChapters.length; i++) {
     const ch = sortedChapters[i];
     let title = ch.title || `Chapter ${i + 1}`;
     let content: string | null = null;
 
-    // Check file system
+    // File system
     try {
       const chapterPath = `${chaptersDir}chapter_${i}.json`;
       const fileInfo = await FileSystem.getInfoAsync(chapterPath);
@@ -102,7 +97,7 @@ async function loadFullNovelContent(
       }
     } catch (e) {}
 
-    // Fallback to AsyncStorage (only if real content exists)
+    // AsyncStorage (only real content)
     if (!content && legacyNovel?.chapters) {
       const urlMatch = legacyNovel.chapters.find(
         (lc: any) => lc.url === ch.url && hasRealContent(lc.content)
@@ -113,21 +108,22 @@ async function loadFullNovelContent(
       }
     }
 
-    // Fallback to in-memory
+    // In-memory
     if (!content && hasRealContent(ch.content)) {
       content = ch.content;
     }
 
-    result.push({
-      title,
-      content: content || `[Content not available for this chapter. Open it in the reader first to migrate the data.]`,
-    });
+    // Only include chapter if real content found (skip empty ones entirely)
+    if (content) {
+      result.push({ title, content });
+    }
+    // If you prefer a placeholder instead of skipping, use:
+    // result.push({ title, content: content || `[Content not available…]` });
   }
 
   return result;
 }
 
-// Helper to extract chapter number
 function extractChapterNumber(title: string, url: string): number {
   const titleMatch = (title || '').match(/chapter\s*(\d+)/i);
   if (titleMatch) return parseInt(titleMatch[1]);
