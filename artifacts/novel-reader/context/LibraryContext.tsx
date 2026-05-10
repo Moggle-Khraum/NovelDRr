@@ -13,7 +13,7 @@ import {
   Alert,
   Modal,
 } from 'react-native';
-import { useLibrary, type Novel, type NovelStatus } from '../contexts/LibraryContext';
+import { useLibrary, type Novel, type NovelStatus } from '../context/LibraryContext';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
