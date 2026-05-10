@@ -626,6 +626,16 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
         'readnovelfull.com',
         'allnovel.org',
         'novgo.net',
+        'Community',
+        'Share your thoughts', 
+        'react to the latest chapter', 
+        'or reply to other readers.',
+        'Thoughtful comments',
+        'make this page more useful for everyone.',
+        'pαndα,noνɐ1,сoМ …...'
+
+
+        
       ];
       const filtered = validParagraphs.filter(text => {
         const lower = text.toLowerCase();
