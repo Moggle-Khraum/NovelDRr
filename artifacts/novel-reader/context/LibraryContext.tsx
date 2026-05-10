@@ -541,18 +541,6 @@ export default function Library() {
     return await loadChapterFromFile(novelId, chapterIndex);
   }, []);
 
-  // ── Refresh library from disk ────────────────────────────────────────────
-
-  const refreshLibrary = useCallback(async () => {
-    try {
-      const { novels: refreshed, sortOrder: order } = await loadNovelsFromDisk();
-      setSortOrder(order);
-      setNovels(refreshed);
-    } catch (error) {
-      console.error('[Library] Refresh failed:', error);
-    }
-  }, []);
-
   return (
     <View className="flex-1 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
       {/* Selection Mode Header */}
