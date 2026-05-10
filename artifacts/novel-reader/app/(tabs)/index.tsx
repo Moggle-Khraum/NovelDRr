@@ -2,13 +2,14 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React, { useState, useMemo, useRef } from "react";
+import React, { useState, useMemo } from "react";
 import {
   Alert,
   FlatList,
   Modal,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -16,10 +17,14 @@ import {
   View,
 } from "react-native";
 import Animated, {
+  cancelAnimation,
+  Easing,
   FadeIn,
   useAnimatedStyle,
   useSharedValue,
+  withRepeat,
   withSpring,
+  withTiming,
   runOnJS,
 } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -27,6 +32,30 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useLibrary, Novel, NovelStatus } from "@/context/LibraryContext";
 import { useTheme } from "@/context/ThemeContext";
+
+// ── Helper: Extract readable source name from URL ───────────────────────────
+const getSourceDisplayName = (sourceUrl: string): string => {
+  try {
+    const domain = new URL(sourceUrl).hostname;
+    const clean = domain.replace("www.", "");
+    const siteNames: Record<string, string> = {
+      "freewebnovel.com": "FreeWebNovel",
+      "freewebnovel.org": "FreeWebNovel",
+      "bednovel.com": "BedNovel",
+      "readnovelfull.com": "ReadNovelFull",
+      "novelfull.net": "NovelFull",
+      "novelfull.com": "NovelFull",
+      "allnovel.org": "AllNovel",
+      "novgo.net": "NovGo",
+      "novelbin.com": "NovelBin",
+      "novelbin.me": "NovelBin",
+      "lightnovelworld.org": "LightNovelWorld",
+    };
+    return siteNames[clean] || clean.split(".")[0];
+  } catch {
+    return "Unknown";
+  }
+};
 
 // ── Status config ────────────────────────────────────────────────────────────
 
@@ -43,7 +72,7 @@ const FILTER_TABS: { key: NovelStatus | "all"; label: string }[] = [
   { key: "completed", label: "Completed" },
 ];
 
-// ── NovelCard ────────────────────────────────────────────────────────────────
+// ── NovelCard (Updated to match the image layout) ────────────────────────────
 
 function NovelCard({
   novel,
@@ -62,13 +91,13 @@ function NovelCard({
   const scale = useSharedValue(1);
   const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
-  const chapters = novel.chapters.length;
-  const progress = novel.lastRead
-    ? `Ch. ${novel.lastRead.chapterIndex + 1}/${chapters}`
-    : `${chapters} chapters`;
+  const totalChapters = novel.chapters.length;
+  const currentChapter = novel.lastRead ? novel.lastRead.chapterIndex + 1 : 0;
+  const progressPercent = totalChapters > 0 ? (currentChapter / totalChapters) * 100 : 0;
 
   const status = novel.status ?? "unread";
   const statusCfg = STATUS_CONFIG[status];
+  const sourceName = getSourceDisplayName(novel.sourceUrl);
 
   return (
     <Pressable
@@ -87,6 +116,7 @@ function NovelCard({
           animStyle,
         ]}
       >
+        {/* Selection mode checkbox */}
         {selectionMode && (
           <View style={styles.checkboxContainer}>
             <Ionicons
@@ -97,6 +127,7 @@ function NovelCard({
           </View>
         )}
 
+        {/* Cover Image - Left side */}
         <View style={styles.coverContainer}>
           {novel.coverUrl ? (
             <Image source={{ uri: novel.coverUrl }} style={styles.cover} contentFit="cover" />
@@ -107,30 +138,58 @@ function NovelCard({
           )}
         </View>
 
+        {/* Right side content */}
         <View style={styles.info}>
-          <Text style={[styles.title, { color: colors.text }]} numberOfLines={2}>
-            {novel.title}
-          </Text>
-          <Text style={[styles.author, { color: colors.textSecondary }]} numberOfLines={1}>
-            {novel.author}
-          </Text>
-          <View style={styles.footer}>
-            <View style={[styles.badge, { backgroundColor: colors.accent + "22" }]}>
-              <Text style={[styles.badgeText, { color: colors.accent }]}>{progress}</Text>
-            </View>
-            {novel.lastRead && (
-              <View style={[styles.continueBadge, { backgroundColor: colors.accent }]}>
-                <Text style={styles.continueText}>Continue</Text>
-              </View>
-            )}
+          {/* Title row with status badge */}
+          <View style={styles.titleRow}>
+            <Text style={[styles.title, { color: colors.text }]} numberOfLines={2}>
+              {novel.title}
+            </Text>
             <View style={[styles.statusBadge, { backgroundColor: statusCfg.color + "22" }]}>
               <View style={[styles.statusDot, { backgroundColor: statusCfg.color }]} />
               <Text style={[styles.statusText, { color: statusCfg.color }]}>{statusCfg.label}</Text>
             </View>
           </View>
-        </View>
 
-        <Ionicons name="chevron-forward" size={16} color={colors.textMuted} style={styles.chevron} />
+          {/* Author row */}
+          <View style={styles.metaRow}>
+            <Text style={[styles.authorLabel, { color: colors.textSecondary }]}>Author:</Text>
+            <Text style={[styles.author, { color: colors.textSecondary }]} numberOfLines={1}>
+              {novel.author}
+            </Text>
+          </View>
+
+          {/* Source row */}
+          <View style={styles.metaRow}>
+            <Text style={[styles.sourceLabel, { color: colors.textMuted }]}>Source:</Text>
+            <Text style={[styles.source, { color: colors.textMuted }]} numberOfLines={1}>
+              {sourceName}
+            </Text>
+          </View>
+
+          {/* Progress row with button (like your image) */}
+          <View style={styles.progressRow}>
+            <View style={styles.progressLeft}>
+              <Text style={[styles.progressText, { color: colors.textSecondary }]}>
+                Ch. {currentChapter}/{totalChapters}
+              </Text>
+              <View style={styles.progressBarContainer}>
+                <View 
+                  style={[
+                    styles.progressBar, 
+                    { width: `${progressPercent}%`, backgroundColor: colors.accent }
+                  ]} 
+                />
+              </View>
+            </View>
+            <Pressable 
+              style={[styles.continueButton, { backgroundColor: colors.accent }]}
+              onPress={onPress}
+            >
+              <Text style={styles.continueButtonText}>Continue</Text>
+            </Pressable>
+          </View>
+        </View>
       </Animated.View>
     </Pressable>
   );
@@ -199,7 +258,7 @@ function StatusSheet({
 // ── LibraryScreen ────────────────────────────────────────────────────────────
 
 export default function LibraryScreen() {
-  const { novels, removeNovels, loading, setNovelStatus } = useLibrary();
+  const { novels, removeNovels, loading, setNovelStatus, refreshLibrary } = useLibrary();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -216,6 +275,41 @@ export default function LibraryScreen() {
 
   const [statusSheetNovel, setStatusSheetNovel] = useState<Novel | null>(null);
 
+  // ── Refresh state ──────────────────────────────────────────────────────────
+  const [refreshing, setRefreshing] = useState(false);
+  const fabRotation = useSharedValue(0);
+  const fabSpinStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${fabRotation.value}deg` }],
+  }));
+
+  const startSpin = () => {
+    fabRotation.value = 0;
+    fabRotation.value = withRepeat(
+      withTiming(360, { duration: 600, easing: Easing.linear }),
+      -1,
+      false
+    );
+  };
+
+  const stopSpin = () => {
+    cancelAnimation(fabRotation);
+    fabRotation.value = withTiming(0, { duration: 200 });
+  };
+
+  const handleRefresh = async () => {
+    if (refreshing) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setRefreshing(true);
+    startSpin();
+    try {
+      await refreshLibrary();
+    } finally {
+      stopSpin();
+      setRefreshing(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+  };
+
   // ── Swipe Animation Values ─────────────────────────────────────────────────
   const translateX = useSharedValue(0);
   const filterKeys = FILTER_TABS.map(tab => tab.key);
@@ -223,7 +317,7 @@ export default function LibraryScreen() {
   const changeFilterSwipe = (direction: 'left' | 'right') => {
     const currentIndex = filterKeys.indexOf(activeFilter);
     let newIndex: number;
-    
+
     if (direction === 'left' && currentIndex < filterKeys.length - 1) {
       newIndex = currentIndex + 1;
     } else if (direction === 'right' && currentIndex > 0) {
@@ -231,33 +325,30 @@ export default function LibraryScreen() {
     } else {
       return;
     }
-    
+
     setActiveFilter(filterKeys[newIndex] as NovelStatus | "all");
     Haptics.selectionAsync();
   };
 
   const panGesture = Gesture.Pan()
-    .activeOffsetX([-10, 10]) // Becomes active after 10px horizontal movement
-    .failOffsetY([-10, 10])   // Fails if vertical movement exceeds 10px
-    .onStart(() => {
-      // No need to track isSwiping
-    })
+    .activeOffsetX([-10, 10])
+    .failOffsetY([-10, 10])
     .onUpdate((event) => {
-      translateX.value = event.translationX * 0.5; // Dampen the movement
+      translateX.value = event.translationX * 0.5;
     })
     .onEnd((event) => {
       const threshold = 60;
-      
+
       if (event.translationX < -threshold) {
         runOnJS(changeFilterSwipe)('left');
       } else if (event.translationX > threshold) {
         runOnJS(changeFilterSwipe)('right');
       }
-      
+
       translateX.value = withSpring(0, {
         damping: 80,
         stiffness: 150,
-        mass: 0.5, 
+        mass: 0.5,
         overshootClamping: true,
       });
     });
@@ -267,20 +358,20 @@ export default function LibraryScreen() {
     opacity: 1 - Math.abs(translateX.value) / 300,
   }));
 
-  // Filter novels based on status AND search query
+  // ── Filtered novels ────────────────────────────────────────────────────────
   const filteredNovels = useMemo(() => {
     let result = activeFilter === "all"
       ? novels
       : novels.filter((n) => (n.status ?? "unread") === activeFilter);
-    
+
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase().trim();
       result = result.filter(
-        (n) => n.title.toLowerCase().includes(query) || 
+        (n) => n.title.toLowerCase().includes(query) ||
                n.author.toLowerCase().includes(query)
       );
     }
-    
+
     return result;
   }, [novels, activeFilter, searchQuery]);
 
@@ -291,6 +382,7 @@ export default function LibraryScreen() {
     completed: novels.filter((n) => (n.status ?? "unread") === "completed").length,
   };
 
+  // ── Selection helpers ──────────────────────────────────────────────────────
   const enterSelectionMode = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setSelectionMode(true);
@@ -309,7 +401,7 @@ export default function LibraryScreen() {
       prev.includes(novelId) ? prev.filter((id) => id !== novelId) : [...prev, novelId]
     );
   };
-  
+
   const showFirstConfirmation = () => {
     if (selectedNovels.length === 0) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -322,13 +414,11 @@ export default function LibraryScreen() {
       ]
     );
   };
- 
+
   const performBatchDelete = async () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     setConfirmDeleteVisible(false);
-    
     await removeNovels(selectedNovels);
-    
     setSelectionMode(false);
     setSelectedNovels([]);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -360,17 +450,16 @@ export default function LibraryScreen() {
   const toggleSearch = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setShowSearch(!showSearch);
-    if (!showSearch) {
-      setSearchQuery("");
-    }
+    if (!showSearch) setSearchQuery("");
   };
 
+  // ── Render helpers ─────────────────────────────────────────────────────────
   const renderHeader = () => (
     <View style={[styles.header, { paddingTop: topPad + 12, borderBottomColor: colors.border, backgroundColor: colors.background }]}>
       <View>
         <Text style={[styles.headerTitle, { color: colors.text }]}>Novel DR</Text>
         <Text style={[styles.headerSub, { color: colors.textSecondary }]}>
-          {filteredNovels.length} {filteredNovels.length === 1 ? "novel" : "novels"} 
+          {filteredNovels.length} {filteredNovels.length === 1 ? "novel" : "novels"}
           {searchQuery ? ` (filtered from ${novels.length})` : ""}
         </Text>
       </View>
@@ -463,7 +552,7 @@ export default function LibraryScreen() {
 
   const renderEmptyState = () => {
     const isFiltered = searchQuery || activeFilter !== "all";
-    
+
     if (novels.length === 0) {
       return (
         <View style={styles.emptyState}>
@@ -496,7 +585,7 @@ export default function LibraryScreen() {
         />
         <Text style={[styles.emptyTitle, { color: colors.text }]}>No novels found</Text>
         <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-          {searchQuery 
+          {searchQuery
             ? `No novels matching "${searchQuery}"`
             : `No novels marked as "${FILTER_TABS.find((t) => t.key === activeFilter)?.label}" yet.`
           }
@@ -539,13 +628,22 @@ export default function LibraryScreen() {
         )}
         contentContainerStyle={{ padding: 16, paddingBottom: bottomPad + 90, gap: 12 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={colors.accent}
+            colors={[colors.accent]}
+          />
+        }
       />
     );
   };
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Top chrome — flexShrink: 0 prevents it from being squished by the list */}
+      {/* Top chrome */}
       <View style={styles.topChrome}>
         {selectionMode ? renderSelectionHeader() : renderHeader()}
         {showSearch && !selectionMode && renderSearchBar()}
@@ -565,6 +663,25 @@ export default function LibraryScreen() {
         </View>
       )}
 
+      {/* ── Floating Refresh Button (FAB) ── */}
+      {!selectionMode && (
+        <Pressable
+          style={[
+            styles.fab,
+            {
+              backgroundColor: colors.card,
+              borderColor: colors.accent,
+              bottom: bottomPad + 90,
+            },
+          ]}
+          onPress={handleRefresh}
+        >
+          <Animated.View style={fabSpinStyle}>
+            <Ionicons name="refresh" size={22} color={colors.text} />
+          </Animated.View>
+        </Pressable>
+      )}
+
       {/* Batch Delete Confirmation Modal */}
       <Modal
         visible={confirmDeleteVisible}
@@ -581,7 +698,7 @@ export default function LibraryScreen() {
               Are you sure about this? {"\n\n"}
               If YES, click the 'DELETE' button.
             </Text>
-            
+
             <View style={styles.modalButtons}>
               <Pressable
                 style={[styles.modalButton, styles.modalCancelButton, { borderColor: colors.border }]}
@@ -614,7 +731,6 @@ export default function LibraryScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
 
-  // top chrome wrapper — never shrinks regardless of list content
   topChrome: { flexShrink: 0 },
 
   // header
@@ -628,11 +744,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontFamily: "Inter_700Bold", fontSize: 28 },
   headerSub: { fontFamily: "Inter_400Regular", fontSize: 13, marginTop: 2 },
-  headerButtons: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
+  headerButtons: { flexDirection: "row", alignItems: "center", gap: 8 },
   iconButton: { padding: 8 },
 
   // selection header
@@ -691,32 +803,64 @@ const styles = StyleSheet.create({
   filterCount: { minWidth: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", paddingHorizontal: 5 },
   filterCountText: { fontFamily: "Inter_600SemiBold", fontSize: 11 },
 
-  // card
+  // Updated card styles
   card: {
     flexDirection: "row",
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
-    alignItems: "center",
     padding: 12,
     gap: 12,
   },
   checkboxContainer: { marginRight: 4 },
-  coverContainer: { width: 64, height: 88, borderRadius: 8, overflow: "hidden", flexShrink: 0 },
+  coverContainer: { width: 80, height: 110, borderRadius: 8, overflow: "hidden", flexShrink: 0 },
   cover: { width: "100%", height: "100%" },
   coverPlaceholder: { width: "100%", height: "100%", alignItems: "center", justifyContent: "center", borderRadius: 8 },
-  info: { flex: 1, gap: 4 },
-  title: { fontFamily: "Inter_600SemiBold", fontSize: 15, lineHeight: 21 },
-  author: { fontFamily: "Inter_400Regular", fontSize: 13 },
-  footer: { flexDirection: "row", gap: 6, marginTop: 4, flexWrap: "wrap" },
-  badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  badgeText: { fontFamily: "Inter_500Medium", fontSize: 11 },
-  continueBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  continueText: { fontFamily: "Inter_500Medium", fontSize: 11, color: "#fff" },
-  statusBadge: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  
+  info: { flex: 1, gap: 6 },
+  
+  titleRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  title: { fontFamily: "Inter_700Bold", fontSize: 16, flex: 1, lineHeight: 22 },
+  
+  statusBadge: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12 },
   statusDot: { width: 6, height: 6, borderRadius: 3 },
-  statusText: { fontFamily: "Inter_500Medium", fontSize: 11 },
-  chevron: { marginLeft: "auto" },
+  statusText: { fontFamily: "Inter_500Medium", fontSize: 10 },
+  
+  metaRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
+  authorLabel: { fontFamily: "Inter_500Medium", fontSize: 12 },
+  author: { fontFamily: "Inter_400Regular", fontSize: 12, flex: 1 },
+  sourceLabel: { fontFamily: "Inter_500Medium", fontSize: 11 },
+  source: { fontFamily: "Inter_400Regular", fontSize: 11, flex: 1 },
+  
+  progressRow: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 4 },
+  progressLeft: { flex: 1 },
+  progressText: { fontFamily: "Inter_500Medium", fontSize: 11, marginBottom: 4 },
+  progressBarContainer: { height: 4, backgroundColor: "rgba(255,255,255,0.15)", borderRadius: 2, overflow: "hidden" },
+  progressBar: { height: "100%", borderRadius: 2 },
+  continueButton: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
+  continueButtonText: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: "#fff" },
+
+  // floating refresh button
+  fab: {
+    position: "absolute",
+    right: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 4,
+  },
 
   // empty state
   emptyState: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 40, gap: 12 },
