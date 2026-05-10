@@ -632,9 +632,9 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
         'or reply to other readers.',
         'Thoughtful comments',
         'make this page more useful for everyone.',
-        'pαndα,noνɐ1,сoМ …...'
-
-
+        'pαndα,noνɐ1,сoМ …...',
+        '© Copyright NovelFull .',
+        'All Rights Reserved.'
         
       ];
       const filtered = validParagraphs.filter(text => {
