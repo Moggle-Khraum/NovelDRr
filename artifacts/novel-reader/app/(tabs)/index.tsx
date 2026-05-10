@@ -33,6 +33,28 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLibrary, Novel, NovelStatus } from "@/context/LibraryContext";
 import { useTheme } from "@/context/ThemeContext";
 
+// ── Helper: Extract readable source name from URL ───────────────────────────
+const getSourceDisplayName = (sourceUrl: string): string => {
+  try {
+    const domain = new URL(sourceUrl).hostname;
+    const clean = domain.replace("www.", "");
+    const siteNames: Record<string, string> = {
+      "freewebnovel.com": "FreeWebNovel",
+      "freewebnovel.org": "FreeWebNovel",
+      "bednovel.com": "BedNovel",
+      "readnovelfull.com": "ReadNovelFull",
+      "novelfull.com": "NovelFull",
+      "allnovel.org": "AllNovel",
+      "novgo.net": "NovGo",
+      "novelbin.com": "NovelBin",
+      "lightnovelworld.com": "LightNovelWorld",
+    };
+    return siteNames[clean] || clean.split(".")[0];
+  } catch {
+    return "Unknown";
+  }
+};
+
 // ── Status config ────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<NovelStatus, { label: string; color: string; icon: string }> = {
@@ -48,7 +70,7 @@ const FILTER_TABS: { key: NovelStatus | "all"; label: string }[] = [
   { key: "completed", label: "Completed" },
 ];
 
-// ── NovelCard ────────────────────────────────────────────────────────────────
+// ── NovelCard (Updated to match the image layout) ────────────────────────────
 
 function NovelCard({
   novel,
@@ -67,13 +89,13 @@ function NovelCard({
   const scale = useSharedValue(1);
   const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
-  const chapters = novel.chapters.length;
-  const progress = novel.lastRead
-    ? `Ch. ${novel.lastRead.chapterIndex + 1}/${chapters}`
-    : `${chapters} chapters`;
+  const totalChapters = novel.chapters.length;
+  const currentChapter = novel.lastRead ? novel.lastRead.chapterIndex + 1 : 0;
+  const progressPercent = totalChapters > 0 ? (currentChapter / totalChapters) * 100 : 0;
 
   const status = novel.status ?? "unread";
   const statusCfg = STATUS_CONFIG[status];
+  const sourceName = getSourceDisplayName(novel.sourceUrl);
 
   return (
     <Pressable
@@ -92,6 +114,7 @@ function NovelCard({
           animStyle,
         ]}
       >
+        {/* Selection mode checkbox */}
         {selectionMode && (
           <View style={styles.checkboxContainer}>
             <Ionicons
@@ -102,6 +125,7 @@ function NovelCard({
           </View>
         )}
 
+        {/* Cover Image - Left side */}
         <View style={styles.coverContainer}>
           {novel.coverUrl ? (
             <Image source={{ uri: novel.coverUrl }} style={styles.cover} contentFit="cover" />
@@ -112,30 +136,58 @@ function NovelCard({
           )}
         </View>
 
+        {/* Right side content */}
         <View style={styles.info}>
-          <Text style={[styles.title, { color: colors.text }]} numberOfLines={2}>
-            {novel.title}
-          </Text>
-          <Text style={[styles.author, { color: colors.textSecondary }]} numberOfLines={1}>
-            {novel.author}
-          </Text>
-          <View style={styles.footer}>
-            <View style={[styles.badge, { backgroundColor: colors.accent + "22" }]}>
-              <Text style={[styles.badgeText, { color: colors.accent }]}>{progress}</Text>
-            </View>
-            {novel.lastRead && (
-              <View style={[styles.continueBadge, { backgroundColor: colors.accent }]}>
-                <Text style={styles.continueText}>Continue</Text>
-              </View>
-            )}
+          {/* Title row with status badge */}
+          <View style={styles.titleRow}>
+            <Text style={[styles.title, { color: colors.text }]} numberOfLines={2}>
+              {novel.title}
+            </Text>
             <View style={[styles.statusBadge, { backgroundColor: statusCfg.color + "22" }]}>
               <View style={[styles.statusDot, { backgroundColor: statusCfg.color }]} />
               <Text style={[styles.statusText, { color: statusCfg.color }]}>{statusCfg.label}</Text>
             </View>
           </View>
-        </View>
 
-        <Ionicons name="chevron-forward" size={16} color={colors.textMuted} style={styles.chevron} />
+          {/* Author row */}
+          <View style={styles.metaRow}>
+            <Text style={[styles.authorLabel, { color: colors.textSecondary }]}>Author:</Text>
+            <Text style={[styles.author, { color: colors.textSecondary }]} numberOfLines={1}>
+              {novel.author}
+            </Text>
+          </View>
+
+          {/* Source row */}
+          <View style={styles.metaRow}>
+            <Text style={[styles.sourceLabel, { color: colors.textMuted }]}>Source:</Text>
+            <Text style={[styles.source, { color: colors.textMuted }]} numberOfLines={1}>
+              {sourceName}
+            </Text>
+          </View>
+
+          {/* Progress row with button (like your image) */}
+          <View style={styles.progressRow}>
+            <View style={styles.progressLeft}>
+              <Text style={[styles.progressText, { color: colors.textSecondary }]}>
+                Ch. {currentChapter}/{totalChapters}
+              </Text>
+              <View style={styles.progressBarContainer}>
+                <View 
+                  style={[
+                    styles.progressBar, 
+                    { width: `${progressPercent}%`, backgroundColor: colors.accent }
+                  ]} 
+                />
+              </View>
+            </View>
+            <Pressable 
+              style={[styles.continueButton, { backgroundColor: colors.accent }]}
+              onPress={onPress}
+            >
+              <Text style={styles.continueButtonText}>Continue</Text>
+            </Pressable>
+          </View>
+        </View>
       </Animated.View>
     </Pressable>
   );
@@ -204,7 +256,6 @@ function StatusSheet({
 // ── LibraryScreen ────────────────────────────────────────────────────────────
 
 export default function LibraryScreen() {
-  // Add `refreshLibrary` from your LibraryContext
   const { novels, removeNovels, loading, setNovelStatus, refreshLibrary } = useLibrary();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -575,7 +626,6 @@ export default function LibraryScreen() {
         )}
         contentContainerStyle={{ padding: 16, paddingBottom: bottomPad + 90, gap: 12 }}
         showsVerticalScrollIndicator={false}
-        // ── Pull-to-refresh ──────────────────────────────────────────────────
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -751,32 +801,47 @@ const styles = StyleSheet.create({
   filterCount: { minWidth: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", paddingHorizontal: 5 },
   filterCountText: { fontFamily: "Inter_600SemiBold", fontSize: 11 },
 
-  // card
+  // Updated card styles
   card: {
     flexDirection: "row",
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
-    alignItems: "center",
     padding: 12,
     gap: 12,
   },
   checkboxContainer: { marginRight: 4 },
-  coverContainer: { width: 64, height: 88, borderRadius: 8, overflow: "hidden", flexShrink: 0 },
+  coverContainer: { width: 80, height: 110, borderRadius: 8, overflow: "hidden", flexShrink: 0 },
   cover: { width: "100%", height: "100%" },
   coverPlaceholder: { width: "100%", height: "100%", alignItems: "center", justifyContent: "center", borderRadius: 8 },
-  info: { flex: 1, gap: 4 },
-  title: { fontFamily: "Inter_600SemiBold", fontSize: 15, lineHeight: 21 },
-  author: { fontFamily: "Inter_400Regular", fontSize: 13 },
-  footer: { flexDirection: "row", gap: 6, marginTop: 4, flexWrap: "wrap" },
-  badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  badgeText: { fontFamily: "Inter_500Medium", fontSize: 11 },
-  continueBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  continueText: { fontFamily: "Inter_500Medium", fontSize: 11, color: "#fff" },
-  statusBadge: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  
+  info: { flex: 1, gap: 6 },
+  
+  titleRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  title: { fontFamily: "Inter_700Bold", fontSize: 16, flex: 1, lineHeight: 22 },
+  
+  statusBadge: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12 },
   statusDot: { width: 6, height: 6, borderRadius: 3 },
-  statusText: { fontFamily: "Inter_500Medium", fontSize: 11 },
-  chevron: { marginLeft: "auto" },
+  statusText: { fontFamily: "Inter_500Medium", fontSize: 10 },
+  
+  metaRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
+  authorLabel: { fontFamily: "Inter_500Medium", fontSize: 12 },
+  author: { fontFamily: "Inter_400Regular", fontSize: 12, flex: 1 },
+  sourceLabel: { fontFamily: "Inter_500Medium", fontSize: 11 },
+  source: { fontFamily: "Inter_400Regular", fontSize: 11, flex: 1 },
+  
+  progressRow: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 4 },
+  progressLeft: { flex: 1 },
+  progressText: { fontFamily: "Inter_500Medium", fontSize: 11, marginBottom: 4 },
+  progressBarContainer: { height: 4, backgroundColor: "rgba(255,255,255,0.15)", borderRadius: 2, overflow: "hidden" },
+  progressBar: { height: "100%", borderRadius: 2 },
+  continueButton: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
+  continueButtonText: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: "#fff" },
 
   // floating refresh button
   fab: {
