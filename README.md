@@ -56,22 +56,6 @@ NovelDR is a free, open-source Android application that lets you download webnov
 | [NovelBin](https://novelbin.com) | ✅ Full support |
 | [LightNovelWorld](https://lightnovelworld.org) | ✅ Full support |
 
-
-## 📲 Download & Install
-
-### Latest Version: v1.3.11rev137
-
-📦 APK Size: ~92.93 MB
-
-📱 Requires: Android 8.0+
-
-🛠️ Version/Revised: NovelDR v1.3.11rev137
-
-🛡️ Virus Scan: [Clean ✓ (Jotti's 0/15)](https://virusscan.jotti.org/en-US/filescanjob/rr218ci9cs)
-
-🔗 Mirror Link(Latest): [NovelDR v1.3.11rev137](https://www.mediafire.com/file/qcqnjoqm828753c/NovelDR_v1.3.11rev137.apk/file)
-
-
 ## 🚀 Quick Install Guide
 
 1. Download the APK from [Releases](https://github.com/Moggle-Khraum/noveldr-site/releases) or from [Website](https://moggle.is-a-good.dev/#)
