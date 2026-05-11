@@ -82,7 +82,7 @@ Novel DR is a tool for downloading publicly available web content. Users are res
 
 ## 📄 License
 
-MIT © [Moggle-Khraum](https://github.com/Moggle-Khraum)
+MIT © [Moggle-Khraum](https://github.com/Moggle-Khraum/NovelDR/blob/master/LICENSE)
 
 ---
 
