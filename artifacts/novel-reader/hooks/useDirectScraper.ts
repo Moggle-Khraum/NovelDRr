@@ -417,6 +417,7 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
     
     // Default title
     let title = `Chapter ${chapterNum}`;
+    let skipCleanup = false;
     
     // Extract real chapter title
     if (isReadNovelFull || isNovelFullNet || isNovelFullCom || isAllNovel || isNovgo) {
@@ -443,10 +444,11 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
       if (titleMatch) {
         let rawTitle = decodeEntities(titleMatch.trim()).replace(/\s+/g, ' ').trim();
         
-        // Strip the built-in "Chapter X:" prefix so we don't double it
-        rawTitle = rawTitle.replace(/^Chapter\s+\d+\s*[:.\-–—]\s*/i, '').trim();
+        // Remove all occurrences of "Chapter X:" from anywhere in the string
+        rawTitle = rawTitle.replace(/Chapter\s+\d+\s*[:.\-–—]\s*/gi, '').trim();
         
         title = `Chapter ${chapterNum}: ${rawTitle}`;
+        skipCleanup = true;
       }
     }
 
@@ -483,11 +485,13 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
       if (genericMatch) title = decodeEntities(genericMatch.trim());
     }
     
-    // Clean up the title
-    title = title
-      .replace(/\s+/g, ' ')
-      .replace(/^\s*Chapter\s+(\d+)\s*[:.-]?\s*/i, 'Chapter $1: ')
-      .trim();
+    // Clean up the title (skip if already processed by a site-specific block)
+    if (!skipCleanup) {
+      title = title
+        .replace(/\s+/g, ' ')
+        .replace(/^\s*Chapter\s+(\d+)\s*[:.-]?\s*/i, 'Chapter $1: ')
+        .trim();
+    }
     
     // First line fallback
     if (title === `Chapter ${chapterNum}` || title.match(/^Chapter\s+\d+$/i)) {
