@@ -424,14 +424,25 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
                          safeMatch(html, /<(?:h2|h3)[^>]*>([^<]*Chapter[^<]*)<\/(?:h2|h3)>/i);
       if (titleMatch) title = decodeEntities(titleMatch.trim());
     }
+
     
+    //FreeWebNovel Title Extractor
     if (isFreeWebNovel) {
       const titleMatch = safeMatch(html, /<h1[^>]*class="tit"[^>]*>([^<]+)<\/h1>/i) ||
                          safeMatch(html, /<h4[^>]*>([^<]*Chapter[^<]*)<\/h4>/i) ||
                          safeMatch(html, /<h2[^>]*>([^<]*Chapter[^<]*)<\/h2>/i);
-      if (titleMatch) title = decodeEntities(titleMatch.trim());
+      if (titleMatch) {
+        let rawTitle = decodeEntities(titleMatch.trim()).replace(/\s+/g, ' ').trim();
+        
+        // Strip the built-in "Chapter X:" prefix so we don't double it
+        rawTitle = rawTitle.replace(/^Chapter\s+\d+\s*[:.\-–—]\s*/i, '').trim();
+        
+        title = `Chapter ${chapterNum}: ${rawTitle}`;
+      }
     }
-    
+
+
+    // Novelbin
     if (isNovelBin) {
       const titleMatch = safeMatch(html, /<h3[^>]*class="title"[^>]*>([^<]+)<\/h3>/i) ||
                          safeMatch(html, /<(?:h2|h3)[^>]*>([^<]*Chapter[^<]*)<\/(?:h2|h3)>/i) ||
