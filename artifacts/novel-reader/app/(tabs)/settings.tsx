@@ -1091,7 +1091,7 @@ export default function SettingsScreen() {
         </View>
 
         <View style={[styles.versionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Text style={[styles.versionText, { color: colors.textMuted }]}>Novel DR — v1.4.3-rev171</Text>
+          <Text style={[styles.versionText, { color: colors.textMuted }]}>Novel DR — v1.4.4-rev175</Text>
           <Text style={[styles.madeByText, { color: colors.textMuted }]}>Made by Moggs ☕</Text>
         </View>
       </ScrollView>
