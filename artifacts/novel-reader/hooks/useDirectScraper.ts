@@ -420,11 +420,20 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
     
     // Extract real chapter title
     if (isReadNovelFull || isNovelFullNet || isNovelFullCom || isAllNovel || isNovgo) {
-      const titleMatch = safeMatch(html, /<(?:h2|h3)[^>]*class="(?:chapter-title|title|chapter)"[^>]*>([^<]+)<\/(?:h2|h3)>/i) ||
+      const titleMatch = safeMatch(html, /<span[^>]*class="(?:chr-text|chapter-text)"[^>]*>([^<]+)<\/span>/i) ||
+                         safeMatch(html, /<a[^>]*class="(?:chr-title|chapter-title)"[^>]*title="([^"]+)"/i) ||
+                         safeMatch(html, /<(?:h2|h3)[^>]*class="(?:chapter-title|title|chapter)"[^>]*>([^<]+)<\/(?:h2|h3)>/i) ||
                          safeMatch(html, /<(?:h2|h3)[^>]*>([^<]*Chapter[^<]*)<\/(?:h2|h3)>/i);
-      if (titleMatch) title = decodeEntities(titleMatch.trim());
+      if (titleMatch) {
+        let rawTitle = decodeEntities(titleMatch.trim()).replace(/\s+/g, ' ').trim();
+        
+        // Strip built-in "Chapter X:" prefix to avoid doubling
+        rawTitle = rawTitle.replace(/^Chapter\s+\d+(\s+\d+)?\s*[:.\-–—]\s*/i, '').trim();
+        
+        title = `Chapter ${chapterNum}: ${rawTitle}`;
+      }
     }
-
+    
     
     //FreeWebNovel Title Extractor
     if (isFreeWebNovel) {
@@ -444,12 +453,22 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
 
     // Novelbin
     if (isNovelBin) {
-      const titleMatch = safeMatch(html, /<h3[^>]*class="title"[^>]*>([^<]+)<\/h3>/i) ||
+      const titleMatch = safeMatch(html, /<span[^>]*class="chr-text"[^>]*>([^<]+)<\/span>/i) ||
+                         safeMatch(html, /<a[^>]*class="chr-title"[^>]*title="([^"]+)"/i) ||
+                         safeMatch(html, /<h3[^>]*class="title"[^>]*>([^<]+)<\/h3>/i) ||
                          safeMatch(html, /<(?:h2|h3)[^>]*>([^<]*Chapter[^<]*)<\/(?:h2|h3)>/i) ||
                          safeMatch(html, /<a[^>]*class="chr-title"[^>]*>([^<]+)<\/a>/i);
-      if (titleMatch) title = decodeEntities(titleMatch.trim());
+      if (titleMatch) {
+        let rawTitle = decodeEntities(titleMatch.trim()).replace(/\s+/g, ' ').trim();
+        
+        // Strip built-in "Chapter X:" prefix to avoid doubling
+        rawTitle = rawTitle.replace(/^Chapter\s+\d+(\s+\d+)?\s*[:.\-–—]\s*/i, '').trim();
+        
+        title = `Chapter ${chapterNum}: ${rawTitle}`;
+      }
     }
-    
+
+    //LightNovelWorld
     if (isLightNovelWorld) {
       const titleMatch = safeMatch(html, /<h1[^>]*class="chapter-title"[^>]*>([^<]+)<\/h1>/i) ||
                          safeMatch(html, /<h2[^>]*class="chapter-title"[^>]*>([^<]+)<\/h2>/i) ||
