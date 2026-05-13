@@ -425,14 +425,15 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
                          safeMatch(html, /<a[^>]*class="(?:chr-title|chapter-title)"[^>]*title="([^"]+)"/i) ||
                          safeMatch(html, /<(?:h2|h3)[^>]*class="(?:chapter-title|title|chapter)"[^>]*>([^<]+)<\/(?:h2|h3)>/i) ||
                          safeMatch(html, /<(?:h2|h3)[^>]*>([^<]*Chapter[^<]*)<\/(?:h2|h3)>/i);
-      if (titleMatch) {
-        
-        let rawTitle = decodeEntities(titleMatch.trim()).replace(/\s+/g, ' ').trim();
-        rawTitle = rawTitle.replace(/^.*Chapter\s+\d+(\s+\d+)?\s*[:.\-–—]?\s*/i, '').trim();
-        title = `Chapter ${chapterNum}: ${rawTitle}`;
-        skipCleanup = true;
-      }
+   if (titleMatch) {
+     let rawTitle = decodeEntities(titleMatch.trim()).replace(/\s+/g, ' ').trim();
+     rawTitle = rawTitle.replace(/^.*Chapter\s+\d+(\s+\d+)?\s*[:.\-–—]?\s*/i, '').trim();
+     // Remove any leading comma and spaces left over
+     rawTitle = rawTitle.replace(/^[\s,]+/, '').trim();
+     title = `Chapter ${chapterNum}: ${rawTitle}`;
+     skipCleanup = true;
     }
+  }
         
     //FreeWebNovel Title Extractor
     if (isFreeWebNovel) {
