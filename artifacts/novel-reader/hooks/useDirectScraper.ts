@@ -426,16 +426,14 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
                          safeMatch(html, /<(?:h2|h3)[^>]*class="(?:chapter-title|title|chapter)"[^>]*>([^<]+)<\/(?:h2|h3)>/i) ||
                          safeMatch(html, /<(?:h2|h3)[^>]*>([^<]*Chapter[^<]*)<\/(?:h2|h3)>/i);
       if (titleMatch) {
+        
         let rawTitle = decodeEntities(titleMatch.trim()).replace(/\s+/g, ' ').trim();
-        
-        // Strip built-in "Chapter X:" prefix to avoid doubling
-        rawTitle = rawTitle.replace(/^Chapter\s+\d+(\s+\d+)?\s*[:.\-–—]\s*/i, '').trim();
-        
+        rawTitle = rawTitle.replace(/^.*Chapter\s+\d+(\s+\d+)?\s*[:.\-–—]?\s*/i, '').trim();
         title = `Chapter ${chapterNum}: ${rawTitle}`;
+        skipCleanup = true;
       }
     }
-    
-    
+        
     //FreeWebNovel Title Extractor
     if (isFreeWebNovel) {
       const titleMatch = safeMatch(html, /<h1[^>]*class="tit"[^>]*>([^<]+)<\/h1>/i) ||
@@ -443,10 +441,10 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
                          safeMatch(html, /<h2[^>]*>([^<]*Chapter[^<]*)<\/h2>/i);
       if (titleMatch) {
         let rawTitle = decodeEntities(titleMatch.trim()).replace(/\s+/g, ' ').trim();
-        
-        // Remove all occurrences of "Chapter X:" from anywhere in the string
+        // Remove all "Chapter X:" prefixes
         rawTitle = rawTitle.replace(/Chapter\s+\d+\s*[:.\-–—]\s*/gi, '').trim();
-        
+        // Remove stray duplicate number (e.g., "15 :")
+        rawTitle = rawTitle.replace(new RegExp(`^\\s*${chapterNum}\\s*[:.\\-–—]?\\s*`, 'i'), '').trim();
         title = `Chapter ${chapterNum}: ${rawTitle}`;
         skipCleanup = true;
       }
@@ -462,11 +460,9 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
                          safeMatch(html, /<a[^>]*class="chr-title"[^>]*>([^<]+)<\/a>/i);
       if (titleMatch) {
         let rawTitle = decodeEntities(titleMatch.trim()).replace(/\s+/g, ' ').trim();
-        
-        // Strip built-in "Chapter X:" prefix to avoid doubling
-        rawTitle = rawTitle.replace(/^Chapter\s+\d+(\s+\d+)?\s*[:.\-–—]\s*/i, '').trim();
-        
+        rawTitle = rawTitle.replace(/^.*Chapter\s+\d+(\s+\d+)?\s*[:.\-–—]?\s*/i, '').trim();
         title = `Chapter ${chapterNum}: ${rawTitle}`;
+        skipCleanup = true;
       }
     }
 
