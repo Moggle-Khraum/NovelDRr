@@ -36,7 +36,6 @@ NovelDR is a free, open-source Android application that lets you download webnov
 | **🔒 Fully Offline** | Everything stored locally — no account or internet needed after download |
 
 ## 📱 Screens
-
 | Screen | What it does |
 |---|---|
 | **Library** | Browse your collection with filters, reading progress, and batch selection |
@@ -45,6 +44,26 @@ NovelDR is a free, open-source Android application that lets you download webnov
 | **Settings** | Switch themes, view library stats, backup/restore data |
 | **Novel Detail** | Cover art, synopsis, author info, chapter list with progress indicators |
 | **Reader** | Full-screen reading with font/spacing controls, auto-scroll, and chapter navigation |
+
+## 🖼️ App Screenshots
+### **Main Screens**
+
+| Library                             | Novels List (RoyalRoad)                                       | Novel Details (RoyalRoad)                                          |
+| ------------------------------------------ | ------------------------------------------------------------- | ------------------------------------------------------------------ |
+| ![Library Screen]([Screenshots/HomeScreen.jpg](https://github.com/Moggle-Khraum/NovelDR-site/blob/main/assets/screenshots/Library.png)) | ![Novels List RoyalRoad](Screenshots/NovelList_RoyalRoad.jpg) | ![Novel Details RoyalRoad](Screenshots/NovelDetails_RoyalRoad.jpg) |
+
+### **Additional Sources**
+
+| Novels List (NovelasLigera)                                         | Novel Details (NovelBin)                                        | Novel Details (NovelasLigera)                                             |
+| ------------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| ![NovelList NovelasLigera](Screenshots/NovelList_NovelasLigera.jpg) | ![NovelDetails NovelBin](Screenshots/NovelDetails_NovelBin.jpg) | ![NovelDetails NovelasLigera](Screenshots/NovelDetails_NovelasLigera.jpg) |
+
+### **Reader & Utilities**
+
+| Chapter View                                           | Settings                              | Search                                                |
+| ------------------------------------------------------ | ------------------------------------- | ----------------------------------------------------- |
+| ![Chapter View](Screenshots/ChapterView_RoyalRoad.jpg) | ![Settings](Screenshots/Settings.jpg) | ![Search Novel](Screenshots/SearchNovel_NovelBin.jpg) |
+
 
 ## 🌐 Supported Sources
 
