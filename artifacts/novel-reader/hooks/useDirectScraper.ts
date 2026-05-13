@@ -536,6 +536,7 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
         'report error',
         'novelbin.com',
         'novelbin.me',
+        'Community',
       ];
       const filtered = validParagraphs.filter(text => {
         const lower = text.toLowerCase();
