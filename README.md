@@ -35,19 +35,9 @@ NovelDR is a free, open-source Android application that lets you download webnov
 | **⏭️ Smart Skipper** | Skip existing chapters when downloading to avoid duplicates |
 | **🔒 Fully Offline** | Everything stored locally — no account or internet needed after download |
 
-## 📱 Screens
-| Screen | What it does |
-|---|---|
-| **Library** | Browse your collection with filters, reading progress, and batch selection |
-| **Download** | Paste a supported URL, set starting chapter and max chapters, download with live progress |
-| **Updates** | Select a novel, configure chapter range, and tap to fetch new content |
-| **Settings** | Switch themes, view library stats, backup/restore data |
-| **Novel Detail** | Cover art, synopsis, author info, chapter list with progress indicators |
-| **Reader** | Full-screen reading with font/spacing controls, auto-scroll, and chapter navigation |
-
 ## 🖼️ App Screenshots
-### **Main Screens**
 
+### **Main Screens**
 | Library Tab | Download Tab | Updates Tab | Settings Tab |
 | ----------- | ------------ | ----------- | ------------- |
 | <img src="https://github.com/Moggle-Khraum/resources_for_display/blob/main/screenshots/Library.png?raw=true" width="200"> | <img src="https://github.com/Moggle-Khraum/resources_for_display/blob/main/screenshots/Download.png?raw=true" width="200"> | <img src="https://github.com/Moggle-Khraum/resources_for_display/blob/main/screenshots/Updates.png?raw=true" width="200"> | <img src="https://github.com/Moggle-Khraum/resources_for_display/blob/main/screenshots/Settings.png?raw=true" width="200"> |
