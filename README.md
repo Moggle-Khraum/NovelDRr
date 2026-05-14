@@ -4,7 +4,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-v1.4.0rev147-brightgreen)
+![Version](https://img.shields.io/badge/version-v1.4.3rev171-brightgreen)
 ![Android](https://img.shields.io/badge/Android-8.0%2B-8f5e4e?logo=android)
 ![Size](https://img.shields.io/badge/size-~92.93_MB-5a3e36)
 ![Malware](https://img.shields.io/badge/Jotti's_Malware-Clean_✓_(0/15)-4caf50)
@@ -36,7 +36,6 @@ NovelDR is a free, open-source Android application that lets you download webnov
 | **🔒 Fully Offline** | Everything stored locally — no account or internet needed after download |
 
 ## 📱 Screens
-
 | Screen | What it does |
 |---|---|
 | **Library** | Browse your collection with filters, reading progress, and batch selection |
@@ -45,6 +44,26 @@ NovelDR is a free, open-source Android application that lets you download webnov
 | **Settings** | Switch themes, view library stats, backup/restore data |
 | **Novel Detail** | Cover art, synopsis, author info, chapter list with progress indicators |
 | **Reader** | Full-screen reading with font/spacing controls, auto-scroll, and chapter navigation |
+
+## 🖼️ App Screenshots
+### **Main Screens**
+
+| Library Tab                                | Download Tab                                                  | Updates Tab                             |  Settings Tab           |
+| ------------------------------------------ | ------------------------------------------------------------- | ------------------------------------------------------------------ |
+| ![Library Screen](https://github.com/Moggle-Khraum/NovelDR-site/blob/main/assets/screenshots/Library.png) | ![Download Screen](https://github.com/Moggle-Khraum/NovelDR-site/blob/main/assets/screenshots/Download.png) | ![Updates Screen](https://github.com/Moggle-Khraum/NovelDR-site/blob/main/assets/Sepia_Updates.avif)](https://github.com/Moggle-Khraum/NovelDR-site/blob/main/assets/screenshots/Sepia_Updates.png) |
+
+### **Additional Sources**
+
+| Novels List (NovelasLigera)                                         | Novel Details (NovelBin)                                        | Novel Details (NovelasLigera)                                             |
+| ------------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| ![NovelList NovelasLigera](Screenshots/NovelList_NovelasLigera.jpg) | ![NovelDetails NovelBin](Screenshots/NovelDetails_NovelBin.jpg) | ![NovelDetails NovelasLigera](Screenshots/NovelDetails_NovelasLigera.jpg) |
+
+### **Reader & Utilities**
+
+| Chapter View                                           | Settings                              | Search                                                |
+| ------------------------------------------------------ | ------------------------------------- | ----------------------------------------------------- |
+| ![Chapter View](Screenshots/ChapterView_RoyalRoad.jpg) | ![Settings](Screenshots/Settings.jpg) | ![Search Novel](Screenshots/SearchNovel_NovelBin.jpg) |
+
 
 ## 🌐 Supported Sources
 
@@ -55,22 +74,6 @@ NovelDR is a free, open-source Android application that lets you download webnov
 | [FreeWebNovel](https://freewebnovel.com) | ✅ Full support |
 | [NovelBin](https://novelbin.com) | ✅ Full support |
 | [LightNovelWorld](https://lightnovelworld.org) | ✅ Full support |
-
-
-## 📲 Download & Install
-
-### Latest Version: v1.3.11rev137
-
-📦 APK Size: ~92.93 MB
-
-📱 Requires: Android 8.0+
-
-🛠️ Version/Revised: NovelDR v1.3.11rev137
-
-🛡️ Virus Scan: [Clean ✓ (Jotti's 0/15)](https://virusscan.jotti.org/en-US/filescanjob/rr218ci9cs)
-
-🔗 Mirror Link(Latest): [NovelDR v1.3.11rev137](https://www.mediafire.com/file/qcqnjoqm828753c/NovelDR_v1.3.11rev137.apk/file)
-
 
 ## 🚀 Quick Install Guide
 
@@ -98,7 +101,7 @@ Novel DR is a tool for downloading publicly available web content. Users are res
 
 ## 📄 License
 
-MIT © [Moggle-Khraum](https://github.com/Moggle-Khraum)
+MIT © [Moggle-Khraum](https://github.com/Moggle-Khraum/NovelDR/blob/master/LICENSE)
 
 ---
 
