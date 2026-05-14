@@ -417,12 +417,21 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
     
     // Default title
     let title = `Chapter ${chapterNum}`;
+    let skipCleanup = false;
     
     // Extract real chapter title
     if (isReadNovelFull || isNovelFullNet || isNovelFullCom || isAllNovel || isNovgo) {
-      const titleMatch = safeMatch(html, /<(?:h2|h3)[^>]*class="(?:chapter-title|title|chapter)"[^>]*>([^<]+)<\/(?:h2|h3)>/i) ||
+      const titleMatch = safeMatch(html, /<span[^>]*class="(?:chr-text|chapter-text)"[^>]*>([^<]+)<\/span>/i) ||
+                         safeMatch(html, /<a[^>]*class="(?:chr-title|chapter-title)"[^>]*title="([^"]+)"/i) ||
+                         safeMatch(html, /<(?:h2|h3)[^>]*class="(?:chapter-title|title|chapter)"[^>]*>([^<]+)<\/(?:h2|h3)>/i) ||
                          safeMatch(html, /<(?:h2|h3)[^>]*>([^<]*Chapter[^<]*)<\/(?:h2|h3)>/i);
-      if (titleMatch) title = decodeEntities(titleMatch.trim());
+   if (titleMatch) {
+     let rawTitle = decodeEntities(titleMatch.trim()).replace(/\s+/g, ' ').trim();
+     rawTitle = rawTitle.replace(/^.*Chapter\s+\d+(\s+\d+)?\s*[:.\-–—]?\s*/i, '').trim();
+     // Remove any leading comma and spaces left over
+     rawTitle = rawTitle.replace(/^[\s,]+/, '').trim();
+     title = `Chapter ${chapterNum}: ${rawTitle}`;
+     skipCleanup = true;
     }
 
     if (isFreeWebNovel) {
@@ -438,14 +447,24 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
         title = `Chapter ${chapterNum}: ${rawTitle}`;
       }
     }
-    
+
+
+    // Novelbin
     if (isNovelBin) {
-      const titleMatch = safeMatch(html, /<h3[^>]*class="title"[^>]*>([^<]+)<\/h3>/i) ||
+      const titleMatch = safeMatch(html, /<span[^>]*class="chr-text"[^>]*>([^<]+)<\/span>/i) ||
+                         safeMatch(html, /<a[^>]*class="chr-title"[^>]*title="([^"]+)"/i) ||
+                         safeMatch(html, /<h3[^>]*class="title"[^>]*>([^<]+)<\/h3>/i) ||
                          safeMatch(html, /<(?:h2|h3)[^>]*>([^<]*Chapter[^<]*)<\/(?:h2|h3)>/i) ||
                          safeMatch(html, /<a[^>]*class="chr-title"[^>]*>([^<]+)<\/a>/i);
-      if (titleMatch) title = decodeEntities(titleMatch.trim());
+      if (titleMatch) {
+        let rawTitle = decodeEntities(titleMatch.trim()).replace(/\s+/g, ' ').trim();
+        rawTitle = rawTitle.replace(/^.*Chapter\s+\d+(\s+\d+)?\s*[:.\-–—]?\s*/i, '').trim();
+        title = `Chapter ${chapterNum}: ${rawTitle}`;
+        skipCleanup = true;
+      }
     }
-    
+
+    //LightNovelWorld
     if (isLightNovelWorld) {
       const titleMatch = safeMatch(html, /<h1[^>]*class="chapter-title"[^>]*>([^<]+)<\/h1>/i) ||
                          safeMatch(html, /<h2[^>]*class="chapter-title"[^>]*>([^<]+)<\/h2>/i) ||
@@ -460,11 +479,13 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
       if (genericMatch) title = decodeEntities(genericMatch.trim());
     }
     
-    // Clean up the title
-    title = title
-      .replace(/\s+/g, ' ')
-      .replace(/^\s*Chapter\s+(\d+)\s*[:.-]?\s*/i, 'Chapter $1: ')
-      .trim();
+    // Clean up the title (skip if already processed by a site-specific block)
+    if (!skipCleanup) {
+      title = title
+        .replace(/\s+/g, ' ')
+        .replace(/^\s*Chapter\s+(\d+)\s*[:.-]?\s*/i, 'Chapter $1: ')
+        .trim();
+    }
     
     // First line fallback
     if (title === `Chapter ${chapterNum}` || title.match(/^Chapter\s+\d+$/i)) {
@@ -550,6 +571,7 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
         'com',
         'freewebnovel.com',
         'freewebnovel',
+        '𝕗𝚛𝚎𝚎𝐰𝗲𝗯𝗻𝚘𝚟𝚎𝗹.𝕔𝐨𝕞',
         'bednovel.com',
         'bednovel',
         'please visit',

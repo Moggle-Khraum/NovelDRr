@@ -755,9 +755,6 @@ export default function UpdatesScreen() {
           <View style={styles.logHeader}>
             <Ionicons name="sync" size={15} color={colors.accent} />
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Activity Log</Text>
-            <Pressable onPress={clearAll}>
-              <Text style={[styles.clearLog, { color: colors.textMuted }]}>Clear</Text>
-            </Pressable>
           </View>
           <ScrollView
             ref={logScrollRef}
