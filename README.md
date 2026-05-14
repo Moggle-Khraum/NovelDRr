@@ -26,13 +26,13 @@ NovelDR is a free, open-source Android application that lets you download webnov
 
 | Category | Details |
 |---|---|
-| **🌐 Multi-Source Download** | ReadNovelFull, NovelFull, FreeWebNovel, NovelBin, LightNovelWorld, & more to come |
-| **📚 Smart Library** | Filter by All/Unread/Reading/Completed, batch delete, long-press actions |
+| **🌐 Multi-Source Download** | Download novels from any of the supported sites, and more to come! |
+| **📚 Dynamic Library** | Filter by tags, batch delete, pull to reload and by button |
 | **🔄 One-Tap Updates** | Select a novel and tap Update to fetch new chapters |
-| **🎨 3 Reading Themes** | Dark, Light, and Sepia modes |
+| **🎨 In-app Themes** | Dark, Light, and Sepia modes |
 | **📖 Reading Customization** | Adjustable font size, line spacing, and auto-scroll |
-| **💾 Data Control** | Full File Backup , Restore & Import system |
-| **⏭️ Smart Skipper** | Skip existing chapters when downloading to avoid duplicates |
+| **💾 Data Control** | Full Data Backup , Complete Restore & backup File Importing system |
+| **⏭️ Smart Skipper** | Skips existing chapters when downloading to avoid duplicates |
 | **🔒 Fully Offline** | Everything stored locally — no account or internet needed after download |
 
 ## 🖼️ App Screenshots
