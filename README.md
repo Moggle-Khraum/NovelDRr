@@ -12,7 +12,7 @@
 
 **Download webnovels. Read anywhere. No ads, no login, just pure offline reading.**
 
-[Website](https://moggle.is-a-good.dev/) · [Download APK](https://github.com/Moggle-Khraum/noveldr-site/releases)
+🌐 [Website](https://moggle.is-a-good.dev/) · 📦 [Download APK](https://github.com/Moggle-Khraum/noveldr-site/releases) · ☕ [Buy a Coffee](https://ko-fi.com/noveldrapp)
 
 </div>
 
@@ -48,9 +48,9 @@ NovelDR is a free, open-source Android application that lets you download webnov
 ## 🖼️ App Screenshots
 ### **Main Screens**
 
-| Library Tab                                | Download Tab                                                  | Updates Tab                             |  Settings Tab           |
-| ------------------------------------------ | ------------------------------------------------------------- | ------------------------------------------------------------------ |
-| ![Library Screen](https://github.com/Moggle-Khraum/NovelDR-site/blob/main/assets/screenshots/Library.png) | ![Download Screen](https://github.com/Moggle-Khraum/NovelDR-site/blob/main/assets/screenshots/Download.png) | ![Updates Screen](https://github.com/Moggle-Khraum/NovelDR-site/blob/main/assets/Sepia_Updates.avif)](https://github.com/Moggle-Khraum/NovelDR-site/blob/main/assets/screenshots/Sepia_Updates.png) |
+| Library Tab                                | Download Tab                                                  | Updates Tab                             | Settings Tab            |
+| ------------------------------------------ | ------------------------------------------------------------- | --------------------------------------- | ----------------------- |
+| ![Library Screen](https://github.com/Moggle-Khraum/NovelDR-site/blob/main/assets/screenshots/Library.png) | ![Download Screen](https://github.com/Moggle-Khraum/NovelDR-site/blob/main/assets/screenshots/Download.png) | ![Updates Screen](https://github.com/Moggle-Khraum/NovelDR-site/blob/main/assets/screenshots/Sepia_Updates.png) | ![Settings Screen](https://github.com/Moggle-Khraum/NovelDR-site/blob/main/assets/screenshots/Settings.png) |
 
 ### **Additional Sources**
 
