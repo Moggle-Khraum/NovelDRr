@@ -48,15 +48,16 @@ NovelDR is a free, open-source Android application that lets you download webnov
 ## 🖼️ App Screenshots
 ### **Main Screens**
 
-| Library Tab                                | Download Tab                                                  | Updates Tab                             | Settings Tab            |
-| ------------------------------------------ | ------------------------------------------------------------- | --------------------------------------- | ----------------------- |
-| ![Library](screenshots/Library.png) | ![Download](screenshots/Download.png) | ![Updates](screenshots/Updates.png) | ![Settings](screenshots/Settings.png) |
+| Library Tab | Download Tab | Updates Tab | Settings Tab |
+| ----------- | ------------ | ----------- | ------------- |
+| <img src="screenshots/Library.png" width="200"> | <img src="screenshots/Download.png" width="200"> | <img src="screenshots/Updates.png" width="200"> | <img src="screenshots/Settings.png" width="200"> |
 
-### **Additional Sources**
+### **Library Features**
+| Search Function | Reload by Pull/Button | Batch Deletion | Swipe Gesture |
+| ----------- | ------------ | ----------- | ------------- |
+| <img src="screenshots/Library.png" width="200"> | <img src="screenshots/Download.png" width="200"> | <img src="screenshots/Updates.png" width="200"> | <img src="screenshots/Settings.png" width="200"> |
 
-| Novels List (NovelasLigera)                                         | Novel Details (NovelBin)                                        | Novel Details (NovelasLigera)                                             |
-| ------------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| ![NovelList NovelasLigera](Screenshots/NovelList_NovelasLigera.jpg) | ![NovelDetails NovelBin](Screenshots/NovelDetails_NovelBin.jpg) | ![NovelDetails NovelasLigera](Screenshots/NovelDetails_NovelasLigera.jpg) |
+
 
 ### **Reader & Utilities**
 
