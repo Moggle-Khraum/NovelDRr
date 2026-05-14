@@ -55,7 +55,7 @@ NovelDR is a free, open-source Android application that lets you download webnov
 ### **Library Features**
 | Search Function | Reload by Pull/Button | Batch Deletion | Swipe Gesture |
 | ----------- | ------------ | ----------- | ------------- |
-| <img src="screenshots/Library.png" width="200"> | <img src="screenshots/Download.png" width="200"> | <img src="screenshots/Updates.png" width="200"> | <img src="screenshots/Settings.png" width="200"> |
+| <img src="https://github.com/Moggle-Khraum/resources_for_display/blob/main/gifs/search.gif?raw=true" width="200"> | <img src="screenshots/Download.png" width="200"> | <img src="https://github.com/Moggle-Khraum/resources_for_display/blob/main/gifs/batchDelete.gif?raw=true" width="200"> | <img src="https://github.com/Moggle-Khraum/resources_for_display/blob/main/gifs/swipe.gif?raw=true" width="200"> |
 
 
 
