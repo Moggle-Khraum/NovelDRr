@@ -49,11 +49,11 @@ NovelDR is a free, open-source Android application that lets you download webnov
 
 
 
-### **Reader & Utilities**
+### **Novel Reader & App Theme**
 
-| Chapter View                                           | Settings                              | Search                                                |
-| ------------------------------------------------------ | ------------------------------------- | ----------------------------------------------------- |
-| ![Chapter View](Screenshots/ChapterView_RoyalRoad.jpg) | ![Settings](Screenshots/Settings.jpg) | ![Search Novel](Screenshots/SearchNovel_NovelBin.jpg) |
+| Novel Detail | Export Novel | Reader | App Theme |
+| ----------- | ------------- | ------------ | ----------- |
+| <img src="https://github.com/Moggle-Khraum/resources_for_display/blob/main/gifs/novelView.gif?raw=true" width="200"> | <img src="https://github.com/Moggle-Khraum/resources_for_display/blob/main/gifs/export.gif?raw=true" width="200"> |  <img src="https://github.com/Moggle-Khraum/resources_for_display/blob/main/gifs/reader.gif?raw=true" width="200"> | <img src="https://github.com/Moggle-Khraum/resources_for_display/blob/main/gifs/theme.gif?raw=true" width="200"> |
 
 
 ## 🌐 Supported Sources
