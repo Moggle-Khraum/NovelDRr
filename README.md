@@ -4,7 +4,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-v1.4.3rev171-brightgreen)
+![Version](https://img.shields.io/badge/version-v1.4.4rev178r1-brightgreen)
 ![Android](https://img.shields.io/badge/Android-8.0%2B-8f5e4e?logo=android)
 ![Size](https://img.shields.io/badge/size-~92.93_MB-5a3e36)
 ![Malware](https://img.shields.io/badge/Jotti's_Malware-Clean_✓_(0/15)-4caf50)
