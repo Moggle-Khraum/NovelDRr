@@ -26,7 +26,7 @@ const palette = {
   downloading: "#0A84FF",
 };
 
-export type Theme = "dark" | "light" | "sepia";
+export type Theme = "dark" | "light" | "sepia" | "amoled" | "night" | "cool";
 
 export const ThemeColors = {
   dark: {
@@ -70,6 +70,49 @@ export const ThemeColors = {
     tabBar: palette.sepiaCard,
     icon: "#8B7355",
     iconActive: palette.sepiaAccent,
+  },
+  // NEW THEMES START HERE
+  amoled: {
+    background: "#000000", // Pure black for AMOLED
+    surface: "#0A0A0A",
+    card: "#0F0F0F",
+    border: "#1A1A1A",
+    text: "#FFFFFF",
+    textSecondary: "#B0B0B0",
+    textMuted: "#707070",
+    accent: "#00E5FF", // Cyan accent for AMOLED
+    accentLight: "#33EBFF",
+    tabBar: "#000000",
+    icon: "#B0B0B0",
+    iconActive: "#00E5FF",
+  },
+  night: {
+    background: "#0A0E1A", // Deep blue-black
+    surface: "#111624",
+    card: "#151C2A",
+    border: "#1F2636",
+    text: "#E8EDFF",
+    textSecondary: "#9AA4C4",
+    textMuted: "#5C6680",
+    accent: "#FF6B35", // Warm orange for night reading
+    accentLight: "#FF8C5A",
+    tabBar: "#111624",
+    icon: "#9AA4C4",
+    iconActive: "#FF6B35",
+  },
+  cool: {
+    background: "#E8F0F8", // Cool light blue-gray
+    surface: "#F0F5FA",
+    card: "#FFFFFF",
+    border: "#DCE5EC",
+    text: "#2C3E50",
+    textSecondary: "#5A6E7E",
+    textMuted: "#8FA0B0",
+    accent: "#4A90E2", // Calm blue accent
+    accentLight: "#6BA6F0",
+    tabBar: "#FFFFFF",
+    icon: "#6B7F8F",
+    iconActive: "#4A90E2",
   },
 };
 
