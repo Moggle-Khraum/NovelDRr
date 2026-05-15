@@ -1048,6 +1048,15 @@ export default function SettingsScreen() {
                 <Ionicons name="open-outline" size={14} color={colors.accent} />
               </Pressable>
 
+              <Pressable
+                style={styles.devLinkRow}
+                onPress={() => Linking.openURL("https://ko-fi.com/noveldrapp")}
+              >
+                <Text style={[styles.devLinkLabel, { color: colors.textSecondary }]}>Donation: </Text>
+                <Text style={[styles.devLinkText, { color: colors.accent }]}> Ko-fi Tip ☕ </Text>
+                <Ionicons name="open-outline" size={14} color={colors.accent} />
+              </Pressable>
+
               <Text style={[styles.devIssueText, { color: colors.textSecondary }]}>
                 For any suggestions / issues / bugs, please write a comment on Github.
               </Text>
