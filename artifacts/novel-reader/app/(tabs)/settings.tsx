@@ -812,6 +812,11 @@ export default function SettingsScreen() {
           <ThemeButton label="Light" icon="sunny" themeKey="light" active={theme === "light"} onPress={() => handleThemeChange("light")} />
           <ThemeButton label="Sepia" icon="book" themeKey="sepia" active={theme === "sepia"} onPress={() => handleThemeChange("sepia")} />
         </View>
+        <View style={styles.themeRowSecond}>
+          <ThemeButton label="AMOLED" icon="phone-portrait" themeKey="amoled" active={theme === "amoled"} onPress={() => handleThemeChange("amoled")} />
+          <ThemeButton label="Night Read" icon="cloudy-night-outline" themeKey="night" active={theme === "night"} onPress={() => handleThemeChange("night")} />
+          <ThemeButton label="Cool" icon="snow-outline" themeKey="cool" active={theme === "cool"} onPress={() => handleThemeChange("cool")} />
+        </View>
 
         <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>BACKUP & RESTORE</Text>
         <View style={[styles.backupCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -1139,7 +1144,8 @@ const styles = StyleSheet.create({
   statDivider: { width: StyleSheet.hairlineWidth, marginVertical: 4 },
   statValue: { fontFamily: "Inter_700Bold", fontSize: 24 },
   statLabel: { fontFamily: "Inter_400Regular", fontSize: 12, marginTop: 2 },
-  themeRow: { flexDirection: "row", gap: 10 },
+  themeRow: { flexDirection: "row", gap: 10, marginBottom: 10 },
+  themeRowSecond: { flexDirection: "row", gap: 10 },
   themeBtn: {
     flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
     gap: 6, paddingVertical: 12, borderRadius: 12, borderWidth: 1,
