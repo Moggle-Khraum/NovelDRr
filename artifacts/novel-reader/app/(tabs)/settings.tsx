@@ -19,12 +19,41 @@ import {
   Linking,
   AppState,
   ActivityIndicator,
+  Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useLibrary } from "@/context/LibraryContext";
 import { useTheme } from "@/context/ThemeContext";
 import { Theme } from "@/constants/colors";
+
+// Helper to convert image to base64
+const imageToBase64 = async (imagePath: string): Promise<string | null> => {
+  try {
+    const info = await FileSystem.getInfoAsync(imagePath);
+    if (!info.exists) return null;
+    const base64 = await FileSystem.readAsStringAsync(imagePath, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    return base64;
+  } catch (error) {
+    console.error('Failed to convert image to base64:', error);
+    return null;
+  }
+};
+
+// Helper to save base64 as image file
+const saveBase64AsImage = async (base64: string, targetPath: string): Promise<boolean> => {
+  try {
+    await FileSystem.writeAsStringAsync(targetPath, base64, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    return true;
+  } catch (error) {
+    console.error('Failed to save image from base64:', error);
+    return false;
+  }
+};
 
 function ThemeButton({
   label,
@@ -77,6 +106,14 @@ interface BackupMetadata {
   novelCount: number;
   totalChapters: number;
   includesChapters: boolean;
+  includesCovers: boolean;
+  totalCoverSize: number; // in bytes
+}
+
+interface NovelCoverBackup {
+  novelId: string;
+  coverBase64: string | null;
+  fileName: string;
 }
 
 interface FullBackup {
@@ -87,6 +124,7 @@ interface FullBackup {
   appSettings: any;
   chapters: Record<string, Record<string, any>>;
   asyncStorageData?: Record<string, string>;
+  covers: NovelCoverBackup[];
 }
 
 export default function SettingsScreen() {
@@ -109,6 +147,7 @@ export default function SettingsScreen() {
   const APP_DATA_DIR = `${FileSystem.documentDirectory}NovelDR/`;
   const BACKUP_DIR = `${FileSystem.documentDirectory}noveldrr-backups/`;
   const SETTINGS_FILE = `${APP_DATA_DIR}settings.json`;
+  const COVERS_DIR = `${APP_DATA_DIR}covers/`;
 
   const getAsyncStorage = async () => {
     try {
@@ -190,7 +229,7 @@ export default function SettingsScreen() {
     setOperationProgress(msg);
   };
 
-  // ── Collect all app data with activity logging ──────────────────────
+  // ── Collect all app data including covers ──────────────────────
   const collectAppData = async (): Promise<FullBackup> => {
     setBackupLogs([]);
     addBackupLog("📂 Reading library data...");
@@ -322,6 +361,59 @@ export default function SettingsScreen() {
       (sum, novelChapters) => sum + Object.keys(novelChapters).length, 0
     );
 
+    // ── COLLECT COVERS ──
+    addBackupLog("🖼️ Scanning novel covers...");
+    const covers: NovelCoverBackup[] = [];
+    let totalCoverSize = 0;
+    
+    try {
+      const coversDirInfo = await FileSystem.getInfoAsync(COVERS_DIR);
+      
+      if (coversDirInfo.exists && coversDirInfo.isDirectory) {
+        const coverFiles = await FileSystem.readDirectoryAsync(COVERS_DIR);
+        const imageFiles = coverFiles.filter(f => 
+          f.endsWith('.jpg') || f.endsWith('.jpeg') || f.endsWith('.png') || f.endsWith('.webp')
+        );
+        
+        addBackupLog(`📁 Found ${imageFiles.length} cover images`);
+        
+        for (const coverFile of imageFiles) {
+          const coverPath = `${COVERS_DIR}${coverFile}`;
+          const novelId = coverFile.replace(/\.(jpg|jpeg|png|webp)$/i, '');
+          
+          // Check if this cover belongs to a novel in our library
+          const novelExists = Array.isArray(libraryData) && libraryData.some((n: any) => n.id === novelId);
+          
+          if (novelExists) {
+            const coverInfo = await FileSystem.getInfoAsync(coverPath);
+            if (coverInfo.exists) {
+              addBackupLog(`   🖼️ Converting cover: ${coverFile} (${((coverInfo.size || 0) / 1024).toFixed(1)} KB)`);
+              
+              const coverBase64 = await imageToBase64(coverPath);
+              if (coverBase64) {
+                covers.push({
+                  novelId,
+                  coverBase64,
+                  fileName: coverFile,
+                });
+                totalCoverSize += coverInfo.size || 0;
+              } else {
+                addBackupLog(`   ⚠️ Failed to convert cover: ${coverFile}`);
+              }
+            }
+          } else {
+            addBackupLog(`   ⏭️ Skipping orphan cover: ${coverFile}`);
+          }
+        }
+        
+        addBackupLog(`📊 Covers collected: ${covers.length} (${(totalCoverSize / (1024 * 1024)).toFixed(2)} MB total)`);
+      } else {
+        addBackupLog("⚠️ No covers directory found");
+      }
+    } catch (coversError) {
+      addBackupLog(`❌ Error scanning covers: ${String(coversError)}`);
+    }
+
     // Collect AsyncStorage data
     let asyncStorageData: Record<string, string> = {};
     if (AsyncStorage) {
@@ -346,16 +438,18 @@ export default function SettingsScreen() {
       }
     }
 
-    addBackupLog(`✅ Backup ready: ${novelCount} novels, ${totalChapters} chapters`);
+    addBackupLog(`✅ Backup ready: ${novelCount} novels, ${totalChapters} chapters, ${covers.length} covers`);
     
     return {
       metadata: {
-        version: 3,
+        version: 4, // Incremented version for cover support
         exportedAt: new Date().toISOString(),
         comment: pendingComment.trim() || null,
         novelCount,
         totalChapters,
         includesChapters: totalChapters > 0,
+        includesCovers: covers.length > 0,
+        totalCoverSize,
       },
       libraryData,
       sortPreference,
@@ -363,10 +457,11 @@ export default function SettingsScreen() {
       appSettings: settingsData,
       chapters,
       asyncStorageData,
+      covers,
     };
   };
 
-  // ── Restore app data with activity logging ─────────────────────────
+  // ── Restore app data including covers ─────────────────────────
   const restoreAppData = async (backup: FullBackup) => {
     setBackupLogs([]);
     addBackupLog("🔄 Starting restore...");
@@ -438,6 +533,41 @@ export default function SettingsScreen() {
       addBackupLog("⚠️ No chapters to restore");
     }
 
+    // ── RESTORE COVERS ──
+    if (backup.covers && backup.covers.length > 0) {
+      addBackupLog(`🖼️ Restoring ${backup.covers.length} novel covers...`);
+      await ensureDir(COVERS_DIR);
+      
+      let coversRestored = 0;
+      let coversFailed = 0;
+      
+      for (const cover of backup.covers) {
+        if (cover.coverBase64) {
+          const coverPath = `${COVERS_DIR}${cover.fileName}`;
+          const success = await saveBase64AsImage(cover.coverBase64, coverPath);
+          if (success) {
+            coversRestored++;
+            addBackupLog(`   ✅ ${cover.fileName}`);
+          } else {
+            coversFailed++;
+            addBackupLog(`   ❌ Failed: ${cover.fileName}`);
+          }
+        } else {
+          coversFailed++;
+          addBackupLog(`   ⚠️ No image data for ${cover.fileName}`);
+        }
+      }
+      
+      addBackupLog(`📊 Covers restored: ${coversRestored} ✅, ${coversFailed} ❌`);
+      
+      // Restore total size display if available
+      if (backup.metadata.totalCoverSize) {
+        addBackupLog(`💾 Total cover size: ${(backup.metadata.totalCoverSize / (1024 * 1024)).toFixed(2)} MB`);
+      }
+    } else {
+      addBackupLog("⚠️ No covers to restore");
+    }
+
     if (backup.asyncStorageData) {
       addBackupLog("📦 Restoring legacy data...");
       const AsyncStorage = await getAsyncStorage();
@@ -487,13 +617,19 @@ export default function SettingsScreen() {
       addBackupLog(`✅ Backup saved: ${filename} (${sizeMB} MB)`);
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
+      let coverInfo = "";
+      if (backup.metadata.includesCovers) {
+        coverInfo = `\n🖼️ ${backup.covers.length} covers (${(backup.metadata.totalCoverSize / (1024 * 1024)).toFixed(2)} MB)`;
+      }
+      
       Alert.alert(
         "Backup Complete ✓",
         `Saved to: ${filename}\n\n` +
         `📚 ${backup.metadata.novelCount} novels\n` +
-        `📄 ${backup.metadata.totalChapters} chapters\n` +
+        `📄 ${backup.metadata.totalChapters} chapters${coverInfo}\n` +
         `💾 ${sizeMB} MB\n\n` +
-        `All data backed up including legacy AsyncStorage content.`,
+        `All data backed up including covers and legacy AsyncStorage content.`,
         [
           { text: "OK" },
           {
@@ -553,10 +689,21 @@ export default function SettingsScreen() {
   const handleImportBackup = async (filename: string) => {
     const backupPath = `${BACKUP_DIR}${filename}`;
     
+    let coverInfo = "";
+    try {
+      const rawPreview = await FileSystem.readAsStringAsync(backupPath);
+      const preview = JSON.parse(rawPreview);
+      if (preview.metadata?.includesCovers) {
+        coverInfo = `\n🖼️ Includes ${preview.covers?.length || 0} novel covers (${(preview.metadata.totalCoverSize / (1024 * 1024)).toFixed(2)} MB)`;
+      }
+    } catch (e) {
+      // Ignore preview errors
+    }
+    
     Alert.alert(
       "Restore Backup",
       `This will replace ALL current data with the backup.\n\n` +
-      `"${filename}"\n\n` +
+      `"${filename}"${coverInfo}\n\n` +
       `⚠️ Current data will be overwritten. Continue?`,
       [
         { text: "Cancel", style: "cancel" },
@@ -584,6 +731,7 @@ export default function SettingsScreen() {
                 `Successfully restored:\n\n` +
                 `📚 ${backup.metadata.novelCount} novels\n` +
                 `📄 ${backup.metadata.totalChapters} chapters\n` +
+                (backup.metadata.includesCovers ? `🖼️ ${backup.covers?.length || 0} covers\n` : "") +
                 (backup.asyncStorageData ? `🔄 Legacy data also restored\n\n` : "\n") +
                 `Please refresh the Library by pulling or pressing the refresh button.`,
                 [
@@ -814,14 +962,14 @@ export default function SettingsScreen() {
         </View>
         <View style={styles.themeRowSecond}>
           <ThemeButton label="AMOLED" icon="phone-portrait" themeKey="amoled" active={theme === "amoled"} onPress={() => handleThemeChange("amoled")} />
-          <ThemeButton label="Night Read" icon="cloudy-night-outline" themeKey="night" active={theme === "night"} onPress={() => handleThemeChange("night")} />
-          <ThemeButton label="Cool" icon="snow-outline" themeKey="cool" active={theme === "cool"} onPress={() => handleThemeChange("cool")} />
+          <ThemeButton label="Warm" icon="cafe-outline" themeKey="warm" active={theme === "warm"} onPress={() => handleThemeChange("warm")} />
+          <ThemeButton label="Slate" icon="cloudy-night-outline" themeKey="slate" active={theme === "slate"} onPress={() => handleThemeChange("slate")} />
         </View>
 
         <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>BACKUP & RESTORE</Text>
         <View style={[styles.backupCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.backupDesc, { color: colors.textSecondary }]}>
-            Creates a complete backup of all app data including novels, chapters, reading progress, settings, and legacy
+            Creates a complete backup of all app data including novels, chapters, covers, reading progress, settings, and legacy
             AsyncStorage data. Everything is stored in a single file for easy sharing and restoration.
           </Text>
 
@@ -948,9 +1096,16 @@ export default function SettingsScreen() {
                         {tag || "No label"}
                       </Text>
                       {backup.metadata && (
-                        <Text style={[styles.backupItemStats, { color: colors.textMuted }]}>
-                          {backup.metadata.novelCount} novels • {backup.metadata.totalChapters} chapters
-                        </Text>
+                        <View style={{ gap: 2 }}>
+                          <Text style={[styles.backupItemStats, { color: colors.textMuted }]}>
+                            {backup.metadata.novelCount} novels • {backup.metadata.totalChapters} chapters
+                          </Text>
+                          {backup.metadata.includesCovers && (
+                            <Text style={[styles.backupItemStats, { color: colors.textMuted }]}>
+                              🖼️ Covers included • {(backup.metadata.totalCoverSize / (1024 * 1024)).toFixed(2)} MB
+                            </Text>
+                          )}
+                        </View>
                       )}
                     </View>
                     <View style={styles.backupItemActions}>
@@ -1096,7 +1251,7 @@ export default function SettingsScreen() {
         </View>
 
         <View style={[styles.versionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Text style={[styles.versionText, { color: colors.textMuted }]}>Novel DR — v1.4.4-rev175</Text>
+          <Text style={[styles.versionText, { color: colors.textMuted }]}>Novel DR — v1.5.0-rev176</Text>
           <Text style={[styles.madeByText, { color: colors.textMuted }]}>Made by Moggs ☕</Text>
         </View>
       </ScrollView>
