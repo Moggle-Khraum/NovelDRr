@@ -26,22 +26,22 @@ const palette = {
   downloading: "#0A84FF",
 };
 
-export type Theme = "dark" | "light" | "sepia" | "amoled" | "night" | "cool";
+export type Theme = "dark" | "light" | "sepia" | "amoled" | "warm" | "slate";
 
 export const ThemeColors = {
   dark: {
-    background: palette.charcoal,
-    surface: palette.darkSurface,
-    card: palette.darkCard,
-    border: palette.darkBorder,
-    text: palette.white,
-    textSecondary: "#AAAAAA",
-    textMuted: "#666666",
-    accent: palette.orange,
-    accentLight: palette.orangeLight,
-    tabBar: palette.darkSurface,
-    icon: "#AAAAAA",
-    iconActive: palette.orange,
+    background: "#0A0E1A",
+    surface: "#111624",
+    card: "#151C2A",
+    border: "#1F2636",
+    text: "#E8EDFF",
+    textSecondary: "#9AA4C4",
+    textMuted: "#5C6680",
+    accent: "#FF6B35",
+    accentLight: "#FF8C5A",
+    tabBar: "#111624",
+    icon: "#9AA4C4",
+    iconActive: "#FF6B35",  
   },
   light: {
     background: palette.offWhite,
@@ -86,33 +86,33 @@ export const ThemeColors = {
     icon: "#B0B0B0",
     iconActive: "#00E5FF",
   },
-  night: {
-    background: "#0A0E1A", // Deep blue-black
-    surface: "#111624",
-    card: "#151C2A",
-    border: "#1F2636",
-    text: "#E8EDFF",
-    textSecondary: "#9AA4C4",
-    textMuted: "#5C6680",
-    accent: "#FF6B35", // Warm orange for night reading
-    accentLight: "#FF8C5A",
-    tabBar: "#111624",
-    icon: "#9AA4C4",
-    iconActive: "#FF6B35",
+  warm: {
+    background: "#1A1008",
+    surface: "#221508",
+    card: "#2A1C0F",
+    border: "#3D2A15",
+    text: "#FFE8CC",
+    textSecondary: "#C4956A",
+    textMuted: "#7A5535",
+    accent: "#FF8C42",
+    accentLight: "#FFA96A",
+    tabBar: "#221508",
+    icon: "#C4956A",
+    iconActive: "#FF8C42",
   },
-  cool: {
-    background: "#E8F0F8", // Cool light blue-gray
-    surface: "#F0F5FA",
-    card: "#FFFFFF",
-    border: "#DCE5EC",
-    text: "#2C3E50",
-    textSecondary: "#5A6E7E",
-    textMuted: "#8FA0B0",
-    accent: "#4A90E2", // Calm blue accent
-    accentLight: "#6BA6F0",
-    tabBar: "#FFFFFF",
-    icon: "#6B7F8F",
-    iconActive: "#4A90E2",
+  slate: {
+    background: "#1E2430",
+    surface: "#252D3D",
+    card: "#2C3548",
+    border: "#3A4560",
+    text: "#D4DAEA",
+    textSecondary: "#8A97B0",
+    textMuted: "#556070",
+    accent: "#7EB8D4",
+    accentLight: "#A2CCE0",
+    tabBar: "#252D3D",
+    icon: "#8A97B0",
+    iconActive: "#7EB8D4",
   },
 };
 
