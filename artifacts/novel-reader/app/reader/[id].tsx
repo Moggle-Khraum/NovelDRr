@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
 import * as FileSystem from 'expo-file-system';
+import * as Speech from 'expo-speech';
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -25,6 +26,10 @@ const AUTO_SCROLL_SPEEDS = [0.5, 1, 1.5, 1.8, 2, 2.5];
 
 const READER_SETTINGS_FILE = `${FileSystem.documentDirectory}NovelDR/reader_settings.json`;
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 const loadChapterContentWithFallback = async (
   novelId: string,
   chapterIndex: number,
@@ -33,56 +38,62 @@ const loadChapterContentWithFallback = async (
 ): Promise<string> => {
   try {
     const fileChapter = await loadFromFileSystem(novelId, chapterIndex);
-    if (fileChapter && fileChapter.content) {
-      return fileChapter.content;
-    }
-  } catch (error) {
+    if (fileChapter && fileChapter.content) return fileChapter.content;
+  } catch {
     console.log('[Reader] File system load failed, trying fallbacks...');
   }
-  
-  if (chapter.content && chapter.content.trim().length > 0) {
-    return chapter.content;
-  }
-  
+
+  if (chapter.content && chapter.content.trim().length > 0) return chapter.content;
+
   try {
     const AsyncStorage = require('@react-native-async-storage/async-storage').default;
     const libraryData = await AsyncStorage.getItem('novel_library_v1');
     if (libraryData) {
       const novels = JSON.parse(libraryData);
       const novel = novels.find((n: any) => n.id === novelId);
-      if (novel && novel.chapters && novel.chapters[chapterIndex]) {
-        const legacyChapter = novel.chapters[chapterIndex];
-        if (legacyChapter.content && legacyChapter.content.trim().length > 0) {
-          return legacyChapter.content;
-        }
+      if (novel?.chapters?.[chapterIndex]?.content?.trim().length > 0) {
+        return novel.chapters[chapterIndex].content;
       }
     }
   } catch (asyncError) {
     console.log('[Reader] AsyncStorage fallback failed:', asyncError);
   }
-  
+
   try {
     const altPaths = [
       `${FileSystem.documentDirectory}noveldr/chapters/${novelId}/chapter_${chapterIndex}.json`,
       `${FileSystem.cacheDirectory}../NovelDR/chapters/${novelId}/chapter_${chapterIndex}.json`,
     ];
-    
     for (const altPath of altPaths) {
       const fileInfo = await FileSystem.getInfoAsync(altPath);
       if (fileInfo.exists) {
         const content = await FileSystem.readAsStringAsync(altPath);
         const chapterData = JSON.parse(content);
-        if (chapterData.content) {
-          return chapterData.content;
-        }
+        if (chapterData.content) return chapterData.content;
       }
     }
-  } catch (altError) {
+  } catch {
     console.log('[Reader] Alternative path fallback failed');
   }
-  
+
   return "Content not available for this chapter. It may still be downloading or wasn't saved properly. Try re-downloading the novel from the Updates tab.";
 };
+
+/**
+ * Split text into sentences on . ! ? … while keeping the delimiter
+ * attached to each sentence. Filters out blank/whitespace-only results.
+ */
+function splitIntoSentences(text: string): string[] {
+  // Split on sentence-ending punctuation, keeping the punctuation
+  const raw = text.match(/[^.!?…]+[.!?…]+|[^.!?…]+$/g) ?? [];
+  return raw
+    .map((s) => s.trim())
+    .filter((s) => s.length > 1);
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
 export default function ReaderScreen() {
   const { id, chapterIndex: indexParam } = useLocalSearchParams<{
@@ -103,13 +114,12 @@ export default function ReaderScreen() {
   const scrollRef = useRef<ScrollView>(null);
 
   const [autoScrollActive, setAutoScrollActive] = useState(false);
-  
   const [readingProgress, setReadingProgress] = useState(0);
   const scrollYRef = useRef(0);
   const contentHeightRef = useRef(0);
   const scrollViewHeightRef = useRef(0);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  
+
   const hasRestoredScrollRef = useRef(false);
   const restoredChapterRef = useRef<number>(-1);
   const forceTopRef = useRef(false);
@@ -118,18 +128,30 @@ export default function ReaderScreen() {
   const [contentLoading, setContentLoading] = useState(false);
   const [previousContent, setPreviousContent] = useState<string>("");
 
+  // TTS state
+  const [ttsActive, setTtsActive] = useState(false);
+  const [ttsSentences, setTtsSentences] = useState<string[]>([]);
+  const [ttsIndex, setTtsIndex] = useState(-1);          // currently speaking sentence index
+  const ttsIndexRef = useRef(-1);                        // ref mirror for use inside closures
+  const ttsSentencesRef = useRef<string[]>([]);
+  const ttsActiveRef = useRef(false);
+  // counts completed sentences since last auto-scroll; resets every 3
+  const ttsScrollCounterRef = useRef(0);
+
   const novel = getNovel(id);
   const sortedChapters = novel ? getSortedChapters(novel.chapters) : [];
   const chapter = novel?.chapters[chapterIndex];
   const currentChapterUrl = chapter?.url;
-  const currentSortedIndex = sortedChapters.findIndex(ch => ch.url === currentChapterUrl);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
-  // Load saved settings on mount
+  // ---------------------------------------------------------------------------
+  // Settings load / save
+  // ---------------------------------------------------------------------------
+
   useEffect(() => {
-    const loadSettings = async () => {
+    (async () => {
       try {
         const fileInfo = await FileSystem.getInfoAsync(READER_SETTINGS_FILE);
         if (fileInfo.exists) {
@@ -144,18 +166,14 @@ export default function ReaderScreen() {
       } finally {
         setSettingsLoaded(true);
       }
-    };
-    loadSettings();
+    })();
   }, []);
 
-  // Save settings helper - write all at once to avoid recursive issues
   const saveAllSettings = async (font: number, line: number, scroll: number) => {
     try {
       const dir = `${FileSystem.documentDirectory}NovelDR/`;
       const dirInfo = await FileSystem.getInfoAsync(dir);
-      if (!dirInfo.exists) {
-        await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-      }
+      if (!dirInfo.exists) await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
       await FileSystem.writeAsStringAsync(
         READER_SETTINGS_FILE,
         JSON.stringify({ fontSizeIdx: font, lineSpacingIdx: line, autoScrollSpeedIdx: scroll })
@@ -169,18 +187,19 @@ export default function ReaderScreen() {
     setFontSizeIdx(newIdx);
     saveAllSettings(newIdx, lineSpacingIdx, autoScrollSpeedIdx);
   };
-
   const handleLineSpacingChange = (newIdx: number) => {
     setLineSpacingIdx(newIdx);
     saveAllSettings(fontSizeIdx, newIdx, autoScrollSpeedIdx);
   };
-
   const handleAutoScrollSpeedChange = (newIdx: number) => {
     setAutoScrollSpeedIdx(newIdx);
     saveAllSettings(fontSizeIdx, lineSpacingIdx, newIdx);
   };
 
-  // Load chapter content when chapter changes
+  // ---------------------------------------------------------------------------
+  // Chapter content load
+  // ---------------------------------------------------------------------------
+
   useEffect(() => {
     const loadContent = async () => {
       if (novel && chapter) {
@@ -203,7 +222,107 @@ export default function ReaderScreen() {
     loadContent();
   }, [chapterIndex, novel?.id]);
 
+  // ---------------------------------------------------------------------------
+  // TTS — stop whenever chapter changes or component unmounts
+  // ---------------------------------------------------------------------------
+
+  const stopTTS = useCallback(() => {
+    Speech.stop();
+    ttsActiveRef.current = false;
+    ttsIndexRef.current = -1;
+    ttsScrollCounterRef.current = 0;
+    setTtsActive(false);
+    setTtsIndex(-1);
+  }, []);
+
+  useEffect(() => {
+    // Stop TTS on chapter change
+    stopTTS();
+  }, [chapterIndex]);
+
+  useEffect(() => {
+    return () => {
+      // Stop TTS on unmount (leaving reader)
+      Speech.stop();
+    };
+  }, []);
+
+  /**
+   * Speak a single sentence by index. On completion, advance to the next.
+   * Every 3 completed sentences, scroll the content up by 120px.
+   */
+  const speakSentence = useCallback((sentences: string[], index: number) => {
+    if (index >= sentences.length || !ttsActiveRef.current) {
+      // Finished all sentences or TTS was stopped
+      ttsActiveRef.current = false;
+      ttsIndexRef.current = -1;
+      ttsScrollCounterRef.current = 0;
+      setTtsActive(false);
+      setTtsIndex(-1);
+      return;
+    }
+
+    ttsIndexRef.current = index;
+    setTtsIndex(index);
+
+    Speech.speak(sentences[index], {
+      language: 'en',
+      pitch: 1.0,
+      rate: 0.95,
+      onDone: () => {
+        if (!ttsActiveRef.current) return;
+
+        // Increment the 3-sentence scroll counter
+        ttsScrollCounterRef.current += 1;
+        if (ttsScrollCounterRef.current >= 3) {
+          ttsScrollCounterRef.current = 0;
+          // Scroll content up by 120px from current position
+          const newY = scrollYRef.current + 120;
+          scrollRef.current?.scrollTo({ y: newY, animated: true });
+          scrollYRef.current = newY;
+        }
+
+        // Advance to next sentence
+        speakSentence(sentences, index + 1);
+      },
+      onError: () => {
+        if (!ttsActiveRef.current) return;
+        // Skip errored sentence and continue
+        speakSentence(sentences, index + 1);
+      },
+      onStopped: () => {
+        // User stopped — do nothing, stopTTS already handles state
+      },
+    });
+  }, []);
+
+  const toggleTTS = useCallback(() => {
+    if (ttsActiveRef.current) {
+      stopTTS();
+      return;
+    }
+
+    const content = chapterContent || previousContent;
+    if (!content || content.trim().length === 0) return;
+
+    const sentences = splitIntoSentences(content);
+    if (sentences.length === 0) return;
+
+    ttsSentencesRef.current = sentences;
+    setTtsSentences(sentences);
+
+    ttsActiveRef.current = true;
+    ttsScrollCounterRef.current = 0;
+    setTtsActive(true);
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    speakSentence(sentences, 0);
+  }, [chapterContent, previousContent, speakSentence, stopTTS]);
+
+  // ---------------------------------------------------------------------------
   // Save progress on unmount
+  // ---------------------------------------------------------------------------
+
   useEffect(() => {
     return () => {
       if (novel && chapter) {
@@ -213,7 +332,10 @@ export default function ReaderScreen() {
     };
   }, [chapterIndex, novel?.id]);
 
+  // ---------------------------------------------------------------------------
   // Restore scroll position
+  // ---------------------------------------------------------------------------
+
   useEffect(() => {
     if (!settingsLoaded || contentLoading) return;
 
@@ -228,7 +350,7 @@ export default function ReaderScreen() {
     }
 
     const savedLastRead = novel?.lastRead;
-    const savedOffset = (savedLastRead?.chapterIndex === chapterIndex) 
+    const savedOffset = savedLastRead?.chapterIndex === chapterIndex
       ? savedLastRead.scrollOffset : 0;
 
     if (!hasRestoredScrollRef.current) {
@@ -240,6 +362,10 @@ export default function ReaderScreen() {
       return () => clearTimeout(timer);
     }
   }, [chapterIndex, novel?.lastRead, settingsLoaded, contentLoading]);
+
+  // ---------------------------------------------------------------------------
+  // Auto-scroll (existing feature)
+  // ---------------------------------------------------------------------------
 
   const updateReadingProgress = useCallback(() => {
     if (contentHeightRef.current > scrollViewHeightRef.current) {
@@ -263,30 +389,24 @@ export default function ReaderScreen() {
     if (intervalRef.current) clearInterval(intervalRef.current);
     const speed = AUTO_SCROLL_SPEEDS[autoScrollSpeedIdx];
     const baseSpeedPxPerSec = 30;
-    const stepPxPerFrame = (baseSpeedPxPerSec * speed) / 20; // 20fps
+    const stepPxPerFrame = (baseSpeedPxPerSec * speed) / 20;
 
     intervalRef.current = setInterval(() => {
       if (!scrollRef.current) return;
       const currentY = scrollYRef.current;
       const maxY = Math.max(0, contentHeightRef.current - scrollViewHeightRef.current);
-      if (currentY >= maxY) {
-        stopAutoScroll();
-        return;
-      }
+      if (currentY >= maxY) { stopAutoScroll(); return; }
       const newY = Math.min(maxY, currentY + stepPxPerFrame);
       scrollRef.current.scrollTo({ y: newY, animated: false });
       scrollYRef.current = newY;
     }, 50);
-    
+
     setAutoScrollActive(true);
   }, [autoScrollSpeedIdx, stopAutoScroll]);
 
   const toggleAutoScroll = () => {
-    if (autoScrollActive) {
-      stopAutoScroll();
-    } else {
-      startAutoScroll();
-    }
+    if (autoScrollActive) stopAutoScroll();
+    else startAutoScroll();
   };
 
   const handleScroll = (event: any) => {
@@ -296,6 +416,7 @@ export default function ReaderScreen() {
 
   const handleScrollBeginDrag = () => {
     if (autoScrollActive) stopAutoScroll();
+    // NOTE: TTS highlight intentionally NOT cleared on manual scroll
   };
 
   const handleContentSizeChange = (_width: number, height: number) => {
@@ -312,11 +433,11 @@ export default function ReaderScreen() {
     const selectedChapter = sortedChapters[sortedIndex];
     if (!selectedChapter) return;
     const originalIndex = novel?.chapters.findIndex(c => c.url === selectedChapter.url) ?? 0;
-    
+
     if (novel && chapter) {
       saveReadingProgress(novel.id, chapterIndex, chapter.title, scrollYRef.current);
     }
-    
+
     scrollYRef.current = 0;
     hasRestoredScrollRef.current = false;
     forceTopRef.current = true;
@@ -324,6 +445,10 @@ export default function ReaderScreen() {
     setShowTOC(false);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
+
+  // ---------------------------------------------------------------------------
+  // Early return — loading
+  // ---------------------------------------------------------------------------
 
   if (!novel || !chapter || !settingsLoaded) {
     return (
@@ -344,23 +469,32 @@ export default function ReaderScreen() {
       Alert.alert("Navigation", dir === -1 ? "First chapter reached" : "Last chapter reached");
       return;
     }
-    
     if (novel && chapter) {
       saveReadingProgress(novel.id, chapterIndex, chapter.title, scrollYRef.current);
     }
-    
     stopAutoScroll();
+    stopTTS();
     scrollYRef.current = 0;
     hasRestoredScrollRef.current = false;
     forceTopRef.current = true;
-    
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setChapterIndex(next);
     setReadingProgress(0);
   };
 
+  // The currently highlighted sentence text (stays even if user scrolls)
+  const currentSentence = ttsIndex >= 0 && ttsSentences[ttsIndex]
+    ? ttsSentences[ttsIndex]
+    : null;
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+
+      {/* Top bar */}
       <View style={[styles.topBar, { paddingTop: topPad + 4, backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
         <Pressable style={styles.navBtn} onPress={() => router.back()}>
           <Ionicons name="close" size={22} color={colors.text} />
@@ -371,19 +505,18 @@ export default function ReaderScreen() {
         </Pressable>
       </View>
 
+      {/* Reader controls */}
       {showControls && (
         <View style={[styles.controls, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
           <View style={styles.controlRow}>
             <Text style={[styles.controlLabel, { color: colors.textSecondary }]}>Font</Text>
             <View style={styles.controlBtns}>
-              <Pressable 
-                style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} 
+              <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
                 onPress={() => handleFontSizeChange(Math.max(0, fontSizeIdx - 1))}>
                 <Text style={[styles.controlBtnText, { color: colors.text, fontSize: 12 }]}>A</Text>
               </Pressable>
               <Text style={[styles.controlValue, { color: colors.text }]}>{fontSize}pt</Text>
-              <Pressable 
-                style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} 
+              <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
                 onPress={() => handleFontSizeChange(Math.min(FONT_SIZES.length - 1, fontSizeIdx + 1))}>
                 <Text style={[styles.controlBtnText, { color: colors.text, fontSize: 18 }]}>A</Text>
               </Pressable>
@@ -393,14 +526,12 @@ export default function ReaderScreen() {
           <View style={styles.controlRow}>
             <Text style={[styles.controlLabel, { color: colors.textSecondary }]}>Spacing</Text>
             <View style={styles.controlBtns}>
-              <Pressable 
-                style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} 
+              <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
                 onPress={() => handleLineSpacingChange(Math.max(0, lineSpacingIdx - 1))}>
                 <Ionicons name="remove" size={16} color={colors.text} />
               </Pressable>
               <Text style={[styles.controlValue, { color: colors.text }]}>{lineSpacing.toFixed(1)}x</Text>
-              <Pressable 
-                style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} 
+              <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
                 onPress={() => handleLineSpacingChange(Math.min(LINE_SPACINGS.length - 1, lineSpacingIdx + 1))}>
                 <Ionicons name="add" size={16} color={colors.text} />
               </Pressable>
@@ -410,26 +541,19 @@ export default function ReaderScreen() {
           <View style={styles.controlRow}>
             <Text style={[styles.controlLabel, { color: colors.textSecondary }]}>AutoScroll</Text>
             <View style={styles.controlBtns}>
-              <Pressable 
-                style={[styles.controlBtn, { 
-                  backgroundColor: autoScrollActive ? colors.accent : colors.surface, 
-                  borderColor: colors.border 
-                }]} 
-                onPress={toggleAutoScroll}>
-                <Ionicons 
-                  name={autoScrollActive ? "pause" : "play"} 
-                  size={16} 
-                  color={autoScrollActive ? "#fff" : colors.text} 
-                />
+              <Pressable style={[styles.controlBtn, {
+                backgroundColor: autoScrollActive ? colors.accent : colors.surface,
+                borderColor: colors.border,
+              }]} onPress={toggleAutoScroll}>
+                <Ionicons name={autoScrollActive ? "pause" : "play"} size={16}
+                  color={autoScrollActive ? "#fff" : colors.text} />
               </Pressable>
-              <Pressable 
-                style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} 
+              <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
                 onPress={() => handleAutoScrollSpeedChange(Math.max(0, autoScrollSpeedIdx - 1))}>
                 <Ionicons name="remove" size={16} color={colors.text} />
               </Pressable>
               <Text style={[styles.controlValue, { color: colors.text }]}>{currentSpeed.toFixed(1)}x</Text>
-              <Pressable 
-                style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} 
+              <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
                 onPress={() => handleAutoScrollSpeedChange(Math.min(AUTO_SCROLL_SPEEDS.length - 1, autoScrollSpeedIdx + 1))}>
                 <Ionicons name="add" size={16} color={colors.text} />
               </Pressable>
@@ -438,61 +562,104 @@ export default function ReaderScreen() {
         </View>
       )}
 
-      <ScrollView
-        ref={scrollRef}
-        style={styles.scrollArea}
-        contentContainerStyle={[styles.textContainer, { paddingBottom: bottomPad + 100 }]}
-        onScroll={handleScroll}
-        onScrollBeginDrag={handleScrollBeginDrag}
-        onContentSizeChange={handleContentSizeChange}
-        onLayout={handleScrollViewLayout}
-        scrollEventThrottle={16}
-      >
-        <Text style={[styles.chapterHeader, { color: colors.accent }]}>{chapter.title}</Text>
-        
-        {contentLoading && !chapterContent ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="small" color={colors.accent} />
-            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading chapter...</Text>
-          </View>
-        ) : (
-          <Text style={[styles.content, { color: colors.text, fontSize, lineHeight: fontSize * lineSpacing }]}>
-            {chapterContent || previousContent || "Loading..."}
-          </Text>
-        )}
-      </ScrollView>
+      {/* Chapter content + floating TTS button overlaid bottom-right */}
+      <View style={styles.scrollWrapper}>
+        <ScrollView
+          ref={scrollRef}
+          style={styles.scrollArea}
+          contentContainerStyle={[styles.textContainer, { paddingBottom: bottomPad + 100 }]}
+          onScroll={handleScroll}
+          onScrollBeginDrag={handleScrollBeginDrag}
+          onContentSizeChange={handleContentSizeChange}
+          onLayout={handleScrollViewLayout}
+          scrollEventThrottle={16}
+        >
+          <Text style={[styles.chapterHeader, { color: colors.accent }]}>{chapter.title}</Text>
 
+          {contentLoading && !chapterContent ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color={colors.accent} />
+              <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading chapter...</Text>
+            </View>
+          ) : (
+            <Text style={[styles.content, { color: colors.text, fontSize, lineHeight: fontSize * lineSpacing }]}>
+              {chapterContent || previousContent || "Loading..."}
+            </Text>
+          )}
+        </ScrollView>
+
+        {/* Floating TTS button — bottom-right corner, overlaid on content */}
+        <Pressable
+          style={[styles.ttsFloatingBtn, { backgroundColor: colors.accent }]}
+          onPress={toggleTTS}
+          accessibilityLabel={ttsActive ? "Stop text-to-speech" : "Start text-to-speech"}
+        >
+          <Ionicons
+            name={ttsActive ? "volume-high" : "volume-medium-outline"}
+            size={22}
+            color="#fff"
+          />
+        </Pressable>
+      </View>
+
+      {/* TTS sentence box — visible only when TTS is active, above progress bar */}
+      {ttsActive && (
+        <View style={[
+          styles.ttsSentenceBox,
+          { backgroundColor: colors.accent + '15', borderColor: colors.accent + '55' }
+        ]}>
+          <Ionicons name="chatbubble-ellipses-outline" size={14} color={colors.accent} style={{ marginTop: 2 }} />
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.ttsSentenceLabel, { color: colors.accent }]}>now reading</Text>
+            <Text
+              style={[styles.ttsSentenceText, { color: colors.text }]}
+              numberOfLines={3}
+              ellipsizeMode="tail"
+            >
+              {currentSentence ?? "Starting…"}
+            </Text>
+          </View>
+        </View>
+      )}
+
+      {/* Progress bar */}
       <View style={[styles.progressBarContainer, { backgroundColor: colors.border }]}>
         <View style={[styles.progressBar, { backgroundColor: colors.accent, width: `${readingProgress}%` }]} />
       </View>
 
-      <View style={[styles.bottomNav, { backgroundColor: colors.surface, borderTopColor: colors.border, paddingBottom: bottomPad + 8 }]}>
-        <Pressable 
-          style={[styles.navChBtn, { backgroundColor: chapterIndex === 0 ? colors.border : colors.card, borderColor: colors.border }]} 
-          onPress={() => goChapter(-1)} 
+      {/* Bottom nav */}
+      <View style={[styles.bottomNav, {
+        backgroundColor: colors.surface,
+        borderTopColor: colors.border,
+        paddingBottom: bottomPad + 8,
+      }]}>
+        <Pressable
+          style={[styles.navChBtn, { backgroundColor: chapterIndex === 0 ? colors.border : colors.card, borderColor: colors.border }]}
+          onPress={() => goChapter(-1)}
           disabled={chapterIndex === 0}>
           <Ionicons name="chevron-back" size={18} color={chapterIndex === 0 ? colors.textMuted : colors.text} />
           <Text style={[styles.navChText, { color: chapterIndex === 0 ? colors.textMuted : colors.text }]}>Previous</Text>
         </Pressable>
 
-        <Pressable 
-          style={[styles.tocButton, { backgroundColor: colors.card, borderColor: colors.border }]} 
+        <Pressable
+          style={[styles.tocButton, { backgroundColor: colors.card, borderColor: colors.border }]}
           onPress={() => setShowTOC(true)}>
           <Text style={[styles.tocButtonText, { color: colors.text }]}>{chapterIndex + 1} / {novel.chapters.length}</Text>
         </Pressable>
 
-        <Pressable 
-          style={[styles.navChBtn, { 
-            backgroundColor: chapterIndex === (novel.chapters.length ?? 0) - 1 ? colors.border : colors.accent, 
-            borderColor: chapterIndex === (novel.chapters.length ?? 0) - 1 ? colors.border : colors.accent 
-          }]} 
-          onPress={() => goChapter(1)} 
+        <Pressable
+          style={[styles.navChBtn, {
+            backgroundColor: chapterIndex === (novel.chapters.length ?? 0) - 1 ? colors.border : colors.accent,
+            borderColor: chapterIndex === (novel.chapters.length ?? 0) - 1 ? colors.border : colors.accent,
+          }]}
+          onPress={() => goChapter(1)}
           disabled={chapterIndex === (novel.chapters.length ?? 0) - 1}>
           <Text style={[styles.navChText, { color: chapterIndex === (novel.chapters.length ?? 0) - 1 ? colors.textMuted : "#fff" }]}>Next</Text>
           <Ionicons name="chevron-forward" size={18} color={chapterIndex === (novel.chapters.length ?? 0) - 1 ? colors.textMuted : "#fff"} />
         </Pressable>
       </View>
 
+      {/* TOC Modal */}
       <Modal visible={showTOC} animationType="slide" transparent onRequestClose={() => setShowTOC(false)}>
         <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
           <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
@@ -537,12 +704,16 @@ export default function ReaderScreen() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Styles
+// ---------------------------------------------------------------------------
+
 const styles = StyleSheet.create({
   container: { flex: 1 },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  topBar: { 
-    flexDirection: "row", alignItems: "center", paddingHorizontal: 4, 
-    paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth, gap: 4 
+  topBar: {
+    flexDirection: "row", alignItems: "center", paddingHorizontal: 4,
+    paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth, gap: 4,
   },
   navBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   chapterTitle: { fontFamily: "Inter_600SemiBold", fontSize: 14, flex: 1, textAlign: "center" },
@@ -555,15 +726,56 @@ const styles = StyleSheet.create({
   controlBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 8, borderWidth: 1 },
   controlBtnText: { fontFamily: "Inter_700Bold" },
   controlValue: { fontFamily: "Inter_500Medium", fontSize: 13, width: 40, textAlign: "center" },
+  scrollWrapper: { flex: 1, position: 'relative' },
   scrollArea: { flex: 1 },
   textContainer: { paddingHorizontal: 22, paddingTop: 20 },
   chapterHeader: { fontFamily: "Inter_700Bold", fontSize: 18, marginBottom: 20, lineHeight: 26 },
   content: { fontFamily: "Inter_400Regular" },
   loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 40 },
   loadingText: { fontFamily: "Inter_400Regular", fontSize: 14, marginTop: 8 },
-  bottomNav: { 
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between", 
-    paddingHorizontal: 16, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, gap: 12 
+
+  // Floating TTS button — overlaid bottom-right of the scroll area
+  ttsFloatingBtn: {
+    position: 'absolute',
+    bottom: 20,
+    right: 18,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 4,
+  },
+
+  // TTS sentence box — shown above progress bar when TTS is active
+  ttsSentenceBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginHorizontal: 14,
+    marginBottom: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  ttsSentenceLabel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 10,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 3,
+  },
+  ttsSentenceText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    lineHeight: 19,
+  },
+
+  // Bottom nav
+  bottomNav: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 16, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, gap: 12,
   },
   navChBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, borderWidth: 1 },
   navChText: { fontFamily: "Inter_600SemiBold", fontSize: 13 },
