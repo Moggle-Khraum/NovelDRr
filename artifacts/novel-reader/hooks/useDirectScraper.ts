@@ -433,18 +433,21 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
      title = `Chapter ${chapterNum}: ${rawTitle}`;
      skipCleanup = true;
     }
-
+  }
+        
+    //FreeWebNovel Title Extractor
     if (isFreeWebNovel) {
       const titleMatch = safeMatch(html, /<h1[^>]*class="tit"[^>]*>([^<]+)<\/h1>/i) ||
                          safeMatch(html, /<h4[^>]*>([^<]*Chapter[^<]*)<\/h4>/i) ||
                          safeMatch(html, /<h2[^>]*>([^<]*Chapter[^<]*)<\/h2>/i);
       if (titleMatch) {
         let rawTitle = decodeEntities(titleMatch.trim()).replace(/\s+/g, ' ').trim();
-        
-        // Strip the built-in "Chapter X:" prefix so we don't double it
-        rawTitle = rawTitle.replace(/^Chapter\s+\d+\s*[:.\-–—]\s*/i, '').trim();
-        
+        // Remove all "Chapter X:" prefixes
+        rawTitle = rawTitle.replace(/Chapter\s+\d+\s*[:.\-–—]\s*/gi, '').trim();
+        // Remove stray duplicate number (e.g., "15 :")
+        rawTitle = rawTitle.replace(new RegExp(`^\\s*${chapterNum}\\s*[:.\\-–—]?\\s*`, 'i'), '').trim();
         title = `Chapter ${chapterNum}: ${rawTitle}`;
+        skipCleanup = true;
       }
     }
 
@@ -558,6 +561,15 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
         'novelbin.com',
         'novelbin.me',
         'Community',
+        'Share your thoughts',
+        'react to the',
+        'latest chapter',
+        'or reply',
+        'to other readers',
+        'Thoughful comments',
+        'make this page',
+        'more useful',
+        'for everyone.'
       ];
       const filtered = validParagraphs.filter(text => {
         const lower = text.toLowerCase();
@@ -656,16 +668,6 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
         'readnovelfull.com',
         'allnovel.org',
         'novgo.net',
-        'Community',
-        'Share your thoughts', 
-        'react to the latest chapter', 
-        'or reply to other readers.',
-        'Thoughtful comments',
-        'make this page more useful for everyone.',
-        'pαndα,noνɐ1,сoМ …...',
-        '© Copyright NovelFull .',
-        'All Rights Reserved.'
-        
       ];
       const filtered = validParagraphs.filter(text => {
         const lower = text.toLowerCase();
