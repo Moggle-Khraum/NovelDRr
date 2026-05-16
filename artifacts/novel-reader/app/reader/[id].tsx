@@ -764,7 +764,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: 8,
     marginHorizontal: 14,
-    marginBottom: 6,
+    marginBottom: 20,   // was 6 — adds ~3 mm of breathing room above progress bar
     borderRadius: 10,
     borderWidth: 1,
     paddingHorizontal: 12,
