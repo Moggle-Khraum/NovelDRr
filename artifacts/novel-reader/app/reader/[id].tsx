@@ -316,7 +316,18 @@ export default function ReaderScreen() {
     setTtsActive(true);
 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    speakSentence(sentences, 0);
+
+    // Start from the sentence that corresponds to the current scroll position,
+    // so restored scroll offsets (or a mid-chapter stop) pick up visually.
+    const scrollRatio =
+      contentHeightRef.current > 0
+        ? scrollYRef.current / contentHeightRef.current
+        : 0;
+    const startIndex = Math.max(
+      0,
+      Math.min(Math.floor(scrollRatio * sentences.length), sentences.length - 1)
+    );
+    speakSentence(sentences, startIndex);
   }, [chapterContent, previousContent, speakSentence, stopTTS]);
 
   // ---------------------------------------------------------------------------
