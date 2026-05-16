@@ -3,6 +3,7 @@ import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
 import * as FileSystem from 'expo-file-system';
 import * as Speech from 'expo-speech';
+import Slider from '@react-native-community/slider';
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -25,6 +26,10 @@ const LINE_SPACINGS = [1.2, 1.3, 1.5, 1.8, 2.0, 2.5];
 const AUTO_SCROLL_SPEEDS = [0.5, 1, 1.5, 1.8, 2, 2.5];
 
 const READER_SETTINGS_FILE = `${FileSystem.documentDirectory}NovelDR/reader_settings.json`;
+const TTS_SETTINGS_FILE = `${FileSystem.documentDirectory}NovelDR/tts_settings.json`;
+
+// Minimum characters required to show the TTS button
+const TTS_MIN_CHARS = 500;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -80,15 +85,12 @@ const loadChapterContentWithFallback = async (
 };
 
 /**
- * Split text into sentences on . ! ? … while keeping the delimiter
- * attached to each sentence. Filters out blank/whitespace-only results.
+ * Split text into sentences on . ! ? … while keeping the delimiter.
+ * Filters out blank/whitespace-only results.
  */
 function splitIntoSentences(text: string): string[] {
-  // Split on sentence-ending punctuation, keeping the punctuation
   const raw = text.match(/[^.!?…]+[.!?…]+|[^.!?…]+$/g) ?? [];
-  return raw
-    .map((s) => s.trim())
-    .filter((s) => s.length > 1);
+  return raw.map((s) => s.trim()).filter((s) => s.length > 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -128,26 +130,38 @@ export default function ReaderScreen() {
   const [contentLoading, setContentLoading] = useState(false);
   const [previousContent, setPreviousContent] = useState<string>("");
 
+  // ---------------------------------------------------------------------------
   // TTS state
+  // ---------------------------------------------------------------------------
+
   const [ttsActive, setTtsActive] = useState(false);
   const [ttsSentences, setTtsSentences] = useState<string[]>([]);
-  const [ttsIndex, setTtsIndex] = useState(-1);          // currently speaking sentence index
-  const ttsIndexRef = useRef(-1);                        // ref mirror for use inside closures
+  const [ttsIndex, setTtsIndex] = useState(-1);
+  const ttsIndexRef = useRef(-1);
   const ttsSentencesRef = useRef<string[]>([]);
   const ttsActiveRef = useRef(false);
-  // counts completed sentences since last auto-scroll; resets every 3
   const ttsScrollCounterRef = useRef(0);
+
+  // TTS settings
+  const [showTTSSettings, setShowTTSSettings] = useState(false);
+  const [ttsRate, setTtsRate] = useState(0.95);
+  const [ttsPitch, setTtsPitch] = useState(1.0);
+  const [ttsVoices, setTtsVoices] = useState<Speech.Voice[]>([]);
+  const [ttsVoiceId, setTtsVoiceId] = useState<string | undefined>(undefined);
+  // Refs so speakSentence closure always reads latest values without re-rendering
+  const ttsRateRef = useRef(0.95);
+  const ttsPitchRef = useRef(1.0);
+  const ttsVoiceIdRef = useRef<string | undefined>(undefined);
 
   const novel = getNovel(id);
   const sortedChapters = novel ? getSortedChapters(novel.chapters) : [];
   const chapter = novel?.chapters[chapterIndex];
-  const currentChapterUrl = chapter?.url;
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
   // ---------------------------------------------------------------------------
-  // Settings load / save
+  // Reader settings load / save
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
@@ -197,6 +211,51 @@ export default function ReaderScreen() {
   };
 
   // ---------------------------------------------------------------------------
+  // TTS settings load / save + voices
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    (async () => {
+      // Load saved TTS settings
+      try {
+        const fileInfo = await FileSystem.getInfoAsync(TTS_SETTINGS_FILE);
+        if (fileInfo.exists) {
+          const raw = await FileSystem.readAsStringAsync(TTS_SETTINGS_FILE);
+          const s = JSON.parse(raw);
+          if (s.rate !== undefined) { setTtsRate(s.rate); ttsRateRef.current = s.rate; }
+          if (s.pitch !== undefined) { setTtsPitch(s.pitch); ttsPitchRef.current = s.pitch; }
+          if (s.voiceId !== undefined) { setTtsVoiceId(s.voiceId); ttsVoiceIdRef.current = s.voiceId; }
+        }
+      } catch (e) {
+        console.warn('[TTS] Failed to load TTS settings:', e);
+      }
+
+      // Load available voices — filter to English only
+      try {
+        const voices = await Speech.getAvailableVoicesAsync();
+        const english = voices.filter(v => v.language?.toLowerCase().startsWith('en'));
+        setTtsVoices(english.length > 0 ? english : voices);
+      } catch (e) {
+        console.warn('[TTS] Could not load voices:', e);
+      }
+    })();
+  }, []);
+
+  const saveTTSSettings = async (rate: number, pitch: number, voiceId: string | undefined) => {
+    try {
+      const dir = `${FileSystem.documentDirectory}NovelDR/`;
+      const dirInfo = await FileSystem.getInfoAsync(dir);
+      if (!dirInfo.exists) await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+      await FileSystem.writeAsStringAsync(
+        TTS_SETTINGS_FILE,
+        JSON.stringify({ rate, pitch, voiceId })
+      );
+    } catch (e) {
+      console.warn('[TTS] Failed to save TTS settings:', e);
+    }
+  };
+
+  // ---------------------------------------------------------------------------
   // Chapter content load
   // ---------------------------------------------------------------------------
 
@@ -236,15 +295,11 @@ export default function ReaderScreen() {
   }, []);
 
   useEffect(() => {
-    // Stop TTS on chapter change
     stopTTS();
   }, [chapterIndex]);
 
   useEffect(() => {
-    return () => {
-      // Stop TTS on unmount (leaving reader)
-      Speech.stop();
-    };
+    return () => { Speech.stop(); };
   }, []);
 
   /**
@@ -253,7 +308,6 @@ export default function ReaderScreen() {
    */
   const speakSentence = useCallback((sentences: string[], index: number) => {
     if (index >= sentences.length || !ttsActiveRef.current) {
-      // Finished all sentences or TTS was stopped
       ttsActiveRef.current = false;
       ttsIndexRef.current = -1;
       ttsScrollCounterRef.current = 0;
@@ -267,32 +321,25 @@ export default function ReaderScreen() {
 
     Speech.speak(sentences[index], {
       language: 'en',
-      pitch: 1.0,
-      rate: 0.95,
+      pitch: ttsPitchRef.current,
+      rate: ttsRateRef.current,
+      voice: ttsVoiceIdRef.current,
       onDone: () => {
         if (!ttsActiveRef.current) return;
-
-        // Increment the 3-sentence scroll counter
         ttsScrollCounterRef.current += 1;
         if (ttsScrollCounterRef.current >= 3) {
           ttsScrollCounterRef.current = 0;
-          // Scroll content up by 120px from current position
           const newY = scrollYRef.current + 120;
           scrollRef.current?.scrollTo({ y: newY, animated: true });
           scrollYRef.current = newY;
         }
-
-        // Advance to next sentence
         speakSentence(sentences, index + 1);
       },
       onError: () => {
         if (!ttsActiveRef.current) return;
-        // Skip errored sentence and continue
         speakSentence(sentences, index + 1);
       },
-      onStopped: () => {
-        // User stopped — do nothing, stopTTS already handles state
-      },
+      onStopped: () => {},
     });
   }, []);
 
@@ -317,8 +364,8 @@ export default function ReaderScreen() {
 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-    // Start from the sentence that corresponds to the current scroll position,
-    // so restored scroll offsets (or a mid-chapter stop) pick up visually.
+    // Resume from the sentence that matches the current scroll position,
+    // so the TTS starts where the user is visually rather than from the top.
     const scrollRatio =
       contentHeightRef.current > 0
         ? scrollYRef.current / contentHeightRef.current
@@ -375,7 +422,7 @@ export default function ReaderScreen() {
   }, [chapterIndex, novel?.lastRead, settingsLoaded, contentLoading]);
 
   // ---------------------------------------------------------------------------
-  // Auto-scroll (existing feature)
+  // Auto-scroll
   // ---------------------------------------------------------------------------
 
   const updateReadingProgress = useCallback(() => {
@@ -427,7 +474,7 @@ export default function ReaderScreen() {
 
   const handleScrollBeginDrag = () => {
     if (autoScrollActive) stopAutoScroll();
-    // NOTE: TTS highlight intentionally NOT cleared on manual scroll
+    // TTS highlight intentionally NOT cleared on manual scroll
   };
 
   const handleContentSizeChange = (_width: number, height: number) => {
@@ -493,10 +540,13 @@ export default function ReaderScreen() {
     setReadingProgress(0);
   };
 
-  // The currently highlighted sentence text (stays even if user scrolls)
   const currentSentence = ttsIndex >= 0 && ttsSentences[ttsIndex]
     ? ttsSentences[ttsIndex]
     : null;
+
+  // Only show TTS button if content is long enough to be worth reading aloud
+  const activeContent = chapterContent || previousContent;
+  const ttsAvailable = activeContent.trim().length >= TTS_MIN_CHARS;
 
   // ---------------------------------------------------------------------------
   // Render
@@ -599,18 +649,26 @@ export default function ReaderScreen() {
           )}
         </ScrollView>
 
-        {/* Floating TTS button — bottom-right corner, overlaid on content */}
-        <Pressable
-          style={[styles.ttsFloatingBtn, { backgroundColor: colors.accent }]}
-          onPress={toggleTTS}
-          accessibilityLabel={ttsActive ? "Stop text-to-speech" : "Start text-to-speech"}
-        >
-          <Ionicons
-            name={ttsActive ? "volume-high" : "volume-medium-outline"}
-            size={22}
-            color="#fff"
-          />
-        </Pressable>
+        {/* Floating TTS button — only shown when content >= 500 chars
+            Tap: play/stop  |  Long press (400ms): open TTS settings */}
+        {ttsAvailable && (
+          <Pressable
+            style={[styles.ttsFloatingBtn, { backgroundColor: colors.accent }]}
+            onPress={toggleTTS}
+            onLongPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              setShowTTSSettings(true);
+            }}
+            delayLongPress={400}
+            accessibilityLabel={ttsActive ? "Stop text-to-speech" : "Start text-to-speech"}
+          >
+            <Ionicons
+              name={ttsActive ? "volume-high" : "volume-medium-outline"}
+              size={22}
+              color="#fff"
+            />
+          </Pressable>
+        )}
       </View>
 
       {/* TTS sentence box — visible only when TTS is active, above progress bar */}
@@ -711,6 +769,157 @@ export default function ReaderScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* TTS Settings Modal
+          — fixed crash: no nested Pressable, sliders only setState on release
+          — sheet nudged up 11px (~3mm) via marginBottom */}
+      <Modal
+        visible={showTTSSettings}
+        animationType="slide"
+        transparent
+        statusBarTranslucent
+        onRequestClose={() => setShowTTSSettings(false)}
+      >
+        <View style={styles.ttsModalOverlay}>
+          <Pressable style={styles.ttsModalDismiss} onPress={() => setShowTTSSettings(false)} />
+          <View style={[styles.ttsModalSheet, { backgroundColor: colors.surface }]}>
+
+            <View style={[styles.ttsModalHandle, { backgroundColor: colors.border }]} />
+            <Text style={[styles.ttsModalTitle, { color: colors.text }]}>TTS Settings</Text>
+
+            {/* Speed */}
+            <View style={styles.ttsSettingRow}>
+              <View style={styles.ttsSettingLabelRow}>
+                <Ionicons name="speedometer-outline" size={16} color={colors.textSecondary} />
+                <Text style={[styles.ttsSettingLabel, { color: colors.textSecondary }]}>Speed</Text>
+                <Text style={[styles.ttsSettingValue, { color: colors.accent }]}>{ttsRate.toFixed(2)}x</Text>
+              </View>
+              <Slider
+                style={{ width: '100%', height: 36 }}
+                minimumValue={0.5}
+                maximumValue={2.0}
+                step={0.05}
+                value={ttsRate}
+                minimumTrackTintColor={colors.accent}
+                maximumTrackTintColor={colors.border}
+                thumbTintColor={colors.accent}
+                onValueChange={(v) => {
+                  // Ref only during drag — prevents bridge flood crash on Android
+                  ttsRateRef.current = v;
+                }}
+                onSlidingComplete={(v) => {
+                  // Commit to state + save only when finger lifts
+                  ttsRateRef.current = v;
+                  setTtsRate(v);
+                  saveTTSSettings(v, ttsPitchRef.current, ttsVoiceIdRef.current);
+                }}
+              />
+              <View style={styles.ttsSliderLabels}>
+                <Text style={[styles.ttsSliderTick, { color: colors.textSecondary }]}>0.5x</Text>
+                <Text style={[styles.ttsSliderTick, { color: colors.textSecondary }]}>1.0x</Text>
+                <Text style={[styles.ttsSliderTick, { color: colors.textSecondary }]}>2.0x</Text>
+              </View>
+            </View>
+
+            {/* Pitch */}
+            <View style={styles.ttsSettingRow}>
+              <View style={styles.ttsSettingLabelRow}>
+                <Ionicons name="mic-outline" size={16} color={colors.textSecondary} />
+                <Text style={[styles.ttsSettingLabel, { color: colors.textSecondary }]}>Pitch</Text>
+                <Text style={[styles.ttsSettingValue, { color: colors.accent }]}>{ttsPitch.toFixed(2)}</Text>
+              </View>
+              <Slider
+                style={{ width: '100%', height: 36 }}
+                minimumValue={0.5}
+                maximumValue={1.5}
+                step={0.05}
+                value={ttsPitch}
+                minimumTrackTintColor={colors.accent}
+                maximumTrackTintColor={colors.border}
+                thumbTintColor={colors.accent}
+                onValueChange={(v) => {
+                  // Ref only during drag — prevents bridge flood crash on Android
+                  ttsPitchRef.current = v;
+                }}
+                onSlidingComplete={(v) => {
+                  // Commit to state + save only when finger lifts
+                  ttsPitchRef.current = v;
+                  setTtsPitch(v);
+                  saveTTSSettings(ttsRateRef.current, v, ttsVoiceIdRef.current);
+                }}
+              />
+              <View style={styles.ttsSliderLabels}>
+                <Text style={[styles.ttsSliderTick, { color: colors.textSecondary }]}>Low</Text>
+                <Text style={[styles.ttsSliderTick, { color: colors.textSecondary }]}>Normal</Text>
+                <Text style={[styles.ttsSliderTick, { color: colors.textSecondary }]}>High</Text>
+              </View>
+            </View>
+
+            {/* Voice selector */}
+            {ttsVoices.length > 0 && (
+              <View style={styles.ttsSettingRow}>
+                <View style={styles.ttsSettingLabelRow}>
+                  <Ionicons name="person-outline" size={16} color={colors.textSecondary} />
+                  <Text style={[styles.ttsSettingLabel, { color: colors.textSecondary }]}>Voice</Text>
+                </View>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={{ marginTop: 8 }}
+                  contentContainerStyle={{ gap: 8, paddingHorizontal: 2 }}
+                >
+                  {ttsVoices.map((voice) => {
+                    const isSelected = ttsVoiceId === voice.identifier;
+                    return (
+                      <Pressable
+                        key={voice.identifier}
+                        style={[
+                          styles.ttsVoiceChip,
+                          {
+                            backgroundColor: isSelected ? colors.accent : colors.card,
+                            borderColor: isSelected ? colors.accent : colors.border,
+                          }
+                        ]}
+                        onPress={() => {
+                          setTtsVoiceId(voice.identifier);
+                          ttsVoiceIdRef.current = voice.identifier;
+                          saveTTSSettings(ttsRateRef.current, ttsPitchRef.current, voice.identifier);
+                        }}
+                      >
+                        <Text style={[styles.ttsVoiceChipText, { color: isSelected ? '#fff' : colors.text }]}>
+                          {voice.name ?? voice.identifier}
+                        </Text>
+                        <Text style={[styles.ttsVoiceChipLang, { color: isSelected ? 'rgba(255,255,255,0.7)' : colors.textSecondary }]}>
+                          {voice.language}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* Preview button */}
+            <Pressable
+              style={[styles.ttsTestBtn, { backgroundColor: colors.accent + '20', borderColor: colors.accent + '50' }]}
+              onPress={() => {
+                Speech.stop();
+                Speech.speak("This is a preview of the selected voice and settings.", {
+                  rate: ttsRateRef.current,
+                  pitch: ttsPitchRef.current,
+                  voice: ttsVoiceIdRef.current,
+                  language: 'en',
+                });
+              }}
+            >
+              <Ionicons name="play-circle-outline" size={18} color={colors.accent} />
+              <Text style={[styles.ttsTestBtnText, { color: colors.accent }]}>Preview voice</Text>
+            </Pressable>
+
+          </View>
+        </View>
+      </Modal>
+
     </View>
   );
 }
@@ -745,7 +954,7 @@ const styles = StyleSheet.create({
   loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 40 },
   loadingText: { fontFamily: "Inter_400Regular", fontSize: 14, marginTop: 8 },
 
-  // Floating TTS button — overlaid bottom-right of the scroll area
+  // Floating TTS button
   ttsFloatingBtn: {
     position: 'absolute',
     bottom: 20,
@@ -758,15 +967,15 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
 
-  // TTS sentence box — shown above progress bar when TTS is active
+  // TTS sentence box
   ttsSentenceBox: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 8,
     marginHorizontal: 14,
-    marginBottom: 20,   // was 6 — adds ~3 mm of breathing room above progress bar
+    marginBottom: 20,
     borderRadius: 10,
-    borderWidth: 1,
+    borderWidth: 2,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
@@ -805,4 +1014,49 @@ const styles = StyleSheet.create({
   tocChapterTitle: { fontFamily: "Inter_500Medium", fontSize: 14 },
   sortBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1 },
   sortBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 12 },
+
+  // TTS Settings modal
+  ttsModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  ttsModalDismiss: {
+    flex: 1,
+  },
+  ttsModalSheet: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingBottom: 36,
+    paddingTop: 12,
+    marginBottom: 11,
+  },
+  ttsModalHandle: {
+    width: 36, height: 4, borderRadius: 2,
+    alignSelf: 'center', marginBottom: 16,
+  },
+  ttsModalTitle: {
+    fontFamily: "Inter_700Bold", fontSize: 17, marginBottom: 20,
+  },
+  ttsSettingRow: { marginBottom: 20 },
+  ttsSettingLabelRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2,
+  },
+  ttsSettingLabel: { fontFamily: "Inter_500Medium", fontSize: 13, flex: 1 },
+  ttsSettingValue: { fontFamily: "Inter_600SemiBold", fontSize: 13 },
+  ttsSliderLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: -4 },
+  ttsSliderTick: { fontFamily: "Inter_400Regular", fontSize: 11 },
+  ttsVoiceChip: {
+    paddingHorizontal: 12, paddingVertical: 8,
+    borderRadius: 10, borderWidth: 1,
+    alignItems: 'center', minWidth: 80,
+  },
+  ttsVoiceChipText: { fontFamily: "Inter_500Medium", fontSize: 12 },
+  ttsVoiceChipLang: { fontFamily: "Inter_400Regular", fontSize: 10, marginTop: 2 },
+  ttsTestBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, paddingVertical: 12, borderRadius: 10, borderWidth: 1, marginTop: 4,
+  },
+  ttsTestBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 14 },
 });
