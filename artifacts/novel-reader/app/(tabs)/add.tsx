@@ -4,6 +4,7 @@ import React, { useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -23,15 +24,15 @@ import { fetchNovelMeta, fetchChapter } from "@/hooks/useApi";
 import Colors from "@/constants/colors";
 
 const SUPPORTED_SITES = [
-  "ReadNovelFull",
-  "NovelFull.net",
-  "FreeWebNovel",
-  "NovelBin",
-  "LightNovelWorld",
-  "AllNovel.org",
-  "Novgo.net",
-  "WuxiaWorld",
-  "NovelFull.com",
+  { name: "ReadNovelFull", logo: require("@/assets/logos/readnovelfull.png") },
+  { name: "NovelFull.net", logo: require("@/assets/logos/novelfullnet.png") },
+  { name: "FreeWebNovel", logo: require("@/assets/logos/freewebnovel.png") },
+  { name: "NovelBin", logo: require("@/assets/logos/novelbin.png") },
+  { name: "LightNovelWorld", logo: require("@/assets/logos/lightnovelworld.png") },
+  { name: "AllNovel.org", logo: require("@/assets/logos/allnovel.png") },
+  { name: "Novgo.net", logo: require("@/assets/logos/novgo.png") },
+  { name: "WuxiaWorld", logo: require("@/assets/logos/wuxiaworld.png") },
+  { name: "NovelFull.com", logo: require("@/assets/logos/novelfullcom.png") },
 ];
 
 const VISIBLE_SITES = SUPPORTED_SITES.slice(0, 5);
@@ -84,9 +85,9 @@ function LogLine({ entry }: { entry: LogEntry }) {
   );
 }
 
-function SiteCell({ name, onPress }: { name: string; onPress?: () => void }) {
+function SiteCell({ site, onPress }: { site?: typeof SUPPORTED_SITES[0]; onPress?: () => void }) {
   const { colors } = useTheme();
-  const isMoreSites = name === "MORE_SITES";
+  const isMoreSites = !site;
 
   return (
     <Pressable
@@ -105,9 +106,12 @@ function SiteCell({ name, onPress }: { name: string; onPress?: () => void }) {
         </View>
       ) : (
         <>
-          <Ionicons name="globe" size={14} color={colors.accent} />
+          <Image
+            source={site.logo}
+            style={styles.siteLogo}
+          />
           <Text style={[styles.siteName, { color: colors.text }]} numberOfLines={1}>
-            {name}
+            {site.name}
           </Text>
         </>
       )}
@@ -115,7 +119,7 @@ function SiteCell({ name, onPress }: { name: string; onPress?: () => void }) {
   );
 }
 
-function SitesModal({ visible, onClose, sites }: { visible: boolean; onClose: () => void; sites: string[] }) {
+function SitesModal({ visible, onClose, sites }: { visible: boolean; onClose: () => void; sites: typeof SUPPORTED_SITES }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -134,7 +138,7 @@ function SitesModal({ visible, onClose, sites }: { visible: boolean; onClose: ()
           <ScrollView contentContainerStyle={styles.modalSitesGrid}>
             {sites.map((site) => (
               <View
-                key={site}
+                key={site.name}
                 style={[
                   styles.modalSiteCell,
                   {
@@ -143,9 +147,12 @@ function SitesModal({ visible, onClose, sites }: { visible: boolean; onClose: ()
                   },
                 ]}
               >
-                <Ionicons name="globe" size={14} color={colors.accent} />
+                <Image
+                  source={site.logo}
+                  style={styles.modalSiteLogo}
+                />
                 <Text style={[styles.modalSiteName, { color: colors.text }]} numberOfLines={2}>
-                  {site}
+                  {site.name}
                 </Text>
               </View>
             ))}
@@ -531,12 +538,9 @@ export default function AddNovelScreen() {
           
           <View style={[styles.sitesGrid, { backgroundColor: colors.card, borderColor: colors.border }]}>
             {VISIBLE_SITES.map((site) => (
-              <SiteCell key={site} name={site} />
+              <SiteCell key={site.name} site={site} />
             ))}
-            <SiteCell
-              name="MORE_SITES"
-              onPress={() => setShowSitesModal(true)}
-            />
+            <SiteCell onPress={() => setShowSitesModal(true)} />
           </View>
         </View>
 
@@ -742,6 +746,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     flex: 1,
   },
+  siteLogo: {
+    width: 20,
+    height: 20,
+    resizeMode: "contain",
+  },
   moreSitesContent: {
     alignItems: "center",
     justifyContent: "center",
@@ -904,6 +913,11 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     fontSize: 11,
     textAlign: "center",
+  },
+  modalSiteLogo: {
+    width: 18,
+    height: 18,
+    resizeMode: "contain",
   },
   modalCloseBtn: {
     paddingVertical: 11,
