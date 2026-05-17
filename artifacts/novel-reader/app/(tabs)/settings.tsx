@@ -19,7 +19,6 @@ import {
   Linking,
   AppState,
   ActivityIndicator,
-  Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -107,7 +106,7 @@ interface BackupMetadata {
   totalChapters: number;
   includesChapters: boolean;
   includesCovers: boolean;
-  totalCoverSize: number; // in bytes
+  totalCoverSize: number;
 }
 
 interface NovelCoverBackup {
@@ -229,7 +228,6 @@ export default function SettingsScreen() {
     setOperationProgress(msg);
   };
 
-  // ── Collect all app data including covers ──────────────────────
   const collectAppData = async (): Promise<FullBackup> => {
     setBackupLogs([]);
     addBackupLog("📂 Reading library data...");
@@ -272,7 +270,6 @@ export default function SettingsScreen() {
 
     addBackupLog(`📚 Found ${novelCount} novels in library`);
 
-    // Collect ALL chapters
     const chapters: Record<string, Record<string, any>> = {};
     const chaptersDir = `${APP_DATA_DIR}chapters/`;
     
@@ -313,7 +310,6 @@ export default function SettingsScreen() {
                 }
               }
               
-              // Find novel title for better logging
               const novelData = Array.isArray(libraryData) ? libraryData.find((n: any) => n.id === novelId) : null;
               const novelTitle = novelData?.title || novelId.slice(0, 12);
               addBackupLog(`   📄 ${novelTitle}: ${jsonFiles.length} chapters`);
@@ -325,7 +321,6 @@ export default function SettingsScreen() {
       } else {
         addBackupLog("⚠️ No chapters folder found");
         
-        // Try AsyncStorage for chapters
         if (AsyncStorage && Array.isArray(libraryData)) {
           addBackupLog("🔍 Checking AsyncStorage for chapter content...");
           let asyncChapterCount = 0;
@@ -375,13 +370,12 @@ export default function SettingsScreen() {
           f.endsWith('.jpg') || f.endsWith('.jpeg') || f.endsWith('.png') || f.endsWith('.webp')
         );
         
-        addBackupLog(`📁 Found ${imageFiles.length} cover images`);
+        addBackupLog(`📁 Found ${imageFiles.length} cover images in covers/ directory`);
         
         for (const coverFile of imageFiles) {
           const coverPath = `${COVERS_DIR}${coverFile}`;
           const novelId = coverFile.replace(/\.(jpg|jpeg|png|webp)$/i, '');
           
-          // Check if this cover belongs to a novel in our library
           const novelExists = Array.isArray(libraryData) && libraryData.some((n: any) => n.id === novelId);
           
           if (novelExists) {
@@ -402,19 +396,18 @@ export default function SettingsScreen() {
               }
             }
           } else {
-            addBackupLog(`   ⏭️ Skipping orphan cover: ${coverFile}`);
+            addBackupLog(`   ⏭️ Skipping orphan cover: ${coverFile} (no matching novel found)`);
           }
         }
         
         addBackupLog(`📊 Covers collected: ${covers.length} (${(totalCoverSize / (1024 * 1024)).toFixed(2)} MB total)`);
       } else {
-        addBackupLog("⚠️ No covers directory found");
+        addBackupLog("⚠️ No covers directory found - no covers to backup");
       }
     } catch (coversError) {
       addBackupLog(`❌ Error scanning covers: ${String(coversError)}`);
     }
 
-    // Collect AsyncStorage data
     let asyncStorageData: Record<string, string> = {};
     if (AsyncStorage) {
       addBackupLog("📦 Saving legacy preferences...");
@@ -442,7 +435,7 @@ export default function SettingsScreen() {
     
     return {
       metadata: {
-        version: 4, // Incremented version for cover support
+        version: 4,
         exportedAt: new Date().toISOString(),
         comment: pendingComment.trim() || null,
         novelCount,
@@ -461,7 +454,6 @@ export default function SettingsScreen() {
     };
   };
 
-  // ── Restore app data including covers ─────────────────────────
   const restoreAppData = async (backup: FullBackup) => {
     setBackupLogs([]);
     addBackupLog("🔄 Starting restore...");
@@ -560,7 +552,22 @@ export default function SettingsScreen() {
       
       addBackupLog(`📊 Covers restored: ${coversRestored} ✅, ${coversFailed} ❌`);
       
-      // Restore total size display if available
+      // Update novel objects with correct local cover paths
+      addBackupLog(`🔄 Updating novel cover references...`);
+      if (backup.libraryData && Array.isArray(backup.libraryData)) {
+        for (const novel of backup.libraryData) {
+          const matchingCover = backup.covers.find(c => c.novelId === novel.id);
+          if (matchingCover) {
+            novel.coverUrl = `${COVERS_DIR}${matchingCover.fileName}`;
+          }
+        }
+        await FileSystem.writeAsStringAsync(
+          `${APP_DATA_DIR}novel_library_v1.json`,
+          JSON.stringify(backup.libraryData)
+        );
+        addBackupLog(`✅ Novel cover references updated`);
+      }
+      
       if (backup.metadata.totalCoverSize) {
         addBackupLog(`💾 Total cover size: ${(backup.metadata.totalCoverSize / (1024 * 1024)).toFixed(2)} MB`);
       }
@@ -639,7 +646,7 @@ export default function SettingsScreen() {
               if (canShare) {
                 await Sharing.shareAsync(backupPath, {
                   mimeType: "application/json",
-                  dialogTitle: "Share NovelDRr Backup"
+                  dialogTitle: "Share NovelDR Backup"
                 });
               }
             },
@@ -719,7 +726,7 @@ export default function SettingsScreen() {
               const backup: FullBackup = JSON.parse(raw);
 
               if (!backup.metadata || !backup.libraryData) {
-                Alert.alert("Invalid Backup", "This file is not a valid NovelDRr backup.");
+                Alert.alert("Invalid Backup", "This file is not a valid NovelDR backup.");
                 return;
               }
 
@@ -783,7 +790,7 @@ export default function SettingsScreen() {
                 const backup: FullBackup = JSON.parse(raw);
 
                 if (!backup.metadata || !backup.libraryData) {
-                  Alert.alert("Invalid Backup", "This file is not a valid NovelDRr backup.");
+                  Alert.alert("Invalid Backup", "This file is not a valid NovelDR backup.");
                   return;
                 }
 
@@ -982,7 +989,6 @@ export default function SettingsScreen() {
             </View>
           )}
 
-          {/* Backup Activity Log */}
           {backupLogs.length > 0 && (
             <View style={[styles.backupActivityLog, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <View style={styles.backupActivityLogHeader}>
@@ -1220,15 +1226,9 @@ export default function SettingsScreen() {
           <View style={styles.aboutRow}>
             <Ionicons name="globe" size={16} color={colors.accent} />
             <Text style={[styles.aboutText, { color: colors.text }]}>
-              Download novels from popular supported sites & more to come.
+              Download novels from popular supported sites. More sites coming soon.
             </Text>
           </View>
-          {["ReadNovelFull.com", "NovelFull.net", "FreeWebNovel.com", "Novelbin.com", "LightNovelWorld.org", "NovelFull.com", "AllNovel.org", "Novgo.net"].map((site) => (
-            <View key={site} style={styles.aboutRow}>
-              <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
-              <Text style={[styles.aboutSite, { color: colors.textSecondary }]}>{site}</Text>
-            </View>
-          ))}
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
           <View style={styles.aboutRow}>
             <Ionicons name="eye" size={16} color={colors.accent} />
@@ -1329,7 +1329,6 @@ const styles = StyleSheet.create({
   },
   backupBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: "#fff" },
   backupHint: { fontFamily: "Inter_400Regular", fontSize: 12, textAlign: "center" },
-  // Backup Activity Log
   backupActivityLog: {
     borderRadius: 10, borderWidth: StyleSheet.hairlineWidth,
     padding: 10, maxHeight: 200, minHeight: 100,
