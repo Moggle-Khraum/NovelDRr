@@ -23,14 +23,14 @@ import { fetchNovelMeta, fetchChapter } from "@/hooks/useApi";
 import Colors from "@/constants/colors";
 
 const SUPPORTED_SITES = [
-  { name: "ReadNovelFull", icon: "book" as const },
-  { name: "NovelFullNet", icon: "book" as const },
-  { name: "FreeWebNovel", icon: "book" as const },
-  { name: "NovelBin", icon: "book" as const },
-  { name: "LightNovelWorld", icon: "book" as const },
-  { name: "AllNovelOrg", icon: "book" as const },
-  { name: "NovGoNet", icon: "book" as const },
-  { name: "NovelFullCom", icon: "book" as const },
+  { name: "ReadNovelFull" },
+  { name: "NovelFullNet" },
+  { name: "FreeWebNovel" },
+  { name: "NovelBin" },
+  { name: "LightNovelWorld" },
+  { name: "AllNovelOrg" },
+  { name: "NovGoNet" },
+  { name: "NovelFullCom" },
 ];
 
 const VISIBLE_SITES = SUPPORTED_SITES.slice(0, 5);
@@ -83,9 +83,8 @@ function LogLine({ entry }: { entry: LogEntry }) {
   );
 }
 
-function SiteCell({ site, onPress }: { site?: typeof SUPPORTED_SITES[0]; onPress?: () => void }) {
+function SiteCell({ name, onPress }: { name: string; onPress?: () => void }) {
   const { colors } = useTheme();
-  const isMoreSites = !site;
 
   return (
     <Pressable
@@ -98,38 +97,25 @@ function SiteCell({ site, onPress }: { site?: typeof SUPPORTED_SITES[0]; onPress
         },
       ]}
     >
-      {isMoreSites ? (
-        <View style={styles.moreSitesContent}>
-          <Text style={[styles.moreSitesText, { color: colors.textSecondary }]}>•••</Text>
-        </View>
-      ) : (
-        <>
-          <Ionicons name={site.icon} size={16} color={colors.accent} />
-          <Text style={[styles.siteName, { color: colors.text }]} numberOfLines={1}>
-            {site.name}
-          </Text>
-        </>
-      )}
+      <Text style={[styles.siteName, { color: colors.text }]} numberOfLines={1}>
+        {name}
+      </Text>
     </Pressable>
   );
 }
 
 function SitesModal({ visible, onClose, sites }: { visible: boolean; onClose: () => void; sites: typeof SUPPORTED_SITES }) {
   const { colors } = useTheme();
-  const insets = useSafeAreaInsets();
 
   return (
-    <Modal visible={visible} transparent animationType="fade">
-      <View style={[styles.modalOverlay, { backgroundColor: "rgba(0, 0, 0, 0.5)" }]}>
-        <View style={[styles.modalContent, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <View style={styles.modalHeader}>
-            <Ionicons name="globe" size={18} color={colors.accent} />
-            <Text style={[styles.modalTitle, { color: colors.text }]}>All Supported Sites</Text>
-            <Pressable onPress={onClose} style={styles.closeBtn}>
-              <Ionicons name="close" size={20} color={colors.text} />
-            </Pressable>
-          </View>
-
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.modalOverlay} onPress={onClose}>
+        <Pressable
+          style={[styles.modalContent, { backgroundColor: colors.card, borderColor: colors.border }]}
+          onPress={(e) => e.stopPropagation()}
+        >
+          <Text style={[styles.modalTitle, { color: colors.text }]}>Supported Sites</Text>
+          
           <ScrollView contentContainerStyle={styles.modalSitesGrid}>
             {sites.map((site) => (
               <View
@@ -142,22 +128,14 @@ function SitesModal({ visible, onClose, sites }: { visible: boolean; onClose: ()
                   },
                 ]}
               >
-                <Ionicons name={site.icon} size={16} color={colors.accent} />
                 <Text style={[styles.modalSiteName, { color: colors.text }]} numberOfLines={2}>
                   {site.name}
                 </Text>
               </View>
             ))}
           </ScrollView>
-
-          <Pressable
-            onPress={onClose}
-            style={[styles.modalCloseBtn, { backgroundColor: colors.accent }]}
-          >
-            <Text style={styles.modalCloseBtnText}>Done</Text>
-          </Pressable>
-        </View>
-      </View>
+        </Pressable>
+      </Pressable>
     </Modal>
   );
 }
@@ -530,9 +508,21 @@ export default function AddNovelScreen() {
           
           <View style={[styles.sitesGrid, { backgroundColor: colors.card, borderColor: colors.border }]}>
             {VISIBLE_SITES.map((site) => (
-              <SiteCell key={site.name} site={site} />
+              <SiteCell key={site.name} name={site.name} />
             ))}
-            <SiteCell onPress={() => setShowSitesModal(true)} />
+            <Pressable
+              onPress={() => setShowSitesModal(true)}
+              style={[
+                styles.siteCell,
+                styles.seeListsCell,
+                {
+                  backgroundColor: colors.surface,
+                  borderColor: colors.border,
+                },
+              ]}
+            >
+              <Text style={[styles.seeListsText, { color: colors.accent }]}>See Lists</Text>
+            </Pressable>
           </View>
         </View>
 
@@ -717,35 +707,31 @@ const styles = StyleSheet.create({
   sitesGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
+    gap: 8,
     borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
-    padding: 12,
+    padding: 10,
   },
   siteCell: {
-    flex: 1,
-    minWidth: "31%",
-    flexDirection: "row",
+    width: "31%",
     alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
+    justifyContent: "center",
+    paddingVertical: 6,
+    paddingHorizontal: 8,
     borderRadius: 10,
     borderWidth: StyleSheet.hairlineWidth,
   },
   siteName: {
     fontFamily: "Inter_500Medium",
     fontSize: 12,
-    flex: 1,
+    textAlign: "center",
   },
-  moreSitesContent: {
-    alignItems: "center",
-    justifyContent: "center",
-    width: "100%",
+  seeListsCell: {
+    backgroundColor: "transparent",
   },
-  moreSitesText: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 16,
+  seeListsText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
   },
   form: { 
     gap: 14,
@@ -853,6 +839,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
   },
   modalContent: {
     borderRadius: 16,
@@ -861,56 +848,33 @@ const styles = StyleSheet.create({
     maxHeight: "80%",
     width: "85%",
     maxWidth: 400,
-  },
-  modalHeader: {
-    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 12,
-    paddingBottom: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   modalTitle: {
     fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    flex: 1,
-    marginLeft: 8,
-  },
-  closeBtn: {
-    padding: 4,
+    fontSize: 18,
+    marginBottom: 16,
+    textAlign: "center",
   },
   modalSitesGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
-    paddingVertical: 12,
+    justifyContent: "space-between",
+    paddingVertical: 8,
   },
   modalSiteCell: {
-    width: "30%",
-    flexDirection: "row",
+    width: "31%",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
-    paddingHorizontal: 8,
     paddingVertical: 10,
+    paddingHorizontal: 4,
     borderRadius: 10,
     borderWidth: StyleSheet.hairlineWidth,
+    marginBottom: 8,
   },
   modalSiteName: {
     fontFamily: "Inter_500Medium",
     fontSize: 11,
     textAlign: "center",
-  },
-  modalCloseBtn: {
-    paddingVertical: 11,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 12,
-  },
-  modalCloseBtnText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: "#fff",
   },
 });
