@@ -4,7 +4,6 @@ import React, { useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -24,15 +23,14 @@ import { fetchNovelMeta, fetchChapter } from "@/hooks/useApi";
 import Colors from "@/constants/colors";
 
 const SUPPORTED_SITES = [
-  { name: "ReadNovelFull", logo: require("@/assets/logos/readnovelfull.png") },
-  { name: "NovelFull.net", logo: require("@/assets/logos/novelfullnet.png") },
-  { name: "FreeWebNovel", logo: require("@/assets/logos/freewebnovel.png") },
-  { name: "NovelBin", logo: require("@/assets/logos/novelbin.png") },
-  { name: "LightNovelWorld", logo: require("@/assets/logos/lightnovelworld.png") },
-  { name: "AllNovel.org", logo: require("@/assets/logos/allnovel.png") },
-  { name: "Novgo.net", logo: require("@/assets/logos/novgo.png") },
-  { name: "WuxiaWorld", logo: require("@/assets/logos/wuxiaworld.png") },
-  { name: "NovelFull.com", logo: require("@/assets/logos/novelfullcom.png") },
+  { name: "ReadNovelFull", icon: "book" as const },
+  { name: "NovelFullNet", icon: "book" as const },
+  { name: "FreeWebNovel", icon: "book" as const },
+  { name: "NovelBin", icon: "book" as const },
+  { name: "LightNovelWorld", icon: "book" as const },
+  { name: "AllNovelOrg", icon: "book" as const },
+  { name: "NovGoNet", icon: "book" as const },
+  { name: "NovelFullCom", icon: "book" as const },
 ];
 
 const VISIBLE_SITES = SUPPORTED_SITES.slice(0, 5);
@@ -106,10 +104,7 @@ function SiteCell({ site, onPress }: { site?: typeof SUPPORTED_SITES[0]; onPress
         </View>
       ) : (
         <>
-          <Image
-            source={site.logo}
-            style={styles.siteLogo}
-          />
+          <Ionicons name={site.icon} size={16} color={colors.accent} />
           <Text style={[styles.siteName, { color: colors.text }]} numberOfLines={1}>
             {site.name}
           </Text>
@@ -147,10 +142,7 @@ function SitesModal({ visible, onClose, sites }: { visible: boolean; onClose: ()
                   },
                 ]}
               >
-                <Image
-                  source={site.logo}
-                  style={styles.modalSiteLogo}
-                />
+                <Ionicons name={site.icon} size={16} color={colors.accent} />
                 <Text style={[styles.modalSiteName, { color: colors.text }]} numberOfLines={2}>
                   {site.name}
                 </Text>
@@ -746,11 +738,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     flex: 1,
   },
-  siteLogo: {
-    width: 20,
-    height: 20,
-    resizeMode: "contain",
-  },
   moreSitesContent: {
     alignItems: "center",
     justifyContent: "center",
@@ -913,11 +900,6 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     fontSize: 11,
     textAlign: "center",
-  },
-  modalSiteLogo: {
-    width: 18,
-    height: 18,
-    resizeMode: "contain",
   },
   modalCloseBtn: {
     paddingVertical: 11,
