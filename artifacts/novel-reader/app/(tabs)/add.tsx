@@ -27,10 +27,10 @@ const SUPPORTED_SITES = [
   { name: "NovelFullNet" },
   { name: "FreeWebNovel" },
   { name: "NovelBin" },
+  { name: "NovelFullCom" },
   { name: "LightNovelWorld" },
   { name: "AllNovelOrg" },
   { name: "NovGoNet" },
-  { name: "NovelFullCom" },
 ];
 
 const VISIBLE_SITES = SUPPORTED_SITES.slice(0, 5);
@@ -128,7 +128,7 @@ function SitesModal({ visible, onClose, sites }: { visible: boolean; onClose: ()
                   },
                 ]}
               >
-                <Text style={[styles.modalSiteName, { color: colors.text }]} numberOfLines={2}>
+                <Text style={[styles.modalSiteName, { color: colors.text }]} numberOfLines={1}>
                   {site.name}
                 </Text>
               </View>
@@ -859,22 +859,23 @@ const styles = StyleSheet.create({
   modalSitesGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    justifyContent: "space-between",
-    paddingVertical: 8,
+    justifyContent: "flex-start",
+    paddingVertical: 0,
+    gap: 4,
   },
   modalSiteCell: {
-    width: "31%",
+    flex: 1,
+    minWidth: "31%",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 2,
     borderRadius: 10,
     borderWidth: StyleSheet.hairlineWidth,
-    marginBottom: 8,
   },
   modalSiteName: {
     fontFamily: "Inter_500Medium",
-    fontSize: 11,
+    fontSize: 10,
     textAlign: "center",
   },
 });
