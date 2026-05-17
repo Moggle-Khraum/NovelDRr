@@ -5,6 +5,7 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -20,6 +21,20 @@ import { useLibrary, Novel, Chapter } from "@/context/LibraryContext";
 import { useTheme } from "@/context/ThemeContext";
 import { fetchNovelMeta, fetchChapter } from "@/hooks/useApi";
 import Colors from "@/constants/colors";
+
+const SUPPORTED_SITES = [
+  "ReadNovelFull",
+  "NovelFull.net",
+  "FreeWebNovel",
+  "NovelBin",
+  "LightNovelWorld",
+  "AllNovel.org",
+  "Novgo.net",
+  "WuxiaWorld",
+  "NovelFull.com",
+];
+
+const VISIBLE_SITES = SUPPORTED_SITES.slice(0, 5);
 
 type LogEntry = {
   id: string;
@@ -69,6 +84,85 @@ function LogLine({ entry }: { entry: LogEntry }) {
   );
 }
 
+function SiteCell({ name, onPress }: { name: string; onPress?: () => void }) {
+  const { colors } = useTheme();
+  const isMoreSites = name === "MORE_SITES";
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[
+        styles.siteCell,
+        {
+          backgroundColor: colors.surface,
+          borderColor: colors.border,
+        },
+      ]}
+    >
+      {isMoreSites ? (
+        <View style={styles.moreSitesContent}>
+          <Text style={[styles.moreSitesText, { color: colors.textSecondary }]}>•••</Text>
+        </View>
+      ) : (
+        <>
+          <Ionicons name="globe" size={14} color={colors.accent} />
+          <Text style={[styles.siteName, { color: colors.text }]} numberOfLines={1}>
+            {name}
+          </Text>
+        </>
+      )}
+    </Pressable>
+  );
+}
+
+function SitesModal({ visible, onClose, sites }: { visible: boolean; onClose: () => void; sites: string[] }) {
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+
+  return (
+    <Modal visible={visible} transparent animationType="fade">
+      <View style={[styles.modalOverlay, { backgroundColor: "rgba(0, 0, 0, 0.5)" }]}>
+        <View style={[styles.modalContent, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.modalHeader}>
+            <Ionicons name="globe" size={18} color={colors.accent} />
+            <Text style={[styles.modalTitle, { color: colors.text }]}>All Supported Sites</Text>
+            <Pressable onPress={onClose} style={styles.closeBtn}>
+              <Ionicons name="close" size={20} color={colors.text} />
+            </Pressable>
+          </View>
+
+          <ScrollView contentContainerStyle={styles.modalSitesGrid}>
+            {sites.map((site) => (
+              <View
+                key={site}
+                style={[
+                  styles.modalSiteCell,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: colors.border,
+                  },
+                ]}
+              >
+                <Ionicons name="globe" size={14} color={colors.accent} />
+                <Text style={[styles.modalSiteName, { color: colors.text }]} numberOfLines={2}>
+                  {site}
+                </Text>
+              </View>
+            ))}
+          </ScrollView>
+
+          <Pressable
+            onPress={onClose}
+            style={[styles.modalCloseBtn, { backgroundColor: colors.accent }]}
+          >
+            <Text style={styles.modalCloseBtnText}>Done</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 export default function AddNovelScreen() {
   const { colors } = useTheme();
   const { addNovel, novels } = useLibrary();
@@ -83,6 +177,7 @@ export default function AddNovelScreen() {
   const [progress, setProgress] = useState(0);
   const [progressLabel, setProgressLabel] = useState("");
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [showSitesModal, setShowSitesModal] = useState(false);
   const stopRef = useRef(false);
   const logScrollRef = useRef<ScrollView>(null);
 
@@ -118,7 +213,7 @@ export default function AddNovelScreen() {
         return parseFloat(match[1]);
       }
     }
-    return 0; // Fallback for unparseable titles
+    return 0;
   };
 
   // Download cover image to local file system
@@ -164,16 +259,13 @@ export default function AddNovelScreen() {
     setProgress(0);
 
     try {
-      // ─── SILENT CHECK: Fetch metadata first (no logs) ───
       const meta = await fetchNovelMeta(trimmedUrl);
       
-      // Check if novel already exists (silently)
       const existingNovel = novels.find(
         (n) => n.title.toLowerCase() === meta.title.toLowerCase()
       );
       
       if (existingNovel) {
-        // Show modal only - no logs
         Alert.alert(
           "📚 Novel Already Exists",
           `"${meta.title}" is already in your library with ${existingNovel.chapters.length} chapters.\n\nYou can update it from the Updates tab if needed.`,
@@ -200,7 +292,6 @@ export default function AddNovelScreen() {
         return;
       }
 
-      // ─── Now start the visible download process ───
       let domain = "";
       try {
         const urlObj = new URL(trimmedUrl);
@@ -246,7 +337,6 @@ export default function AddNovelScreen() {
       const safeId = meta.title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "") + "-" + Date.now();
       const novelId = safeId;
 
-      // Download cover image now (before chapters)
       let localCoverUrl = "";
       if (meta.coverUrl) {
         localCoverUrl = await downloadAndSaveCover(meta.coverUrl, novelId);
@@ -261,7 +351,6 @@ export default function AddNovelScreen() {
       let chapterNum = 1;
       let downloaded = 0;
 
-      // Skip chapters before start chapter
       addLog(`Skipping to chapter ${startCh}...`, "downloading");
       let skippedCount = 0;
       
@@ -273,7 +362,6 @@ export default function AddNovelScreen() {
           chapterNum++;
           skippedCount++;
           
-          // Log every 30 chapters
           if (skippedCount % 30 === 0) {
             addLog(`[SKIPPED] ${skippedCount} chapters`, "warning");
           }
@@ -296,7 +384,6 @@ export default function AddNovelScreen() {
         return;
       }
 
-      // Download new chapters
       while (currentUrl && !stopRef.current) {
         if (maxCh !== null && downloaded >= maxCh) {
           addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
@@ -352,16 +439,13 @@ export default function AddNovelScreen() {
         await new Promise((r) => setTimeout(r, 200));
       }
 
-      // ========== SORT CHAPTERS BY NUMBER ==========
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
       addLog(`📚 Sorting ${newChapters.length} chapters by chapter number...`, "info");
       
-      // Sort chapters by extracted chapter number
       newChapters.sort((a, b) => {
         return a.chapterNumber - b.chapterNumber;
       });
       
-      // Log the chapter range after sorting
       if (newChapters.length > 0) {
         const chapterNums = newChapters.map(c => c.chapterNumber);
         const validNums = chapterNums.filter(n => n > 0);
@@ -388,7 +472,6 @@ export default function AddNovelScreen() {
       
       addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
 
-      // Remove temporary chapterNumber property before saving
       const finalChapters = newChapters.map(({ chapterNumber, ...chapter }) => chapter);
       
       const finalCoverUrl = localCoverUrl || meta.coverUrl;
@@ -439,12 +522,22 @@ export default function AddNovelScreen() {
         showsVerticalScrollIndicator={true}
         alwaysBounceVertical={true}
       >
-        {/* Supported Sites Card */}
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.cardLabel, { color: colors.textSecondary }]}>SUPPORTED SITES</Text>
-          <Text style={[styles.cardValue, { color: colors.text }]}>
-            ReadNovelFull • NovelFull.net • FreeWebNovel • NovelBin • LightNovelWorld • NovelFull.com • AllNovel.org • Novgo.net
-          </Text>
+        {/* Supported Sites Section */}
+        <View style={styles.sitesSection}>
+          <View style={styles.sitesHeader}>
+            <Ionicons name="globe" size={16} color={colors.accent} />
+            <Text style={[styles.sitesHeaderLabel, { color: colors.textSecondary }]}>SUPPORTED SITES</Text>
+          </View>
+          
+          <View style={[styles.sitesGrid, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            {VISIBLE_SITES.map((site) => (
+              <SiteCell key={site} name={site} />
+            ))}
+            <SiteCell
+              name="MORE_SITES"
+              onPress={() => setShowSitesModal(true)}
+            />
+          </View>
         </View>
 
         {/* Form Section */}
@@ -583,6 +676,12 @@ export default function AddNovelScreen() {
 
         <View style={styles.bottomSpacer} />
       </ScrollView>
+
+      <SitesModal
+        visible={showSitesModal}
+        onClose={() => setShowSitesModal(false)}
+        sites={SUPPORTED_SITES}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -605,21 +704,52 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 16,
   },
-  card: {
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 14,
+  sitesSection: {
     marginBottom: 16,
   },
-  cardLabel: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 10,
-    letterSpacing: 0.8,
-    marginBottom: 4,
+  sitesHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 10,
   },
-  cardValue: {
+  sitesHeaderLabel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 11,
+    letterSpacing: 0.8,
+  },
+  sitesGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 12,
+  },
+  siteCell: {
+    flex: 1,
+    minWidth: "31%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  siteName: {
     fontFamily: "Inter_500Medium",
-    fontSize: 13,
+    fontSize: 12,
+    flex: 1,
+  },
+  moreSitesContent: {
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+  },
+  moreSitesText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 16,
   },
   form: { 
     gap: 14,
@@ -702,10 +832,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
   },
-  clearLog: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-  },
   logBox: {
     borderRadius: 10,
     borderWidth: StyleSheet.hairlineWidth,
@@ -725,5 +851,70 @@ const styles = StyleSheet.create({
   },
   bottomSpacer: {
     height: 20,
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 16,
+    maxHeight: "80%",
+    width: "85%",
+    maxWidth: 400,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+    paddingBottom: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  modalTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    flex: 1,
+    marginLeft: 8,
+  },
+  closeBtn: {
+    padding: 4,
+  },
+  modalSitesGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    paddingVertical: 12,
+  },
+  modalSiteCell: {
+    width: "30%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  modalSiteName: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    textAlign: "center",
+  },
+  modalCloseBtn: {
+    paddingVertical: 11,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 12,
+  },
+  modalCloseBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: "#fff",
   },
 });
