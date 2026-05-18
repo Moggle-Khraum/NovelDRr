@@ -359,9 +359,55 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
       'error loading comments', 'please try again later', 'total responses', 'load comments',
       'login to comment', 'post a comment', 'report error', 'novelbin.com', 'novelbin.me',
       'we are offering free books', 'read novel updated daily', 'light novel translations',
+      'web novel, chinese novel', 'japanese novel, korean novel', 'other novel online', '𝕗𝚛𝚎𝚎𝐰𝗲𝗯𝗻𝚘𝚟𝚎𝗹.𝕔𝐨𝕞'
+      'novelfull.com', 'readnovelfull.com', 'allnovel.org', 'novgo.net', 'panda', 'nove1', 'coM ......',
+      // Navigation
+      'next chapter', 'previous chapter', 'table of contents', 'back to', 'chapter list',
+      'go to', 'return to', 'click to read', 'select chapter',
+      
+      // Comments & social
+      'error loading comments', 'please try again later', 'total responses',
+      'load comments', 'login to comment', 'post a comment', 'report error',
+      'community', 'share your thoughts', 'react to the', 'latest chapter',
+      'or reply', 'to other readers', 'thoughtful comments', 'make this page',
+      'more useful', 'for everyone', 'support the author', 'donate', 'patreon',
+      'comment', 'reply', 'like', 'share', 'follow', 'subscribe',
+      
+      // Site-specific domains
+      'novelbin.com', 'novelbin.me', 'freewebnovel.com', 'freewebnovel', 
+      'bednovel.com', 'bednovel', 'novelfull.com', 'readnovelfull.com', 
+      'allnovel.org', 'novgo.net', 'lightnovelworld',
+      
+      // TTS & account (LightNovelWorld)
+      'text-to-speech is here', 'create a free account', 'unlock the full experience',
+      'verification code', 'resend code', 'staff account detected',
+      'forgot password', 'reset password', 'confirm password', 'username password',
+      'mark as spoiler', 'poll options', 'add option', 'cancel post', 'posting...',
+      'verifying...', 'sending...', 'resetting...', 'window.initializecomments',
+      'your gateway to infinite stories', 'loading chapters...', 'chapter comments',
+      'please follow common sense when posting comments',
+      'spam, phishing, or any sort of suspicious comment will be deleted',
+      
+      // NovelFull promotions
+      'we are offering free books', 'read novel updated daily', 'light novel translations',
       'web novel, chinese novel', 'japanese novel, korean novel', 'other novel online',
-      'novelfull.com', 'readnovelfull.com', 'allnovel.org', 'novgo.net'
+      
+      // FreeWebNovel clutter
+      'panda', 'novɐ1', 'please visit', 'for a better experience', 'click here',
+      'download the app', 'read latest chapters', 'follow on', 'facebook',
+      'twitter', 'instagram', 'discord',
+      
+      // Ads & promotions
+      'advertisement', 'sponsored', 'download app', 'read more', 'visit our',
+      'check out', 'limited time', 'special offer', 'buy me a coffee',
+      'support us', 'become a patron', 'disable adblock', 'whitelist',
+      
+      // Generic junk
+      'copyright', 'dmca', 'all rights reserved', 'terms of service',
+      'privacy policy', 'contact us', 'about us', '©', '®', '™',
+
     ];
+    
     const filtered = validParagraphs.filter(text => {
       const lower = text.toLowerCase();
       return !junkPhrasesCommon.some(phrase => lower.includes(phrase));
