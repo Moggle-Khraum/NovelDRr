@@ -46,23 +46,22 @@ NovelDR is a free, open-source Android application that lets you download webnov
 | **Reader** | Full-screen reading with font/spacing controls, auto-scroll, and chapter navigation |
 
 ## 🖼️ App Screenshots
+
 ### **Main Screens**
+| Library Tab | Download Tab | Updates Tab | Settings Tab |
+| ----------- | ------------ | ----------- | ------------- |
+| <img src="https://github.com/Moggle-Khraum/resources_for_display/blob/main/screenshots/Library.png?raw=true" width="200"> | <img src="https://github.com/Moggle-Khraum/resources_for_display/blob/main/screenshots/Download.png?raw=true" width="200"> | <img src="https://github.com/Moggle-Khraum/resources_for_display/blob/main/screenshots/Updates.png?raw=true" width="200"> | <img src="https://github.com/Moggle-Khraum/resources_for_display/blob/main/screenshots/Settings.png?raw=true" width="200"> |
 
-| Library Tab                                | Download Tab                                                  | Updates Tab                             |  Settings Tab           |
-| ------------------------------------------ | ------------------------------------------------------------- | ------------------------------------------------------------------ |
-| ![Library Screen](https://github.com/Moggle-Khraum/NovelDR-site/blob/main/assets/screenshots/Library.png) | ![Download Screen](https://github.com/Moggle-Khraum/NovelDR-site/blob/main/assets/screenshots/Download.png) | ![Updates Screen](https://github.com/Moggle-Khraum/NovelDR-site/blob/main/assets/Sepia_Updates.avif)](https://github.com/Moggle-Khraum/NovelDR-site/blob/main/assets/screenshots/Sepia_Updates.png) |
+### **Library Features**
+| Search Function | Reload by Pull/Button | Batch Deletion | Swipe Gesture |
+| ----------- | ------------ | ----------- | ------------- |
+| <img src="https://github.com/Moggle-Khraum/resources_for_display/blob/main/gifs/search.gif?raw=true" width="195"> | <img src="https://github.com/Moggle-Khraum/resources_for_display/blob/main/gifs/pullReload.gif?raw=true" width="195"> | <img src="https://github.com/Moggle-Khraum/resources_for_display/blob/main/gifs/batchDelete.gif?raw=true" width="195"> | <img src="https://github.com/Moggle-Khraum/resources_for_display/blob/main/gifs/swipe.gif?raw=true" width="195"> |
 
-### **Additional Sources**
+### **Novel Reader & App Theme**
 
-| Novels List (NovelasLigera)                                         | Novel Details (NovelBin)                                        | Novel Details (NovelasLigera)                                             |
-| ------------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| ![NovelList NovelasLigera](Screenshots/NovelList_NovelasLigera.jpg) | ![NovelDetails NovelBin](Screenshots/NovelDetails_NovelBin.jpg) | ![NovelDetails NovelasLigera](Screenshots/NovelDetails_NovelasLigera.jpg) |
-
-### **Reader & Utilities**
-
-| Chapter View                                           | Settings                              | Search                                                |
-| ------------------------------------------------------ | ------------------------------------- | ----------------------------------------------------- |
-| ![Chapter View](Screenshots/ChapterView_RoyalRoad.jpg) | ![Settings](Screenshots/Settings.jpg) | ![Search Novel](Screenshots/SearchNovel_NovelBin.jpg) |
+| Novel Detail | Export Novel | Reader | App Theme |
+| ----------- | ------------- | ------------ | ----------- |
+| <img src="https://github.com/Moggle-Khraum/resources_for_display/blob/main/gifs/novelView.gif?raw=true" width="195"> | <img src="https://github.com/Moggle-Khraum/resources_for_display/blob/main/gifs/export.gif?raw=true" width="195"> |  <img src="https://github.com/Moggle-Khraum/resources_for_display/blob/main/gifs/reader.gif?raw=true" width="195"> | <img src="https://github.com/Moggle-Khraum/resources_for_display/blob/main/gifs/theme.gif?raw=true" width="195"> |
 
 
 ## 🌐 Supported Sources
