@@ -165,8 +165,11 @@ const extractContainerContent = (html: string, openTagRegex: RegExp): string | n
   const match = openTagRegex.exec(html);
   if (!match) return null;
 
-  const startIndex = match.index + match[0].length;
   const tagName = match[0].match(/^<(\w+)/i)?.[1]?.toLowerCase() ?? 'div';
+
+  // Find the real end of the opening tag (past the closing '>') to avoid a stray '>' in content.
+  const tagEnd = html.indexOf('>', match.index + match[0].length);
+  const startIndex = tagEnd >= 0 ? tagEnd + 1 : match.index + match[0].length;
 
   let depth = 1;
   let i = startIndex;
@@ -193,6 +196,40 @@ const extractContainerContent = (html: string, openTagRegex: RegExp): string | n
   return html.slice(startIndex, i - `</${tagName}>`.length);
 };
 
+// Helper: Remove all instances of a matched container (with correct nested-div tracking).
+// Use this instead of .replace(/<div...>[\s\S]*?<\/div>/gi, '') which stops at first </div>.
+const stripContainers = (html: string, openTagRegex: RegExp): string => {
+  let result = html;
+  // Reset lastIndex for global regexes to avoid stale state between calls.
+  const pattern = new RegExp(openTagRegex.source, openTagRegex.flags.includes('g') ? openTagRegex.flags : openTagRegex.flags + 'g');
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(result)) !== null) {
+    const tagEnd = result.indexOf('>', match.index + match[0].length);
+    const contentStart = tagEnd >= 0 ? tagEnd + 1 : match.index + match[0].length;
+    const tagName = match[0].match(/^<(\w+)/i)?.[1]?.toLowerCase() ?? 'div';
+    const openTag = new RegExp(`<${tagName}[\\s>]`, 'gi');
+    const closeTag = new RegExp(`<\\/${tagName}>`, 'gi');
+    let depth = 1;
+    let i = contentStart;
+    while (i < result.length && depth > 0) {
+      openTag.lastIndex = i;
+      closeTag.lastIndex = i;
+      const nextOpen = openTag.exec(result);
+      const nextClose = closeTag.exec(result);
+      if (!nextClose) break;
+      if (nextOpen && nextOpen.index < nextClose.index) {
+        depth++;
+        i = nextOpen.index + nextOpen[0].length;
+      } else {
+        depth--;
+        i = nextClose.index + nextClose[0].length;
+      }
+    }
+    result = result.slice(0, match.index) + result.slice(i);
+    pattern.lastIndex = match.index; // re-scan from same position after removal
+  }
+  return result;
+};
 
 // Enhanced function to extract content with proper formatting
 const extractFormattedContent = (html: string, siteType: string): string => {
@@ -201,23 +238,48 @@ const extractFormattedContent = (html: string, siteType: string): string => {
   // Use extractContainerContent (not regex) to handle nested divs correctly.
   // Regex like /<div...>([\s\S]*?)<\/div>/i stops at the FIRST </div> — wrong for nested markup.
   if (siteType === 'freewebnovel') {
-    contentHtml = extractContainerContent(html, /<div[^>]*class="chapter-content"[^>]*/i) ??
-                  extractContainerContent(html, /<div[^>]*id="chapter-container"[^>]*/i) ?? '';
-  } else if (siteType === 'lightnovelworld') {
-    const raw = extractContainerContent(html, /<div[^>]*id="chapterText"[^>]*/i) ??
-                extractContainerContent(html, /<div[^>]*class="chapter-text[^"]*"[^>]*/i) ?? '';
+    // FreeWebNovel: content lives in <div id="article"> inside <div class="txt ">
+    // Ad blocks (id="bg-ssp-*", id="pf-*") are injected between paragraphs — strip them.
+    const raw = extractContainerContent(html, /<div[^>]*\bid="article"[^>]*/i) ??
+                extractContainerContent(html, /<div[^>]*\bclass="txt[^"]*"[^>]*/i) ?? '';
     if (raw) {
-      contentHtml = raw
-        .replace(/<div[^>]*class="chapter-ad-container"[^>]*>[\s\S]*?<\/div>/gi, '')
-        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-        .replace(/<div[^>]*class="text-to-speech[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '')
-        .replace(/<div[^>]*class="cta-banner[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '');
+      contentHtml = stripContainers(raw, /<div[^>]*\bid="bg-ssp-[^"]*"[^>]*/i);
+      contentHtml = stripContainers(contentHtml, /<div[^>]*\bid="pf-[^"]*"[^>]*/i);
+      contentHtml = contentHtml.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+      contentHtml = stripContainers(contentHtml, /<div[^>]*style="[^"]*text-align:\s*center[^"]*"[^>]*/i);
+    }
+  } else if (siteType === 'novelbin') {
+    // NovelBin: content lives in <div id="chr-content">
+    contentHtml = extractContainerContent(html, /<div[^>]*\bid="chr-content"[^>]*/i) ?? '';
+  } else if (siteType === 'lightnovelworld') {
+    // LightNovelWorld: content lives in <div id="chapterText">
+    // Ads (<div class="chapter-ad-container">) and <style> blocks are injected mid-content.
+    const raw = extractContainerContent(html, /<div[^>]*\bid="chapterText"[^>]*/i) ??
+                extractContainerContent(html, /<div[^>]*\bclass="chapter-text[^"]*"[^>]*/i) ?? '';
+    if (raw) {
+      contentHtml = stripContainers(raw, /<div[^>]*\bclass="chapter-ad-container[^"]*"[^>]*/i);
+      contentHtml = stripContainers(contentHtml, /<div[^>]*\bclass="text-to-speech[^"]*"[^>]*/i);
+      contentHtml = stripContainers(contentHtml, /<div[^>]*\bclass="cta-banner[^"]*"[^>]*/i);
+      contentHtml = contentHtml.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+    }
+  } else if (siteType === 'novelfull') {
+    // novelfull.net, novelfull.com, readnovelfull, allnovel.org, novgo.net
+    // Container: <div id="chapter-content"> — same across all these sites.
+    // Mid-content ads: <div class="ads ads-holder ads-middle text-center"> and top iframe ad.
+    const raw = extractContainerContent(html, /<div[^>]*\bid="chapter-content"[^>]*/i) ??
+                extractContainerContent(html, /<div[^>]*\bclass="chapter-content"[^>]*/i) ?? '';
+    if (raw) {
+      contentHtml = stripContainers(raw, /<div[^>]*\bclass="ads[^"]*ads-holder[^"]*"[^>]*/i);
+      contentHtml = stripContainers(contentHtml, /<div[^>]*\bid="pf-[^"]*"[^>]*/i);
+      contentHtml = stripContainers(contentHtml, /<div[^>]*\balign="center"[^>]*/i); // top iframe ad
+      contentHtml = contentHtml.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+      contentHtml = contentHtml.replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, '');
     }
   } else {
-    // For other sites, try common content containers
-    contentHtml = extractContainerContent(html, /<div[^>]*class="chapter-content"[^>]*/i) ??
-                  extractContainerContent(html, /<div[^>]*class="content"[^>]*/i) ??
-                  extractContainerContent(html, /<div[^>]*id="chapter-content"[^>]*/i) ??
+    // Generic fallback for unrecognised sites
+    contentHtml = extractContainerContent(html, /<div[^>]*\bclass="chapter-content"[^>]*/i) ??
+                  extractContainerContent(html, /<div[^>]*\bclass="content"[^>]*/i) ??
+                  extractContainerContent(html, /<div[^>]*\bid="chapter-content"[^>]*/i) ??
                   extractContainerContent(html, /<article[^>]*/i) ?? '';
   }
   
@@ -612,10 +674,15 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
       let paragraphMatches: string[] | null = null;
       
       if (isFreeWebNovel) {
-        const containerHtml = extractContainerContent(html, /<div[^>]*class="chapter-content"[^>]*/i) ??
-                              extractContainerContent(html, /<div[^>]*id="chapter-container"[^>]*/i);
-        if (containerHtml) {
-          paragraphMatches = containerHtml.match(/<p[^>]*>([\s\S]*?)<\/p>/gis);
+        const raw = extractContainerContent(html, /<div[^>]*\bid="article"[^>]*/i) ??
+                    extractContainerContent(html, /<div[^>]*\bclass="txt[^"]*"[^>]*/i);
+        if (raw) {
+          const cleaned = raw
+            .replace(/<div[^>]*\bid="bg-ssp-[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '')
+            .replace(/<div[^>]*\bid="pf-[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '')
+            .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+            .replace(/<div[^>]*style="[^"]*text-align:\s*center[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '');
+          paragraphMatches = cleaned.match(/<p[^>]*>([\s\S]*?)<\/p>/gis);
         }
       }
       
