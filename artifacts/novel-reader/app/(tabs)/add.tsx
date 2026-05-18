@@ -104,8 +104,12 @@ function SiteCell({ name, onPress }: { name: string; onPress?: () => void }) {
   );
 }
 
+// --- UPDATED MODAL: 2 columns × 3 rows (6 items) ---
 function SitesModal({ visible, onClose, sites }: { visible: boolean; onClose: () => void; sites: typeof SUPPORTED_SITES }) {
   const { colors } = useTheme();
+  
+  // Only show first 6 sites → 2 columns × 3 rows
+  const modalSites = sites.slice(0, 6);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -117,7 +121,7 @@ function SitesModal({ visible, onClose, sites }: { visible: boolean; onClose: ()
           <Text style={[styles.modalTitle, { color: colors.text }]}>Supported Sites</Text>
           
           <ScrollView contentContainerStyle={styles.modalSitesGrid}>
-            {sites.map((site) => (
+            {modalSites.map((site) => (
               <View
                 key={site.name}
                 style={[
@@ -499,7 +503,7 @@ export default function AddNovelScreen() {
         showsVerticalScrollIndicator={true}
         alwaysBounceVertical={true}
       >
-        {/* Supported Sites Section */}
+        {/* Supported Sites Section - UNCHANGED (3 columns, 5 items + "See Lists") */}
         <View style={styles.sitesSection}>
           <View style={styles.sitesHeader}>
             <Ionicons name="globe" size={16} color={colors.accent} />
@@ -663,6 +667,7 @@ export default function AddNovelScreen() {
         <View style={styles.bottomSpacer} />
       </ScrollView>
 
+      {/* SitesModal with 2 columns × 3 rows */}
       <SitesModal
         visible={showSitesModal}
         onClose={() => setShowSitesModal(false)}
@@ -713,7 +718,7 @@ const styles = StyleSheet.create({
     padding: 10,
   },
   siteCell: {
-    width: "31%",
+    width: "31%", // 3 columns (unchanged for main screen)
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 6,
@@ -834,7 +839,7 @@ const styles = StyleSheet.create({
   bottomSpacer: {
     height: 20,
   },
-  // Modal Styles
+  // Modal Styles (2 columns × 3 rows)
   modalOverlay: {
     flex: 1,
     justifyContent: "center",
@@ -860,13 +865,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "space-between",
+    gap: 12,
     paddingVertical: 8,
   },
   modalSiteCell: {
-    width: "31%",
+    width: "48%", // 2 columns
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 4,
     borderRadius: 10,
     borderWidth: StyleSheet.hairlineWidth,
@@ -874,7 +880,7 @@ const styles = StyleSheet.create({
   },
   modalSiteName: {
     fontFamily: "Inter_500Medium",
-    fontSize: 11,
+    fontSize: 12,
     textAlign: "center",
   },
 });
