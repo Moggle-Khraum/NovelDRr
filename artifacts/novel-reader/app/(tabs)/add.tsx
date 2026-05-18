@@ -5,7 +5,6 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -32,8 +31,6 @@ const SUPPORTED_SITES = [
   { name: "NovGoNet" },
   { name: "NovelFullCom" },
 ];
-
-const VISIBLE_SITES = SUPPORTED_SITES.slice(0, 5);
 
 type LogEntry = {
   id: string;
@@ -83,12 +80,11 @@ function LogLine({ entry }: { entry: LogEntry }) {
   );
 }
 
-function SiteCell({ name, onPress }: { name: string; onPress?: () => void }) {
+function SiteCell({ name }: { name: string }) {
   const { colors } = useTheme();
 
   return (
     <Pressable
-      onPress={onPress}
       style={[
         styles.siteCell,
         {
@@ -97,50 +93,15 @@ function SiteCell({ name, onPress }: { name: string; onPress?: () => void }) {
         },
       ]}
     >
-      <Text style={[styles.siteName, { color: colors.text }]} numberOfLines={1}>
+      <Text
+        style={[styles.siteName, { color: colors.text }]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.7}
+      >
         {name}
       </Text>
     </Pressable>
-  );
-}
-
-// --- UPDATED MODAL: 2 columns × 3 rows (6 items) ---
-function SitesModal({ visible, onClose, sites }: { visible: boolean; onClose: () => void; sites: typeof SUPPORTED_SITES }) {
-  const { colors } = useTheme();
-  
-  // Only show first 6 sites → 2 columns × 3 rows
-  const modalSites = sites.slice(0, 6);
-
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.modalOverlay} onPress={onClose}>
-        <Pressable
-          style={[styles.modalContent, { backgroundColor: colors.card, borderColor: colors.border }]}
-          onPress={(e) => e.stopPropagation()}
-        >
-          <Text style={[styles.modalTitle, { color: colors.text }]}>Supported Sites</Text>
-          
-          <ScrollView contentContainerStyle={styles.modalSitesGrid}>
-            {modalSites.map((site) => (
-              <View
-                key={site.name}
-                style={[
-                  styles.modalSiteCell,
-                  {
-                    backgroundColor: colors.surface,
-                    borderColor: colors.border,
-                  },
-                ]}
-              >
-                <Text style={[styles.modalSiteName, { color: colors.text }]} numberOfLines={2}>
-                  {site.name}
-                </Text>
-              </View>
-            ))}
-          </ScrollView>
-        </Pressable>
-      </Pressable>
-    </Modal>
   );
 }
 
@@ -158,7 +119,6 @@ export default function AddNovelScreen() {
   const [progress, setProgress] = useState(0);
   const [progressLabel, setProgressLabel] = useState("");
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [showSitesModal, setShowSitesModal] = useState(false);
   const stopRef = useRef(false);
   const logScrollRef = useRef<ScrollView>(null);
 
@@ -503,7 +463,7 @@ export default function AddNovelScreen() {
         showsVerticalScrollIndicator={true}
         alwaysBounceVertical={true}
       >
-        {/* Supported Sites Section - UNCHANGED (3 columns, 5 items + "See Lists") */}
+        {/* Supported Sites Section - Now shows all sites, no modal */}
         <View style={styles.sitesSection}>
           <View style={styles.sitesHeader}>
             <Ionicons name="globe" size={16} color={colors.accent} />
@@ -511,22 +471,9 @@ export default function AddNovelScreen() {
           </View>
           
           <View style={[styles.sitesGrid, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            {VISIBLE_SITES.map((site) => (
+            {SUPPORTED_SITES.map((site) => (
               <SiteCell key={site.name} name={site.name} />
             ))}
-            <Pressable
-              onPress={() => setShowSitesModal(true)}
-              style={[
-                styles.siteCell,
-                styles.seeListsCell,
-                {
-                  backgroundColor: colors.surface,
-                  borderColor: colors.border,
-                },
-              ]}
-            >
-              <Text style={[styles.seeListsText, { color: colors.accent }]}>See Lists</Text>
-            </Pressable>
           </View>
         </View>
 
@@ -666,13 +613,6 @@ export default function AddNovelScreen() {
 
         <View style={styles.bottomSpacer} />
       </ScrollView>
-
-      {/* SitesModal with 2 columns × 3 rows */}
-      <SitesModal
-        visible={showSitesModal}
-        onClose={() => setShowSitesModal(false)}
-        sites={SUPPORTED_SITES}
-      />
     </KeyboardAvoidingView>
   );
 }
@@ -718,7 +658,7 @@ const styles = StyleSheet.create({
     padding: 10,
   },
   siteCell: {
-    width: "31%", // 3 columns (unchanged for main screen)
+    width: "31%", // 3 columns
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 6,
@@ -730,13 +670,6 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     fontSize: 12,
     textAlign: "center",
-  },
-  seeListsCell: {
-    backgroundColor: "transparent",
-  },
-  seeListsText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 12,
   },
   form: { 
     gap: 14,
@@ -838,49 +771,5 @@ const styles = StyleSheet.create({
   },
   bottomSpacer: {
     height: 20,
-  },
-  // Modal Styles (2 columns × 3 rows)
-  modalOverlay: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-  },
-  modalContent: {
-    borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 16,
-    maxHeight: "80%",
-    width: "85%",
-    maxWidth: 400,
-    alignItems: "center",
-  },
-  modalTitle: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 18,
-    marginBottom: 16,
-    textAlign: "center",
-  },
-  modalSitesGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-    gap: 12,
-    paddingVertical: 8,
-  },
-  modalSiteCell: {
-    width: "48%", // 2 columns
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 12,
-    paddingHorizontal: 4,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    marginBottom: 8,
-  },
-  modalSiteName: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 12,
-    textAlign: "center",
   },
 });
