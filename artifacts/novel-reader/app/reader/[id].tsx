@@ -97,7 +97,7 @@ function splitIntoSentences(text: string): string[] {
     }
   }
 
-  return sentences;
+  return sentences.filter(s => s.length >= 8);
 }
 
 // ---------------------------------------------------------------------------
@@ -142,6 +142,7 @@ export default function ReaderScreen() {
   const ttsSentencesRef = useRef<string[]>([]);
   const ttsActiveRef = useRef(false);
   const ttsScrollCounterRef = useRef(0);
+  const ttsErrorCountRef = useRef(0); // consecutive error counter — stops TTS after 3 errors
   const isMountedRef = useRef(true); // CRASH PROTECTION
 
   const [showTTSSettings, setShowTTSSettings] = useState(false);
@@ -266,12 +267,12 @@ export default function ReaderScreen() {
   }, []);
 
   const stopTTS = useCallback(() => {
-    Speech.stop();
-    ttsActiveRef.current = false;
+    ttsActiveRef.current = false;   // set FIRST so onDone/onError guards fire correctly
     ttsIndexRef.current = -1;
     ttsScrollCounterRef.current = 0;
     setTtsActive(false);
     setTtsIndex(-1);
+    try { Speech.stop(); } catch {}  // wrapped — Speech.stop() can throw on some Android engines
   }, []);
 
   useEffect(() => { stopTTS(); }, [chapterIndex]);
@@ -288,6 +289,7 @@ export default function ReaderScreen() {
     setTtsIndex(index);
 
     try {
+      try { Speech.stop(); } catch {} // ensure clean engine state before each utterance
       Speech.speak(sentences[index], {
         language: 'en',
         pitch: 1.0,
@@ -296,6 +298,7 @@ export default function ReaderScreen() {
         onDone: () => {
           if (!isMountedRef.current) return;
           if (!ttsActiveRef.current) return;
+          ttsErrorCountRef.current = 0; // reset on successful utterance
           ttsScrollCounterRef.current += 1;
           if (ttsScrollCounterRef.current >= 5) { // scroll every 5 sentences
             ttsScrollCounterRef.current = 0;
@@ -309,6 +312,12 @@ export default function ReaderScreen() {
           console.warn('[TTS] Error speaking sentence:', err);
           if (!isMountedRef.current) return;
           if (!ttsActiveRef.current) return;
+          ttsErrorCountRef.current += 1;
+          if (ttsErrorCountRef.current > 3) {
+            console.warn('[TTS] Too many consecutive errors, stopping TTS');
+            stopTTS();
+            return;
+          }
           // skip problematic sentence and continue
           speakSentence(sentences, index + 1);
         }
@@ -352,6 +361,7 @@ export default function ReaderScreen() {
       if (!isMountedRef.current) return;
       try {
         const testPhrase = "This is a voice preview.";
+        try { Speech.stop(); } catch {} // ensure clean state before preview
         Speech.speak(testPhrase, {
           language: 'en',
           pitch: 1.0,
@@ -361,7 +371,7 @@ export default function ReaderScreen() {
       } catch (err) {
         console.warn('[TTS] Preview error:', err);
       }
-    }, 50);
+    }, 200);
   }, [stopTTS]);
 
   // Reload voice engines manually
