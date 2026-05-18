@@ -16,31 +16,7 @@ export interface ChapterData {
   nextUrl: string | null;
 }
 
-// Helper: Strip HTML tags but preserve meaningful spacing
-const stripTagsPreserveSpacing = (html: string): string => {
-  if (!html) return '';
-  
-  let text = html;
-  
-  // Replace block-level elements with line breaks
-  text = text.replace(/<\/(?:div|p|section|article|main|header|footer|li|h[1-6])>/gi, '\n\n');
-  text = text.replace(/<br\s*\/?>/gi, '\n');
-  
-  // Remove all HTML tags
-  text = text.replace(/<[^>]*>/g, ' ');
-  
-  // Clean up whitespace
-  text = text.replace(/\s+/g, ' ').trim();
-  
-  // Restore intentional line breaks
-  text = text.replace(/ \n/g, '\n');
-  text = text.replace(/\n /g, '\n');
-  text = text.replace(/\n\n+/g, '\n\n');
-  
-  return text;
-};
-
-// Helper: Strip HTML tags safely (simple version for small text)
+// Helper: Strip HTML tags safely
 const stripTags = (html: string): string => {
   if (!html) return '';
   return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
@@ -67,7 +43,7 @@ const safeMatch = (text: string, pattern: RegExp): string | null => {
   }
 };
 
-// Extract title from URL (same as Python)
+// Extract title from URL
 const extractTitleFromUrl = (url: string): string => {
   try {
     const parsedUrl = new URL(url);
@@ -118,7 +94,7 @@ const makeAbsoluteUrl = (relativeUrl: string, baseUrl: string): string => {
   }
 };
 
-// Create axios instance with HTTP/1.1 preference via headers
+// Create axios instance
 const httpClient = axios.create({
   timeout: 15000,
   headers: {
@@ -132,7 +108,7 @@ const httpClient = axios.create({
   },
 });
 
-// Fetch with fallback to proxy for FreeWebNovel
+// Fetch with fallback to proxy
 const fetchWithFallback = async (url: string, isFreeWebNovel: boolean): Promise<string> => {
   if (isFreeWebNovel) {
     console.log('[Scraper] FreeWebNovel - using proxy for HTTP/1.1');
@@ -156,240 +132,6 @@ const fetchWithFallback = async (url: string, isFreeWebNovel: boolean): Promise<
     const proxyResponse = await httpClient.get(proxyUrl);
     return proxyResponse.data;
   }
-};
-
-// Helper: Extract the full content of a div/article container, correctly handling nested tags.
-// Regex like /<div...>([\s\S]*?)<\/div>/i stops at the FIRST </div>, not the matching one.
-// This walks the HTML to find the real closing tag for the matched opening tag.
-const extractContainerContent = (html: string, openTagRegex: RegExp): string | null => {
-  const match = openTagRegex.exec(html);
-  if (!match) return null;
-
-  const tagName = match[0].match(/^<(\w+)/i)?.[1]?.toLowerCase() ?? 'div';
-
-  // Find the real end of the opening tag (past the closing '>') to avoid a stray '>' in content.
-  const tagEnd = html.indexOf('>', match.index + match[0].length);
-  const startIndex = tagEnd >= 0 ? tagEnd + 1 : match.index + match[0].length;
-
-  let depth = 1;
-  let i = startIndex;
-  const openTag = new RegExp(`<${tagName}[\\s>]`, 'gi');
-  const closeTag = new RegExp(`<\\/${tagName}>`, 'gi');
-
-  while (i < html.length && depth > 0) {
-    openTag.lastIndex = i;
-    closeTag.lastIndex = i;
-    const nextOpen = openTag.exec(html);
-    const nextClose = closeTag.exec(html);
-
-    if (!nextClose) break;
-
-    if (nextOpen && nextOpen.index < nextClose.index) {
-      depth++;
-      i = nextOpen.index + nextOpen[0].length;
-    } else {
-      depth--;
-      i = nextClose.index + nextClose[0].length;
-    }
-  }
-
-  return html.slice(startIndex, i - `</${tagName}>`.length);
-};
-
-// Helper: Remove all instances of a matched container (with correct nested-div tracking).
-// Use this instead of .replace(/<div...>[\s\S]*?<\/div>/gi, '') which stops at first </div>.
-const stripContainers = (html: string, openTagRegex: RegExp): string => {
-  let result = html;
-  // Reset lastIndex for global regexes to avoid stale state between calls.
-  const pattern = new RegExp(openTagRegex.source, openTagRegex.flags.includes('g') ? openTagRegex.flags : openTagRegex.flags + 'g');
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(result)) !== null) {
-    const tagEnd = result.indexOf('>', match.index + match[0].length);
-    const contentStart = tagEnd >= 0 ? tagEnd + 1 : match.index + match[0].length;
-    const tagName = match[0].match(/^<(\w+)/i)?.[1]?.toLowerCase() ?? 'div';
-    const openTag = new RegExp(`<${tagName}[\\s>]`, 'gi');
-    const closeTag = new RegExp(`<\\/${tagName}>`, 'gi');
-    let depth = 1;
-    let i = contentStart;
-    while (i < result.length && depth > 0) {
-      openTag.lastIndex = i;
-      closeTag.lastIndex = i;
-      const nextOpen = openTag.exec(result);
-      const nextClose = closeTag.exec(result);
-      if (!nextClose) break;
-      if (nextOpen && nextOpen.index < nextClose.index) {
-        depth++;
-        i = nextOpen.index + nextOpen[0].length;
-      } else {
-        depth--;
-        i = nextClose.index + nextClose[0].length;
-      }
-    }
-    result = result.slice(0, match.index) + result.slice(i);
-    pattern.lastIndex = match.index; // re-scan from same position after removal
-  }
-  return result;
-};
-
-// Enhanced function to extract content with proper formatting
-const extractFormattedContent = (html: string, siteType: string): string => {
-  let contentHtml = '';
-  
-  // Use extractContainerContent (not regex) to handle nested divs correctly.
-  // Regex like /<div...>([\s\S]*?)<\/div>/i stops at the FIRST </div> — wrong for nested markup.
-  if (siteType === 'freewebnovel') {
-    // FreeWebNovel: content lives in <div id="article"> inside <div class="txt ">
-    // Ad blocks (id="bg-ssp-*", id="pf-*") are injected between paragraphs — strip them.
-    const raw = extractContainerContent(html, /<div[^>]*\bid="article"[^>]*/i) ??
-                extractContainerContent(html, /<div[^>]*\bclass="txt[^"]*"[^>]*/i) ?? '';
-    if (raw) {
-      contentHtml = stripContainers(raw, /<div[^>]*\bid="bg-ssp-[^"]*"[^>]*/i);
-      contentHtml = stripContainers(contentHtml, /<div[^>]*\bid="pf-[^"]*"[^>]*/i);
-      contentHtml = contentHtml.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
-      contentHtml = stripContainers(contentHtml, /<div[^>]*style="[^"]*text-align:\s*center[^"]*"[^>]*/i);
-    }
-  } else if (siteType === 'novelbin') {
-    // NovelBin: content lives in <div id="chr-content">
-    contentHtml = extractContainerContent(html, /<div[^>]*\bid="chr-content"[^>]*/i) ?? '';
-  } else if (siteType === 'lightnovelworld') {
-    // LightNovelWorld: content lives in <div id="chapterText">
-    // Ads (<div class="chapter-ad-container">) and <style> blocks are injected mid-content.
-    const raw = extractContainerContent(html, /<div[^>]*\bid="chapterText"[^>]*/i) ??
-                extractContainerContent(html, /<div[^>]*\bclass="chapter-text[^"]*"[^>]*/i) ?? '';
-    if (raw) {
-      contentHtml = stripContainers(raw, /<div[^>]*\bclass="chapter-ad-container[^"]*"[^>]*/i);
-      contentHtml = stripContainers(contentHtml, /<div[^>]*\bclass="text-to-speech[^"]*"[^>]*/i);
-      contentHtml = stripContainers(contentHtml, /<div[^>]*\bclass="cta-banner[^"]*"[^>]*/i);
-      contentHtml = contentHtml.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
-    }
-  } else if (siteType === 'novelfull') {
-    // novelfull.net, novelfull.com, readnovelfull, allnovel.org, novgo.net
-    // Container: <div id="chapter-content"> — same across all these sites.
-    // Mid-content ads: <div class="ads ads-holder ads-middle text-center"> and top iframe ad.
-    const raw = extractContainerContent(html, /<div[^>]*\bid="chapter-content"[^>]*/i) ??
-                extractContainerContent(html, /<div[^>]*\bclass="chapter-content"[^>]*/i) ?? '';
-    if (raw) {
-      contentHtml = stripContainers(raw, /<div[^>]*\bclass="ads[^"]*ads-holder[^"]*"[^>]*/i);
-      contentHtml = stripContainers(contentHtml, /<div[^>]*\bid="pf-[^"]*"[^>]*/i);
-      contentHtml = stripContainers(contentHtml, /<div[^>]*\balign="center"[^>]*/i); // top iframe ad
-      contentHtml = contentHtml.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
-      contentHtml = contentHtml.replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, '');
-    }
-  } else {
-    // Generic fallback for unrecognised sites
-    contentHtml = extractContainerContent(html, /<div[^>]*\bclass="chapter-content"[^>]*/i) ??
-                  extractContainerContent(html, /<div[^>]*\bclass="content"[^>]*/i) ??
-                  extractContainerContent(html, /<div[^>]*\bid="chapter-content"[^>]*/i) ??
-                  extractContainerContent(html, /<article[^>]*/i) ?? '';
-  }
-  
-  if (!contentHtml) {
-    // Fallback: get all paragraphs
-    const paragraphs = html.match(/<p[^>]*>([\s\S]*?)<\/p>/gis);
-    if (paragraphs) {
-      contentHtml = paragraphs.join('\n\n');
-    }
-  }
-  
-  if (!contentHtml) return '';
-
-  // 1. Mark paragraph boundaries BEFORE stripping tags, using a sentinel.
-  //    Each </p> or <br> becomes a real newline; block-level closers become paragraph breaks.
-  const PARA_BREAK = '\u0000PARA\u0000';
-  const LINE_BREAK = '\u0000LINE\u0000';
-
-  contentHtml = contentHtml.replace(/<\/p>/gi, PARA_BREAK);
-  contentHtml = contentHtml.replace(/<br\s*\/?>/gi, LINE_BREAK);
-  contentHtml = contentHtml.replace(/<\/(?:div|section|article|li|h[1-6])>/gi, PARA_BREAK);
-
-  // 2. Strip all remaining HTML tags (replaced with nothing, not a space,
-  //    so "word</span>word" doesn't become "word word").
-  let text = contentHtml.replace(/<[^>]*>/g, '');
-
-  // 3. Decode HTML entities now (safe — no more tags).
-  text = decodeEntities(text);
-
-  // 4. Restore sentinels to real newlines.
-  // FreeWebNovel wraps every sentence in its own <p> with zero CSS margin,
-  // so the site renders them as single-spaced lines. Use \n to match that.
-  // All other sites use <p> as true paragraph blocks, so keep \n\n.
-  const paraNewline = siteType === 'freewebnovel' ? '\n' : '\n\n';
-  text = text.replace(new RegExp(PARA_BREAK, 'g'), paraNewline);
-  text = text.replace(new RegExp(LINE_BREAK, 'g'), '\n');
-
-  // 5. Collapse runs of spaces/tabs within each line, but leave newlines alone.
-  text = text.replace(/[ \t]+/g, ' ');
-  text = text.replace(/[ \t]*\n[ \t]*/g, '\n'); // trim spaces around newlines
-
-  // 6. Collapse excess newlines to match site rendering.
-  const maxNewlines = siteType === 'freewebnovel' ? /\n{2,}/g : /\n{3,}/g;
-  const newlineReplacement = siteType === 'freewebnovel' ? '\n' : '\n\n';
-  text = text.replace(maxNewlines, newlineReplacement);
-
-  // 7. Filter out junk lines/paragraphs split on the site-appropriate separator.
-  const junkPhrases = getJunkPhrases(siteType);
-  const paragraphs = text.split(paraNewline);
-  const filteredParagraphs = paragraphs
-    .map(p => p.trim())
-    .filter(p => {
-      if (p.length === 0) return false;
-      const lower = p.toLowerCase();
-      return !junkPhrases.some(phrase => lower.includes(phrase));
-    });
-
-  let result = filteredParagraphs.join(paraNewline).trim();
-
-  // 8. Final safety pass.
-  result = result.replace(maxNewlines, newlineReplacement);
-
-  return result || 'No content available.';
-};
-
-// Helper function to get site-specific junk phrases
-const getJunkPhrases = (siteType: string): string[] => {
-  const commonJunk = [
-    'next chapter', 'previous chapter', 'table of contents',
-    'error loading comments', 'please try again later', 'total responses',
-    'load comments', 'login to comment', 'post a comment', 'report error',
-    'community', 'share your thoughts', 'react to the', 'latest chapter',
-    'or reply', 'to other readers', 'thoughtful comments', 'make this page',
-    'more useful', 'for everyone', 'support the author', 'donate', 'patreon'
-  ];
-  
-  const siteSpecificJunk: Record<string, string[]> = {
-    freewebnovel: [
-      'panda', 'novɐ1', 'freewebnovel.com', 'freewebnovel', 'bednovel.com',
-      'bednovel', 'please visit', 'for a better experience', 'click here',
-      'download the app', 'read latest chapters', 'follow on', 'facebook',
-      'twitter', 'instagram', 'discord'
-    ],
-    lightnovelworld: [
-      'text-to-speech is here', 'create a free account', 'unlock the full experience',
-      'post comment', 'verification code', 'resend code', 'staff account detected',
-      'forgot password', 'reset password', 'confirm password', 'username password',
-      'mark as spoiler', 'poll options', 'add option', 'cancel post', 'posting...',
-      'verifying...', 'sending...', 'resetting...', 'window.initializecomments',
-      'light novel world', 'your gateway to infinite stories', '© 2025 light novel world',
-      'loading chapters...', 'chapter comments', 'login to comment'
-    ],
-    novelbin: [
-      'novelbin.com', 'novelbin.me'
-    ],
-    novelfull: [
-      'we are offering free books', 'read novel updated daily', 'light novel translations',
-      'web novel, chinese novel', 'japanese novel, korean novel', 'other novel online',
-      'novelfull.com', 'readnovelfull.com', 'allnovel.org', 'novgo.net'
-    ]
-  };
-  
-  let junk = [...commonJunk];
-  
-  if (siteType === 'freewebnovel') junk.push(...siteSpecificJunk.freewebnovel);
-  if (siteType === 'lightnovelworld') junk.push(...siteSpecificJunk.lightnovelworld);
-  if (siteType === 'novelbin') junk.push(...siteSpecificJunk.novelbin);
-  if (siteType === 'novelfull') junk.push(...siteSpecificJunk.novelfull);
-  
-  return junk;
 };
 
 export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
@@ -421,19 +163,16 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
                          safeMatch(html, /<div[^>]*class="book-title"[^>]*>([^<]+)<\/div>/i);
       if (titleMatch) title = decodeEntities(titleMatch);
       
-      // Author extraction
       if (isReadNovelFull) {
         const authorMatch = safeMatch(html, /<span[^>]*itemprop="author"[^>]*>.*?<meta[^>]*itemprop="name"[^>]*content="([^"]+)"/i);
         if (authorMatch) author = decodeEntities(authorMatch);
       }
       
-      // All Novelfull-style sites
       if (isNovelFullNet || isNovelFullCom || isAllNovel || isNovgo) {
         const authorMatch = safeMatch(html, /<div[^>]*class="info"[^>]*>[\s\S]*?<h3>Author:<\/h3>\s*<a[^>]*>([^<]+)<\/a>/i);
         if (authorMatch) author = decodeEntities(authorMatch);
       }
 
-      // Synopsis extraction with better formatting
       let descHtml = '';
       if (isReadNovelFull) {
         const descMatch = safeMatch(html, /<div[^>]*itemprop="description"[^>]*>([\s\S]*?)<\/div>/i);
@@ -444,7 +183,6 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
       }
       
       if (descHtml) {
-        // Preserve paragraph structure
         const paragraphs = descHtml.match(/<p[^>]*>(.*?)<\/p>/gis);
         if (paragraphs && paragraphs.length > 0) {
           synopsis = paragraphs
@@ -456,11 +194,9 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
         }
       }
       
-      // Cover image
       const coverMatch = safeMatch(html, /<div[^>]*class="book"[^>]*>.*?<img[^>]*src="([^"]+)"[^>]*>/i);
       if (coverMatch) coverUrl = makeAbsoluteUrl(coverMatch, url);
       
-      // First chapter URL
       const chapterMatch = safeMatch(html, /<(?:div|ul)[^>]*(?:id="(?:tab-chapters|list-chapter)"|class="list-chapter")[^>]*>.*?<li[^>]*>.*?<a[^>]*href="([^"]+)"/i);
       if (chapterMatch) {
         firstChapterUrl = makeAbsoluteUrl(chapterMatch, url);
@@ -516,7 +252,6 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
       const authorMatch = safeMatch(html, /<span[^>]*itemprop="author"[^>]*>[\s\S]*?<meta[^>]*itemprop="name"[^>]*content="([^"]+)"/i);
       if (authorMatch) author = decodeEntities(authorMatch);
       
-      // Extract synopsis by ID directly
       const descDivMatch = html.match(/<div[^>]*id="novel-description-content"[^>]*>([\s\S]*?)<\/div>/i);
       if (descDivMatch) {
         const innerHtml = descDivMatch[1];
@@ -587,173 +322,182 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
   }
 };
 
+// ============================================================
+// OLD directFetchChapter - THE WORKING ONE
+// ============================================================
 export const directFetchChapter = async (url: string, chapterNum: number): Promise<ChapterData> => {
   console.log('[Scraper] Fetching chapter:', url);
   
   try {
     const domainLower = url.toLowerCase();
     const isReadNovelFull = domainLower.includes('readnovelfull');
-    const isNovelFullNet = domainLower.includes('novelfull.net') && !isReadNovelFull;
-    const isNovelFullCom = domainLower.includes('novelfull.com');
-    const isAllNovel = domainLower.includes('allnovel.org');
-    const isNovgo = domainLower.includes('novgo.net');
+    const isNovelFull = domainLower.includes('novelfull') && !isReadNovelFull;
     const isFreeWebNovel = domainLower.includes('freewebnovel') || domainLower.includes('bednovel');
     const isNovelBin = domainLower.includes('novelbin');
     const isLightNovelWorld = domainLower.includes('lightnovelworld');
-    
-    let siteType = 'novelfull';
-    if (isFreeWebNovel) siteType = 'freewebnovel';
-    if (isLightNovelWorld) siteType = 'lightnovelworld';
-    if (isNovelBin) siteType = 'novelbin';
-    
+
     const html = await fetchWithFallback(url, isFreeWebNovel);
     
-    // Extract title
     let title = `Chapter ${chapterNum}`;
-    let skipCleanup = false;
     
-    if (isReadNovelFull || isNovelFullNet || isNovelFullCom || isAllNovel || isNovgo) {
-      const titleMatch = safeMatch(html, /<span[^>]*class="(?:chr-text|chapter-text)"[^>]*>([^<]+)<\/span>/i) ||
-                         safeMatch(html, /<a[^>]*class="(?:chr-title|chapter-title)"[^>]*title="([^"]+)"/i) ||
-                         safeMatch(html, /<(?:h2|h3)[^>]*class="(?:chapter-title|title|chapter)"[^>]*>([^<]+)<\/(?:h2|h3)>/i) ||
-                         safeMatch(html, /<(?:h2|h3)[^>]*>([^<]*Chapter[^<]*)<\/(?:h2|h3)>/i);
-      if (titleMatch) {
-        let rawTitle = decodeEntities(titleMatch.trim()).replace(/\s+/g, ' ').trim();
-        rawTitle = rawTitle.replace(/^.*Chapter\s+\d+(\s+\d+)?\s*[:.\-–—]?\s*/i, '').trim();
-        rawTitle = rawTitle.replace(/^[\s,]+/, '').trim();
-        title = rawTitle.length > 0 ? `Chapter ${chapterNum}: ${rawTitle}` : `Chapter ${chapterNum}`;
-        skipCleanup = true;
-      }
-    }
-    
+    // --- Extract chapter content ---
+    let paragraphMatches: string[] | null = null;
+
     if (isFreeWebNovel) {
-      const titleMatch = safeMatch(html, /<h1[^>]*class="tit"[^>]*>([^<]+)<\/h1>/i) ||
-                         safeMatch(html, /<h4[^>]*>([^<]*Chapter[^<]*)<\/h4>/i) ||
-                         safeMatch(html, /<h2[^>]*>([^<]*Chapter[^<]*)<\/h2>/i);
-      if (titleMatch) {
-        let rawTitle = decodeEntities(titleMatch.trim()).replace(/\s+/g, ' ').trim();
-        rawTitle = rawTitle.replace(/Chapter\s+\d+\s*[:.\-–—]\s*/gi, '').trim();
-        rawTitle = rawTitle.replace(new RegExp(`^\\s*${chapterNum}\\s*[:.\\-–—]?\\s*`, 'i'), '').trim();
-        title = rawTitle.length > 0 ? `Chapter ${chapterNum}: ${rawTitle}` : `Chapter ${chapterNum}`;
-        skipCleanup = true;
+      const containerMatch = html.match(/<div[^>]*class="chapter-content"[^>]*>([\s\S]*?)<\/div>/i) ||
+                             html.match(/<div[^>]*id="chapter-container"[^>]*>([\s\S]*?)<\/div>/i);
+      if (containerMatch) {
+        paragraphMatches = containerMatch[1].match(/<p[^>]*>([\s\S]*?)<\/p>/gis);
       }
     }
-    
-    if (isNovelBin) {
-      const titleMatch = safeMatch(html, /<span[^>]*class="chr-text"[^>]*>([^<]+)<\/span>/i) ||
-                         safeMatch(html, /<a[^>]*class="chr-title"[^>]*title="([^"]+)"/i) ||
-                         safeMatch(html, /<h3[^>]*class="title"[^>]*>([^<]+)<\/h3>/i) ||
-                         safeMatch(html, /<(?:h2|h3)[^>]*>([^<]*Chapter[^<]*)<\/(?:h2|h3)>/i) ||
-                         safeMatch(html, /<a[^>]*class="chr-title"[^>]*>([^<]+)<\/a>/i);
-      if (titleMatch) {
-        let rawTitle = decodeEntities(titleMatch.trim()).replace(/\s+/g, ' ').trim();
-        rawTitle = rawTitle.replace(/^.*Chapter\s+\d+(\s+\d+)?\s*[:.\-–—]?\s*/i, '').trim();
-        title = rawTitle.length > 0 ? `Chapter ${chapterNum}: ${rawTitle}` : `Chapter ${chapterNum}`;
-        skipCleanup = true;
+
+    if (isLightNovelWorld && !paragraphMatches) {
+      const containerMatch = html.match(/<div[^>]*id="chapterText"[^>]*>([\s\S]*?)<\/div>/i) ||
+                             html.match(/<div[^>]*class="chapter-text[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+      if (containerMatch) {
+        let cleaned = containerMatch[1]
+          .replace(/<div[^>]*class="chapter-ad-container"[^>]*>[\s\S]*?<\/div>/gi, '')
+          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+        cleaned = cleaned.replace(/<div[^>]*class="text-to-speech[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '');
+        cleaned = cleaned.replace(/<div[^>]*class="cta-banner[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '');
+        paragraphMatches = cleaned.match(/<p[^>]*>([\s\S]*?)<\/p>/gis);
       }
     }
-    
-    if (isLightNovelWorld) {
-      const titleMatch = safeMatch(html, /<h1[^>]*class="chapter-title"[^>]*>([^<]+)<\/h1>/i) ||
-                         safeMatch(html, /<h2[^>]*class="chapter-title"[^>]*>([^<]+)<\/h2>/i) ||
-                         safeMatch(html, /<h1[^>]*>([^<]*Chapter[^<]*)<\/h1>/i) ||
-                         safeMatch(html, /<span[^>]*class="chapter-title"[^>]*>([^<]+)<\/span>/i);
-      if (titleMatch) {
-        title = decodeEntities(titleMatch.trim());
-        skipCleanup = true;
-      }
+
+    if (!paragraphMatches) {
+      paragraphMatches = html.match(/<p[^>]*>([\s\S]*?)<\/p>/gis);
     }
+
+    const validParagraphs: string[] = [];
     
-    if (!skipCleanup && title === `Chapter ${chapterNum}`) {
-      const genericMatch = safeMatch(html, /<(?:h1|h2|h3)[^>]*>([^<]*(?:Chapter|Ch\.|Volume|Vol\.|Part|Book)[^<]*)<\/(?:h1|h2|h3)>/i);
-      if (genericMatch) title = decodeEntities(genericMatch.trim());
-    }
-    
-    if (!skipCleanup && (title === `Chapter ${chapterNum}` || title.match(/^Chapter\s+\d+$/i))) {
-      const firstLineMatch = html.match(/<p[^>]*>([^<]*Chapter[^<]*)<\/p>/i);
-      if (firstLineMatch) {
-        const extractedTitle = decodeEntities(stripTags(firstLineMatch[1])).trim();
-        if (extractedTitle.length > 0 && extractedTitle.length < 100) {
-          title = extractedTitle;
+    if (paragraphMatches) {
+      for (const p of paragraphMatches) {
+        let text = stripTags(p);
+        text = decodeEntities(text);
+        if (text.length > 5 && 
+            !text.toLowerCase().includes('next chapter') &&
+            !text.toLowerCase().includes('previous chapter') &&
+            !text.toLowerCase().includes('back to') &&
+            !text.toLowerCase().includes('table of contents')) {
+          validParagraphs.push(text);
         }
       }
     }
-    
-    console.log('[Scraper] Extracted title:', title);
-    
-    // Extract content using the enhanced formatter
-    let content = extractFormattedContent(html, siteType);
-    
-    // If no content found, try the old method as fallback
-    if (!content || content === 'No content available.') {
-      let paragraphMatches: string[] | null = null;
-      
-      if (isFreeWebNovel) {
-        const raw = extractContainerContent(html, /<div[^>]*\bid="article"[^>]*/i) ??
-                    extractContainerContent(html, /<div[^>]*\bclass="txt[^"]*"[^>]*/i);
-        if (raw) {
-          const cleaned = raw
-            .replace(/<div[^>]*\bid="bg-ssp-[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '')
-            .replace(/<div[^>]*\bid="pf-[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '')
-            .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-            .replace(/<div[^>]*style="[^"]*text-align:\s*center[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '');
-          paragraphMatches = cleaned.match(/<p[^>]*>([\s\S]*?)<\/p>/gis);
-        }
-      }
-      
-      if (isLightNovelWorld && !paragraphMatches) {
-        const raw = extractContainerContent(html, /<div[^>]*id="chapterText"[^>]*/i) ??
-                    extractContainerContent(html, /<div[^>]*class="chapter-text[^"]*"[^>]*/i);
-        if (raw) {
-          const cleaned = raw
-            .replace(/<div[^>]*class="chapter-ad-container"[^>]*>[\s\S]*?<\/div>/gi, '')
-            .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-            .replace(/<div[^>]*class="text-to-speech[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '')
-            .replace(/<div[^>]*class="cta-banner[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '');
-          paragraphMatches = cleaned.match(/<p[^>]*>([\s\S]*?)<\/p>/gis);
-        }
-      }
-      
-      if (!paragraphMatches) {
-        paragraphMatches = html.match(/<p[^>]*>([\s\S]*?)<\/p>/gis);
-      }
-      
-      const validParagraphs: string[] = [];
-      
-      if (paragraphMatches) {
-        for (const p of paragraphMatches) {
-          let text = stripTags(p);
-          text = decodeEntities(text);
-          if (text.length > 5 && 
-              !text.toLowerCase().includes('next chapter') &&
-              !text.toLowerCase().includes('previous chapter') &&
-              !text.toLowerCase().includes('back to') &&
-              !text.toLowerCase().includes('table of contents')) {
-            validParagraphs.push(text);
-          }
-        }
-      }
-      
-      const junkPhrases = getJunkPhrases(siteType);
-      const filtered = validParagraphs.filter(p => {
-        const lower = p.toLowerCase();
+
+    let content = '';
+
+    if (isNovelBin && validParagraphs.length > 0) {
+      const junkPhrases = [
+        'error loading comments',
+        'please try again later',
+        'total responses',
+        'load comments',
+        'login to comment',
+        'post a comment',
+        'report error',
+        'novelbin.com',
+        'novelbin.me',
+      ];
+      const filtered = validParagraphs.filter(text => {
+        const lower = text.toLowerCase();
         return !junkPhrases.some(phrase => lower.includes(phrase));
       });
+      content = filtered.join('\n\n') || validParagraphs.join('\n\n');
 
-      const paragraphsToJoin = filtered.length > 0 ? filtered : validParagraphs;
-      content = paragraphsToJoin
-        .map(p => p.trim())
-        .filter(p => p.length > 0)
-        .join('\n\n');
+    } else if (isLightNovelWorld && validParagraphs.length > 0) {
+      const junkPhrases = [
+        'text-to-speech is here',
+        'create a free account',
+        'unlock the full experience',
+        'post comment',
+        'verification code',
+        'resend code',
+        'staff account detected',
+        'forgot password',
+        'reset password',
+        'confirm password',
+        'username password',
+        'mark as spoiler',
+        'poll options',
+        'add option',
+        'cancel post',
+        'posting...',
+        'verifying...',
+        'sending...',
+        'resetting...',
+        'window.initializecomments',
+        'light novel world',
+        'your gateway to infinite stories',
+        '© 2025 light novel world',
+        'loading chapters...',
+        'chapter comments',
+        'login to comment',
+        'please follow common sense when posting comments',
+        'spam, phishing, or any sort of suspicious comment will be deleted',
+      ];
 
-      if (content) {
-        content = content.replace(/\n{3,}/g, '\n\n').trim();
-      } else {
-        content = 'No content available.';
+      const filtered = validParagraphs.filter(text => {
+        const lower = text.toLowerCase();
+        for (const phrase of junkPhrases) {
+          if (lower.includes(phrase)) return false;
+        }
+        if (text.length < 20) return false;
+        return true;
+      });
+
+      let startIdx = 0;
+      while (startIdx < filtered.length && filtered[startIdx].length < 80) startIdx++;
+      let endIdx = filtered.length - 1;
+      while (endIdx >= 0 && filtered[endIdx].toLowerCase().includes('comment')) endIdx--;
+
+      const cleaned = filtered.slice(startIdx, endIdx + 1);
+      content = cleaned.join('\n\n');
+      if (!content.trim()) {
+        content = validParagraphs.join('\n\n');
+      }
+
+    } else if ((isNovelFull || isReadNovelFull) && validParagraphs.length > 0) {
+      const junkPhrases = [
+        'we are offering free books',
+        'read novel updated daily',
+        'light novel translations',
+        'web novel, chinese novel',
+        'japanese novel, korean novel',
+        'other novel online',
+        'novelfull.com',
+        'readnovelfull.com',
+      ];
+      const filtered = validParagraphs.filter(text => {
+        const lower = text.toLowerCase();
+        return !junkPhrases.some(phrase => lower.includes(phrase));
+      });
+      content = filtered.join('\n\n') || validParagraphs.join('\n\n');
+
+    } else {
+      content = validParagraphs.join('\n\n');
+    }
+    
+    if (!content) {
+      const contentMatch = safeMatch(html, /<div[^>]*class="chapter-content"[^>]*>([\s\S]*?)<\/div>/i) ||
+                           safeMatch(html, /<div[^>]*class="content"[^>]*>([\s\S]*?)<\/div>/i) ||
+                           safeMatch(html, /<div[^>]*id="chapter-content"[^>]*>([\s\S]*?)<\/div>/i) ||
+                           safeMatch(html, /<article[^>]*>([\s\S]*?)<\/article>/i);
+      if (contentMatch) {
+        const innerParagraphs = contentMatch.match(/<p[^>]*>(.*?)<\/p>/gis);
+        if (innerParagraphs) {
+          const texts: string[] = [];
+          for (const p of innerParagraphs) {
+            let text = stripTags(p);
+            text = decodeEntities(text);
+            if (text.length > 5) texts.push(text);
+          }
+          content = texts.join('\n\n');
+        } else {
+          content = decodeEntities(stripTags(contentMatch));
+        }
       }
     }
     
-    // Find next chapter URL
     let nextUrl: string | null = null;
     
     const linkRegex = /<a\s+([^>]*)>([\s\S]*?)<\/a>/gi;
@@ -762,18 +506,18 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
     while ((linkMatch = linkRegex.exec(html)) !== null) {
       const attrsStr = linkMatch[1];
       const innerHtml = linkMatch[2];
-      
+
       const hrefMatch = attrsStr.match(/href=["']([^"']+)["']/i);
       const href = hrefMatch ? hrefMatch[1] : null;
-      
+
       const txt = stripTags(innerHtml).toLowerCase();
-      
+
       const classMatch = attrsStr.match(/class=["']([^"']*)["']/i);
       const classAttr = classMatch ? classMatch[1].toLowerCase() : '';
-      
+
       const idMatch = attrsStr.match(/id=["']([^"']*)["']/i);
       const idAttr = idMatch ? idMatch[1].toLowerCase() : '';
-      
+
       const attrs = classAttr + ' ' + idAttr;
       
       if ((txt.includes('next') || txt.includes('next chapter') || 
@@ -791,7 +535,7 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
     return {
       url,
       title: decodeEntities(title),
-      content,
+      content: content || 'No content available.',
       nextUrl
     };
   } catch (error: any) {
@@ -820,8 +564,8 @@ export async function downloadNovelByCrawling(
 ): Promise<void> {
   let currentUrl: string | null = startUrl;
   let chapterNumber = 1;
-  const MAX_CHAPTERS = 5000; // Bug 4: infinite loop guard (circular nextUrl on some sites)
-  const seenUrls = new Set<string>(); // Bug 4: detect circular nextUrl
+  const MAX_CHAPTERS = 5000;
+  const seenUrls = new Set<string>();
 
   while (currentUrl) {
     if (chapterNumber > MAX_CHAPTERS) {
@@ -829,7 +573,6 @@ export async function downloadNovelByCrawling(
       break;
     }
 
-    // Bug 4: stop if nextUrl loops back to a URL we already fetched
     if (seenUrls.has(currentUrl)) {
       console.warn(`[Downloader] Circular URL detected at chapter ${chapterNumber}, stopping.`);
       break;
@@ -838,7 +581,7 @@ export async function downloadNovelByCrawling(
 
     console.log(`[Downloader] Fetching chapter ${chapterNumber} from ${currentUrl}`);
 
-    let retries = 2; // Bug 3: retry up to 2 times before skipping
+    let retries = 2;
     let success = false;
 
     while (retries >= 0 && !success) {
@@ -861,14 +604,12 @@ export async function downloadNovelByCrawling(
         retries--;
         if (retries >= 0) {
           console.warn(`[Downloader] Chapter ${chapterNumber} failed, retrying (${retries} left):`, error.message);
-          await new Promise(resolve => setTimeout(resolve, 1000)); // wait before retry
+          await new Promise(resolve => setTimeout(resolve, 1000));
         } else {
-          // Bug 3: after all retries exhausted, skip this chapter and attempt to continue
           console.error(`[Downloader] Chapter ${chapterNumber} permanently failed, skipping:`, error.message);
           if (onProgress) {
             onProgress(chapterNumber, `Chapter ${chapterNumber} (failed)`);
           }
-          // We can't know nextUrl if fetch failed — stop the download
           throw new Error(`Download stopped at chapter ${chapterNumber}: ${error.message}`);
         }
       }
