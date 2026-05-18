@@ -292,41 +292,56 @@ const extractFormattedContent = (html: string, siteType: string): string => {
   }
   
   if (!contentHtml) return '';
-  
-  // Preserve line breaks from <br> tags
-  contentHtml = contentHtml.replace(/<br\s*\/?>/gi, '\n');
-  
-  // Preserve paragraph separation
-  contentHtml = contentHtml.replace(/<\/p>/gi, '\n\n');
-  contentHtml = contentHtml.replace(/<\/div>/gi, '\n');
-  
-  // Remove remaining HTML tags
-  let text = contentHtml.replace(/<[^>]*>/g, ' ');
-  
-  // Clean up whitespace but preserve intentional line breaks
-  text = text.replace(/[ \t]+/g, ' '); // Collapse spaces/tabs
-  text = text.replace(/\n[ \t]+/g, '\n'); // Remove spaces after line breaks
-  text = text.replace(/[ \t]+\n/g, '\n'); // Remove spaces before line breaks
-  text = text.replace(/\n{3,}/g, '\n\n'); // Limit to max 2 line breaks
-  
-  // Decode HTML entities
+
+  // 1. Mark paragraph boundaries BEFORE stripping tags, using a sentinel.
+  //    Each </p> or <br> becomes a real newline; block-level closers become paragraph breaks.
+  const PARA_BREAK = '\u0000PARA\u0000';
+  const LINE_BREAK = '\u0000LINE\u0000';
+
+  contentHtml = contentHtml.replace(/<\/p>/gi, PARA_BREAK);
+  contentHtml = contentHtml.replace(/<br\s*\/?>/gi, LINE_BREAK);
+  contentHtml = contentHtml.replace(/<\/(?:div|section|article|li|h[1-6])>/gi, PARA_BREAK);
+
+  // 2. Strip all remaining HTML tags (replaced with nothing, not a space,
+  //    so "word</span>word" doesn't become "word word").
+  let text = contentHtml.replace(/<[^>]*>/g, '');
+
+  // 3. Decode HTML entities now (safe — no more tags).
   text = decodeEntities(text);
-  
-  // Remove common junk content
+
+  // 4. Restore sentinels to real newlines.
+  // FreeWebNovel wraps every sentence in its own <p> with zero CSS margin,
+  // so the site renders them as single-spaced lines. Use \n to match that.
+  // All other sites use <p> as true paragraph blocks, so keep \n\n.
+  const paraNewline = siteType === 'freewebnovel' ? '\n' : '\n\n';
+  text = text.replace(new RegExp(PARA_BREAK, 'g'), paraNewline);
+  text = text.replace(new RegExp(LINE_BREAK, 'g'), '\n');
+
+  // 5. Collapse runs of spaces/tabs within each line, but leave newlines alone.
+  text = text.replace(/[ \t]+/g, ' ');
+  text = text.replace(/[ \t]*\n[ \t]*/g, '\n'); // trim spaces around newlines
+
+  // 6. Collapse excess newlines to match site rendering.
+  const maxNewlines = siteType === 'freewebnovel' ? /\n{2,}/g : /\n{3,}/g;
+  const newlineReplacement = siteType === 'freewebnovel' ? '\n' : '\n\n';
+  text = text.replace(maxNewlines, newlineReplacement);
+
+  // 7. Filter out junk lines/paragraphs split on the site-appropriate separator.
   const junkPhrases = getJunkPhrases(siteType);
-  const lines = text.split('\n');
-  const filteredLines = lines.filter(line => {
-    const lowerLine = line.toLowerCase().trim();
-    return !junkPhrases.some(phrase => lowerLine.includes(phrase)) && line.trim().length > 0;
-  });
-  
-  // Rejoin with proper spacing
-  let result = filteredLines.join('\n\n');
-  
-  // Final cleanup
-  result = result.replace(/^\s+|\s+$/g, '');
-  result = result.replace(/\n{3,}/g, '\n\n');
-  
+  const paragraphs = text.split(paraNewline);
+  const filteredParagraphs = paragraphs
+    .map(p => p.trim())
+    .filter(p => {
+      if (p.length === 0) return false;
+      const lower = p.toLowerCase();
+      return !junkPhrases.some(phrase => lower.includes(phrase));
+    });
+
+  let result = filteredParagraphs.join(paraNewline).trim();
+
+  // 8. Final safety pass.
+  result = result.replace(maxNewlines, newlineReplacement);
+
   return result || 'No content available.';
 };
 
@@ -720,17 +735,19 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
       }
       
       const junkPhrases = getJunkPhrases(siteType);
-      const filtered = validParagraphs.filter(text => {
-        const lower = text.toLowerCase();
+      const filtered = validParagraphs.filter(p => {
+        const lower = p.toLowerCase();
         return !junkPhrases.some(phrase => lower.includes(phrase));
       });
-      
-      content = filtered.join('\n\n') || validParagraphs.join('\n\n');
-      
+
+      const paragraphsToJoin = filtered.length > 0 ? filtered : validParagraphs;
+      content = paragraphsToJoin
+        .map(p => p.trim())
+        .filter(p => p.length > 0)
+        .join('\n\n');
+
       if (content) {
-        // Clean up the content
-        content = content.replace(/\n{3,}/g, '\n\n');
-        content = content.trim();
+        content = content.replace(/\n{3,}/g, '\n\n').trim();
       } else {
         content = 'No content available.';
       }
