@@ -16,7 +16,7 @@ export interface ChapterData {
   nextUrl: string | null;
 }
 
-// Helper: Strip HTML tags safely
+// Helper: Strip HTML tags safely (simple version)
 const stripTags = (html: string): string => {
   if (!html) return '';
   return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
@@ -134,6 +134,9 @@ const fetchWithFallback = async (url: string, isFreeWebNovel: boolean): Promise<
   }
 };
 
+// ============================================================
+// METADATA EXTRACTION (from NEW version - works well)
+// ============================================================
 export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
   console.log('[Scraper] Fetching novel meta from:', url);
   
@@ -323,7 +326,7 @@ export const directFetchNovelMeta = async (url: string): Promise<NovelMeta> => {
 };
 
 // ============================================================
-// OLD directFetchChapter - THE WORKING ONE
+// CHAPTER EXTRACTION (from OLD version - preserves line breaks)
 // ============================================================
 export const directFetchChapter = async (url: string, chapterNum: number): Promise<ChapterData> => {
   console.log('[Scraper] Fetching chapter:', url);
@@ -498,6 +501,7 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
       }
     }
     
+    // --- Find next chapter URL ---
     let nextUrl: string | null = null;
     
     const linkRegex = /<a\s+([^>]*)>([\s\S]*?)<\/a>/gi;
@@ -546,14 +550,6 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
 
 /**
  * Downloads all chapters of a novel by following the "next chapter" links.
- * Saves each chapter as soon as it's fetched, allowing incremental progress.
- *
- * @param startUrl - URL of the first chapter (e.g., from `firstChapterUrl`)
- * @param novelId - Unique identifier for the novel (used in the save callback)
- * @param saveChapter - Async function to store a chapter: (novelId, chapterIndex, title, content) => Promise<void>
- * @param onProgress - Optional callback for progress updates: (chapterNumber, title) => void
- * @param delayMs - Milliseconds to wait between chapter requests (default 500)
- * @returns Promise that resolves when all chapters are downloaded
  */
 export async function downloadNovelByCrawling(
   startUrl: string,
@@ -606,10 +602,7 @@ export async function downloadNovelByCrawling(
           console.warn(`[Downloader] Chapter ${chapterNumber} failed, retrying (${retries} left):`, error.message);
           await new Promise(resolve => setTimeout(resolve, 1000));
         } else {
-          console.error(`[Downloader] Chapter ${chapterNumber} permanently failed, skipping:`, error.message);
-          if (onProgress) {
-            onProgress(chapterNumber, `Chapter ${chapterNumber} (failed)`);
-          }
+          console.error(`[Downloader] Chapter ${chapterNumber} permanently failed:`, error.message);
           throw new Error(`Download stopped at chapter ${chapterNumber}: ${error.message}`);
         }
       }
