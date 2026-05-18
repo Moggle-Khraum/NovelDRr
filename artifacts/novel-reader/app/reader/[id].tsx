@@ -3,9 +3,9 @@ import * as Haptics from "expo-haptics";
 import * as Speech from "expo-speech";
 import { router, useLocalSearchParams } from "expo-router";
 import * as FileSystem from "expo-file-system";
+import * as Speech from 'expo-speech';
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Modal,
   Platform,
@@ -14,6 +14,7 @@ import {
   StyleSheet,
   Text,
   View,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -29,6 +30,55 @@ const READER_SETTINGS_FILE = `${FileSystem.documentDirectory}NovelDR/reader_sett
 const TTS_SETTINGS_FILE = `${FileSystem.documentDirectory}NovelDR/tts_simple_settings.json`;
 
 const TTS_MIN_CHARS = 500;
+
+const loadChapterContentWithFallback = async (
+  novelId: string,
+  chapterIndex: number,
+  chapter: { title: string; url: string; content?: string },
+  loadFromFileSystem: (novelId: string, chapterIndex: number) => Promise<any>
+): Promise<string> => {
+  try {
+    const fileChapter = await loadFromFileSystem(novelId, chapterIndex);
+    if (fileChapter && fileChapter.content) return fileChapter.content;
+  } catch {
+    console.log('[Reader] File system load failed, trying fallbacks...');
+  }
+
+  if (chapter.content && chapter.content.trim().length > 0) return chapter.content;
+
+  try {
+    const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+    const libraryData = await AsyncStorage.getItem('novel_library_v1');
+    if (libraryData) {
+      const novels = JSON.parse(libraryData);
+      const novel = novels.find((n: any) => n.id === novelId);
+      if (novel?.chapters?.[chapterIndex]?.content?.trim().length > 0) {
+        return novel.chapters[chapterIndex].content;
+      }
+    }
+  } catch (asyncError) {
+    console.log('[Reader] AsyncStorage fallback failed:', asyncError);
+  }
+
+  try {
+    const altPaths = [
+      `${FileSystem.documentDirectory}noveldr/chapters/${novelId}/chapter_${chapterIndex}.json`,
+      `${FileSystem.cacheDirectory}../NovelDR/chapters/${novelId}/chapter_${chapterIndex}.json`,
+    ];
+    for (const altPath of altPaths) {
+      const fileInfo = await FileSystem.getInfoAsync(altPath);
+      if (fileInfo.exists) {
+        const content = await FileSystem.readAsStringAsync(altPath);
+        const chapterData = JSON.parse(content);
+        if (chapterData.content) return chapterData.content;
+      }
+    }
+  } catch {
+    console.log('[Reader] Alternative path fallback failed');
+  }
+
+  return "Content not available for this chapter. It may still be downloading or wasn't saved properly. Try re-downloading the novel from the Updates tab.";
+};
 
 // Helper: split into sentences for TTS only (does NOT affect display)
 function splitIntoSentences(text: string): string[] {
@@ -90,6 +140,7 @@ export default function ReaderScreen() {
   const [ttsVoices, setTtsVoices] = useState<Speech.Voice[]>([]);
   const [ttsVoiceId, setTtsVoiceId] = useState<string | undefined>(undefined);
   const ttsVoiceIdRef = useRef<string | undefined>(undefined);
+  
   const [ttsRate, setTtsRate] = useState(1.0);
   const ttsRateRef = useRef(1.0);
 
