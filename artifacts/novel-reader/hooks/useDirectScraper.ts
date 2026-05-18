@@ -413,71 +413,283 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
     const isNovelBin = domainLower.includes('novelbin');
     const isLightNovelWorld = domainLower.includes('lightnovelworld');
     
+    // --- ISOLATED DETECTIONS ---
+    const isNovelFullOnly = domainLower === 'novelfull.com' || 
+                            domainLower.includes('novelfull.com') ||
+                            (domainLower.includes('novelfull') && !domainLower.includes('readnovelfull') && !domainLower.includes('.net'));
+    
+    const isNovelFullNetOnly = domainLower === 'novelfull.net' || domainLower.includes('novelfull.net');
+    
+    const isAllNovelOnly = domainLower === 'allnovel.org' || domainLower.includes('allnovel.org');
+    
+    const isNovgoOnly = domainLower === 'novgo.net' || domainLower.includes('novgo.net');
+    
+    const isLightNovelWorldOnly = domainLower.includes('lightnovelworld');
+    
     const html = await fetchWithFallback(url, isFreeWebNovel);
     
     // Default title
     let title = `Chapter ${chapterNum}`;
     let skipCleanup = false;
     
-    // Extract real chapter title
-    if (isReadNovelFull || isNovelFullNet || isNovelFullCom || isAllNovel || isNovgo) {
-      const titleMatch = safeMatch(html, /<span[^>]*class="(?:chr-text|chapter-text)"[^>]*>([^<]+)<\/span>/i) ||
-                         safeMatch(html, /<a[^>]*class="(?:chr-title|chapter-title)"[^>]*title="([^"]+)"/i) ||
-                         safeMatch(html, /<(?:h2|h3)[^>]*class="(?:chapter-title|title|chapter)"[^>]*>([^<]+)<\/(?:h2|h3)>/i) ||
-                         safeMatch(html, /<(?:h2|h3)[^>]*>([^<]*Chapter[^<]*)<\/(?:h2|h3)>/i);
-   if (titleMatch) {
-     let rawTitle = decodeEntities(titleMatch.trim()).replace(/\s+/g, ' ').trim();
-     rawTitle = rawTitle.replace(/^.*Chapter\s+\d+(\s+\d+)?\s*[:.\-–—]?\s*/i, '').trim();
-     // Remove any leading comma and spaces left over
-     rawTitle = rawTitle.replace(/^[\s,]+/, '').trim();
-     title = `Chapter ${chapterNum}: ${rawTitle}`;
-     skipCleanup = true;
-    }
-  }
-        
-    //FreeWebNovel Title Extractor
+    let paragraphMatches: string[] | null = null;
+    
+    // ============================================
+    // 1. FREEWEBNOVEL (isolated)
+    // ============================================
     if (isFreeWebNovel) {
-      const titleMatch = safeMatch(html, /<h1[^>]*class="tit"[^>]*>([^<]+)<\/h1>/i) ||
-                         safeMatch(html, /<h4[^>]*>([^<]*Chapter[^<]*)<\/h4>/i) ||
-                         safeMatch(html, /<h2[^>]*>([^<]*Chapter[^<]*)<\/h2>/i);
+      console.log('[Scraper] FreeWebNovel detected (isolated)');
+      
+      // Title extraction
+      const titleMatch = safeMatch(html, /<span[^>]*class="chapter"[^>]*>([^<]+)<\/span>/i);
       if (titleMatch) {
         let rawTitle = decodeEntities(titleMatch.trim()).replace(/\s+/g, ' ').trim();
-        // Remove all "Chapter X:" prefixes
-        rawTitle = rawTitle.replace(/Chapter\s+\d+\s*[:.\-–—]\s*/gi, '').trim();
-        // Remove stray duplicate number (e.g., "15 :")
+        rawTitle = rawTitle.replace(/^Chapter\s+\d+\s*[:.\-–—]\s*/i, '').trim();
         rawTitle = rawTitle.replace(new RegExp(`^\\s*${chapterNum}\\s*[:.\\-–—]?\\s*`, 'i'), '').trim();
         title = `Chapter ${chapterNum}: ${rawTitle}`;
         skipCleanup = true;
       }
+      
+      // Content extraction
+      const articleMatch = html.match(/<div[^>]*id="article"[^>]*>([\s\S]*?)<\/div>/i);
+      if (articleMatch) {
+        const articleHtml = articleMatch[1];
+        const pMatches = articleHtml.match(/<p[^>]*>([\s\S]*?)<\/p>/gis);
+        if (pMatches) {
+          paragraphMatches = pMatches;
+        }
+      }
     }
-
-
-    // Novelbin
-    if (isNovelBin) {
-      const titleMatch = safeMatch(html, /<span[^>]*class="chr-text"[^>]*>([^<]+)<\/span>/i) ||
-                         safeMatch(html, /<a[^>]*class="chr-title"[^>]*title="([^"]+)"/i) ||
-                         safeMatch(html, /<h3[^>]*class="title"[^>]*>([^<]+)<\/h3>/i) ||
-                         safeMatch(html, /<(?:h2|h3)[^>]*>([^<]*Chapter[^<]*)<\/(?:h2|h3)>/i) ||
-                         safeMatch(html, /<a[^>]*class="chr-title"[^>]*>([^<]+)<\/a>/i);
+    
+    // ============================================
+    // 2. NOVELBIN (isolated)
+    // ============================================
+    if (isNovelBin && !paragraphMatches) {
+      console.log('[Scraper] NovelBin detected (isolated)');
+      
+      // Title extraction
+      const titleMatch = safeMatch(html, /<span[^>]*class="chr-text"[^>]*>([^<]+)<\/span>/i);
       if (titleMatch) {
         let rawTitle = decodeEntities(titleMatch.trim()).replace(/\s+/g, ' ').trim();
-        rawTitle = rawTitle.replace(/^.*Chapter\s+\d+(\s+\d+)?\s*[:.\-–—]?\s*/i, '').trim();
+        rawTitle = rawTitle.replace(/^Chapter\s+\d+\s*[:.\-–—]\s*/i, '').trim();
+        rawTitle = rawTitle.replace(new RegExp(`^\\s*${chapterNum}\\s*[:.\\-–—]?\\s*`, 'i'), '').trim();
         title = `Chapter ${chapterNum}: ${rawTitle}`;
         skipCleanup = true;
       }
-    }
-
-    //LightNovelWorld
-    if (isLightNovelWorld) {
-      const titleMatch = safeMatch(html, /<h1[^>]*class="chapter-title"[^>]*>([^<]+)<\/h1>/i) ||
-                         safeMatch(html, /<h2[^>]*class="chapter-title"[^>]*>([^<]+)<\/h2>/i) ||
-                         safeMatch(html, /<h1[^>]*>([^<]*Chapter[^<]*)<\/h1>/i) ||
-                         safeMatch(html, /<span[^>]*class="chapter-title"[^>]*>([^<]+)<\/span>/i);
-      if (titleMatch) title = decodeEntities(titleMatch.trim());
+      
+      // Content extraction
+      const containerMatch = html.match(/<div[^>]*id="chr-content"[^>]*class="chr-c"[^>]*>([\s\S]*?)<\/div>/i);
+      if (containerMatch) {
+        const containerHtml = containerMatch[1];
+        const pMatches = containerHtml.match(/<p[^>]*>([\s\S]*?)<\/p>/gis);
+        if (pMatches) {
+          paragraphMatches = pMatches;
+        }
+      }
     }
     
-    // Generic fallback
-    if (title === `Chapter ${chapterNum}`) {
+    // ============================================
+    // 3. NOVELFULL.COM (isolated)
+    // ============================================
+    if (isNovelFullOnly && !paragraphMatches) {
+      console.log('[Scraper] Novelfull.com detected (isolated)');
+      
+      // Title extraction
+      const titleMatch = safeMatch(html, /<span[^>]*class="chapter-text"[^>]*>([^<]+)<\/span>/i);
+      if (titleMatch) {
+        let rawTitle = decodeEntities(titleMatch.trim()).replace(/\s+/g, ' ').trim();
+        rawTitle = rawTitle.replace(/^Chapter\s+\d+\s*[:.\-–—]\s*/i, '').trim();
+        rawTitle = rawTitle.replace(/^Chapter\s+\d+\s*[-–—]\s*/i, '').trim();
+        rawTitle = rawTitle.replace(new RegExp(`^\\s*${chapterNum}\\s*[:.\\-–—]?\\s*`, 'i'), '').trim();
+        rawTitle = rawTitle.replace(/^[\s,]+/, '').trim();
+        
+        if (rawTitle && rawTitle.length > 0) {
+          title = `Chapter ${chapterNum}: ${rawTitle}`;
+        } else {
+          title = `Chapter ${chapterNum}`;
+        }
+        skipCleanup = true;
+      }
+      
+      // Content extraction
+      const containerMatch = html.match(/<div[^>]*id="chapter-content"[^>]*class="chapter-c"[^>]*>([\s\S]*?)<\/div>/i);
+      if (containerMatch) {
+        const containerHtml = containerMatch[1];
+        const pMatches = containerHtml.match(/<p[^>]*>([\s\S]*?)<\/p>/gis);
+        if (pMatches) {
+          paragraphMatches = pMatches;
+        }
+      }
+    }
+    
+    // ============================================
+    // 4. NOVELFULL.NET (isolated)
+    // ============================================
+    if (isNovelFullNetOnly && !paragraphMatches) {
+      console.log('[Scraper] Novelfull.net detected (isolated)');
+      
+      // Title extraction
+      const titleMatch = safeMatch(html, /<span[^>]*class="chapter-text"[^>]*>([^<]+)<\/span>/i);
+      if (titleMatch) {
+        let rawTitle = decodeEntities(titleMatch.trim()).replace(/\s+/g, ' ').trim();
+        rawTitle = rawTitle.replace(/^Chapter\s+\d+\s*[:.\-–—]\s*/i, '').trim();
+        rawTitle = rawTitle.replace(/^Chapter\s+\d+\s*[-–—]\s*/i, '').trim();
+        rawTitle = rawTitle.replace(new RegExp(`^\\s*${chapterNum}\\s*[:.\\-–—]?\\s*`, 'i'), '').trim();
+        rawTitle = rawTitle.replace(/^[\s,]+/, '').trim();
+        
+        if (rawTitle && rawTitle.length > 0) {
+          title = `Chapter ${chapterNum}: ${rawTitle}`;
+        } else {
+          title = `Chapter ${chapterNum}`;
+        }
+        skipCleanup = true;
+      }
+      
+      // Content extraction
+      const containerMatch = html.match(/<div[^>]*id="chapter-content"[^>]*class="chapter-c"[^>]*>([\s\S]*?)<\/div>/i);
+      if (containerMatch) {
+        const containerHtml = containerMatch[1];
+        const pMatches = containerHtml.match(/<p[^>]*>([\s\S]*?)<\/p>/gis);
+        if (pMatches) {
+          paragraphMatches = pMatches;
+        }
+      }
+    }
+    
+    // ============================================
+    // 5. ALLNOVEL.ORG (isolated)
+    // ============================================
+    if (isAllNovelOnly && !paragraphMatches) {
+      console.log('[Scraper] AllNovel.org detected (isolated)');
+      
+      // Title extraction
+      const titleMatch = safeMatch(html, /<span[^>]*class="chapter-text"[^>]*>([^<]+)<\/span>/i);
+      if (titleMatch) {
+        let rawTitle = decodeEntities(titleMatch.trim()).replace(/\s+/g, ' ').trim();
+        rawTitle = rawTitle.replace(/^Chapter\s+\d+\s*[:.\-–—]\s*/i, '').trim();
+        rawTitle = rawTitle.replace(new RegExp(`^\\s*${chapterNum}\\s*[:.\\-–—]?\\s*`, 'i'), '').trim();
+        rawTitle = rawTitle.replace(/^[\s,]+/, '').trim();
+        
+        if (rawTitle && rawTitle.length > 0) {
+          title = `Chapter ${chapterNum}: ${rawTitle}`;
+        } else {
+          title = `Chapter ${chapterNum}`;
+        }
+        skipCleanup = true;
+      }
+      
+      // Content extraction
+      const containerMatch = html.match(/<div[^>]*id="chapter-content"[^>]*class="chapter-c"[^>]*>([\s\S]*?)<\/div>/i);
+      if (containerMatch) {
+        const containerHtml = containerMatch[1];
+        const pMatches = containerHtml.match(/<p[^>]*>([\s\S]*?)<\/p>/gis);
+        if (pMatches) {
+          paragraphMatches = pMatches;
+        }
+      }
+    }
+    
+    // ============================================
+    // 6. NOVGO.NET (isolated)
+    // ============================================
+    if (isNovgoOnly && !paragraphMatches) {
+      console.log('[Scraper] NOVGO.net detected (isolated)');
+      
+      // Title extraction
+      const titleMatch = safeMatch(html, /<span[^>]*class="chapter-text"[^>]*>([^<]+)<\/span>/i);
+      if (titleMatch) {
+        let rawTitle = decodeEntities(titleMatch.trim()).replace(/\s+/g, ' ').trim();
+        rawTitle = rawTitle.replace(/^Chapter\s+\d+\s*[:.\-–—]\s*/i, '').trim();
+        rawTitle = rawTitle.replace(new RegExp(`^\\s*${chapterNum}\\s*[:.\\-–—]?\\s*`, 'i'), '').trim();
+        rawTitle = rawTitle.replace(/^[\s,]+/, '').trim();
+        
+        if (rawTitle && rawTitle.length > 0) {
+          title = `Chapter ${chapterNum}: ${rawTitle}`;
+        } else {
+          title = `Chapter ${chapterNum}`;
+        }
+        skipCleanup = true;
+      }
+      
+      // Content extraction
+      const containerMatch = html.match(/<div[^>]*id="chapter-content"[^>]*class="chapter-c"[^>]*>([\s\S]*?)<\/div>/i);
+      if (containerMatch) {
+        let containerHtml = containerMatch[1];
+        containerHtml = containerHtml.replace(/<div[^>]*class="ads[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '');
+        containerHtml = containerHtml.replace(/<div[^>]*id="pf-\d+"[^>]*>[\s\S]*?<\/div>/gi, '');
+        const pMatches = containerHtml.match(/<p[^>]*>([\s\S]*?)<\/p>/gis);
+        if (pMatches) {
+          paragraphMatches = pMatches;
+        }
+      }
+    }
+    
+    // ============================================
+    // 7. LIGHTNOVELWORLD (isolated)
+    // ============================================
+    if (isLightNovelWorldOnly && !paragraphMatches) {
+      console.log('[Scraper] LightNovelWorld detected (isolated)');
+      
+      // Title extraction
+      const titleMatch = safeMatch(html, /<h1[^>]*class="chapter-title"[^>]*>([^<]+)<\/h1>/i);
+      if (titleMatch) {
+        let rawTitle = decodeEntities(titleMatch.trim()).replace(/\s+/g, ' ').trim();
+        rawTitle = rawTitle.replace(/^Chapter\s+\d+\s*[:.\-–—]\s*/i, '').trim();
+        rawTitle = rawTitle.replace(/^Chapter\s+\d+\s*[-–—]\s*/i, '').trim();
+        rawTitle = rawTitle.replace(new RegExp(`^\\s*${chapterNum}\\s*[:.\\-–—]?\\s*`, 'i'), '').trim();
+        rawTitle = rawTitle.replace(/^[\s,]+/, '').trim();
+        
+        if (rawTitle && rawTitle.length > 0) {
+          title = `Chapter ${chapterNum}: ${rawTitle}`;
+        } else {
+          title = `Chapter ${chapterNum}`;
+        }
+        skipCleanup = true;
+      }
+      
+      // Content extraction
+      const containerMatch = html.match(/<div[^>]*id="chapterText"[^>]*class="chapter-text[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+      if (containerMatch) {
+        let containerHtml = containerMatch[1];
+        containerHtml = containerHtml.replace(/<div[^>]*class="chapter-ad-container"[^>]*>[\s\S]*?<\/div>/gi, '');
+        const pMatches = containerHtml.match(/<p[^>]*>([\s\S]*?)<\/p>/gis);
+        if (pMatches) {
+          paragraphMatches = pMatches;
+        }
+      }
+    }
+    
+    // ============================================
+    // 8. LEGACY: ReadNovelFull (fallback for other similar sites)
+    // ============================================
+    if (!paragraphMatches && (isReadNovelFull || isNovelFullCom || isAllNovel || isNovgo)) {
+      // Legacy title extraction
+      const titleMatch = safeMatch(html, /<span[^>]*class="(?:chr-text|chapter-text)"[^>]*>([^<]+)<\/span>/i) ||
+                         safeMatch(html, /<a[^>]*class="(?:chr-title|chapter-title)"[^>]*title="([^"]+)"/i) ||
+                         safeMatch(html, /<(?:h2|h3)[^>]*class="(?:chapter-title|title|chapter)"[^>]*>([^<]+)<\/(?:h2|h3)>/i) ||
+                         safeMatch(html, /<(?:h2|h3)[^>]*>([^<]*Chapter[^<]*)<\/(?:h2|h3)>/i);
+      if (titleMatch && !skipCleanup) {
+        let rawTitle = decodeEntities(titleMatch.trim()).replace(/\s+/g, ' ').trim();
+        rawTitle = rawTitle.replace(/^.*Chapter\s+\d+(\s+\d+)?\s*[:.\-–—]?\s*/i, '').trim();
+        rawTitle = rawTitle.replace(/^[\s,]+/, '').trim();
+        title = `Chapter ${chapterNum}: ${rawTitle}`;
+        skipCleanup = true;
+      }
+      
+      // Legacy content extraction
+      const containerMatch = html.match(/<div[^>]*id="chapter-content"[^>]*class="chapter-c"[^>]*>([\s\S]*?)<\/div>/i) ||
+                             html.match(/<div[^>]*class="chapter-content"[^>]*>([\s\S]*?)<\/div>/i);
+      if (containerMatch) {
+        const containerHtml = containerMatch[1];
+        const pMatches = containerHtml.match(/<p[^>]*>([\s\S]*?)<\/p>/gis);
+        if (pMatches) {
+          paragraphMatches = pMatches;
+        }
+      }
+    }
+    
+    // Generic fallback title
+    if (title === `Chapter ${chapterNum}` && !skipCleanup) {
       const genericMatch = safeMatch(html, /<(?:h1|h2|h3)[^>]*>([^<]*(?:Chapter|Ch\.|Volume|Vol\.|Part|Book)[^<]*)<\/(?:h1|h2|h3)>/i);
       if (genericMatch) title = decodeEntities(genericMatch.trim());
     }
@@ -503,30 +715,7 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
     
     console.log('[Scraper] Extracted title:', title);
     
-    // Extract chapter content
-    let paragraphMatches: string[] | null = null;
-    
-    if (isFreeWebNovel) {
-      const containerMatch = html.match(/<div[^>]*class="chapter-content"[^>]*>([\s\S]*?)<\/div>/i) ||
-                             html.match(/<div[^>]*id="chapter-container"[^>]*>([\s\S]*?)<\/div>/i);
-      if (containerMatch) {
-        paragraphMatches = containerMatch[1].match(/<p[^>]*>([\s\S]*?)<\/p>/gis);
-      }
-    }
-    
-    if (isLightNovelWorld && !paragraphMatches) {
-      const containerMatch = html.match(/<div[^>]*id="chapterText"[^>]*>([\s\S]*?)<\/div>/i) ||
-                             html.match(/<div[^>]*class="chapter-text[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
-      if (containerMatch) {
-        let cleaned = containerMatch[1]
-          .replace(/<div[^>]*class="chapter-ad-container"[^>]*>[\s\S]*?<\/div>/gi, '')
-          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
-        cleaned = cleaned.replace(/<div[^>]*class="text-to-speech[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '');
-        cleaned = cleaned.replace(/<div[^>]*class="cta-banner[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '');
-        paragraphMatches = cleaned.match(/<p[^>]*>([\s\S]*?)<\/p>/gis);
-      }
-    }
-    
+    // Fallback to all paragraphs if no container matched
     if (!paragraphMatches) {
       paragraphMatches = html.match(/<p[^>]*>([\s\S]*?)<\/p>/gis);
     }
@@ -656,7 +845,7 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
       if (!content.trim()) {
         content = validParagraphs.join('\n\n');
       }
-    } else if ((isNovelFullNet || isReadNovelFull || isNovelFullCom || isAllNovel || isNovgo) && validParagraphs.length > 0) {
+    } else if ((isReadNovelFull || isNovelFullNet || isNovelFullCom || isAllNovel || isNovgo) && validParagraphs.length > 0) {
       const junkPhrases = [
         'we are offering free books',
         'read novel updated daily',
