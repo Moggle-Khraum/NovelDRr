@@ -29,6 +29,58 @@ const READER_SETTINGS_FILE = `${FileSystem.documentDirectory}NovelDR/reader_sett
 const TTS_SETTINGS_FILE = `${FileSystem.documentDirectory}NovelDR/tts_simple_settings.json`;
 const TTS_MIN_CHARS = 500;
 
+// ---------------------------------------------------------------------------
+// Helper (copied from OLD)
+// ---------------------------------------------------------------------------
+const loadChapterContentWithFallback = async (
+  novelId: string,
+  chapterIndex: number,
+  chapter: { title: string; url: string; content?: string },
+  loadFromFileSystem: (novelId: string, chapterIndex: number) => Promise<any>
+): Promise<string> => {
+  try {
+    const fileChapter = await loadFromFileSystem(novelId, chapterIndex);
+    if (fileChapter && fileChapter.content) return fileChapter.content;
+  } catch {
+    console.log('[Reader] File system load failed, trying fallbacks...');
+  }
+
+  if (chapter.content && chapter.content.trim().length > 0) return chapter.content;
+
+  try {
+    const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+    const libraryData = await AsyncStorage.getItem('novel_library_v1');
+    if (libraryData) {
+      const novels = JSON.parse(libraryData);
+      const novel = novels.find((n: any) => n.id === novelId);
+      if (novel?.chapters?.[chapterIndex]?.content?.trim().length > 0) {
+        return novel.chapters[chapterIndex].content;
+      }
+    }
+  } catch (asyncError) {
+    console.log('[Reader] AsyncStorage fallback failed:', asyncError);
+  }
+
+  try {
+    const altPaths = [
+      `${FileSystem.documentDirectory}noveldr/chapters/${novelId}/chapter_${chapterIndex}.json`,
+      `${FileSystem.cacheDirectory}../NovelDR/chapters/${novelId}/chapter_${chapterIndex}.json`,
+    ];
+    for (const altPath of altPaths) {
+      const fileInfo = await FileSystem.getInfoAsync(altPath);
+      if (fileInfo.exists) {
+        const content = await FileSystem.readAsStringAsync(altPath);
+        const chapterData = JSON.parse(content);
+        if (chapterData.content) return chapterData.content;
+      }
+    }
+  } catch {
+    console.log('[Reader] Alternative path fallback failed');
+  }
+
+  return "Content not available for this chapter. It may still be downloading or wasn't saved properly. Try re-downloading the novel from the Updates tab.";
+};
+
 function splitIntoSentences(text: string): string[] {
   const raw = text.match(/[^.!?…]+[.!?…]+|[^.!?…]+$/g) ?? [];
   const sentences: string[] = [];
@@ -46,7 +98,7 @@ function splitIntoSentences(text: string): string[] {
 
 export default function ReaderScreen() {
   const { id, chapterIndex: indexParam } = useLocalSearchParams<{ id: string; chapterIndex: string }>();
-  const { getNovel, saveReadingProgress, loadChapterContent } = useLibrary();
+  const { getNovel, saveReadingProgress, loadChapterContent, sortOrder, toggleSortOrder, getSortedChapters } = useLibrary();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -75,7 +127,7 @@ export default function ReaderScreen() {
   const [chapterContent, setChapterContent] = useState<string>("");
   const [contentLoading, setContentLoading] = useState(false);
 
-  // TTS States
+  // TTS States (replaced with OLD implementation)
   const [ttsActive, setTtsActive] = useState(false);
   const [ttsSentences, setTtsSentences] = useState<string[]>([]);
   const [ttsIndex, setTtsIndex] = useState(-1);
@@ -140,7 +192,7 @@ export default function ReaderScreen() {
     } catch (error) { console.error('Failed to save settings:', error); }
   };
 
-// Load TTS settings (voice + rate)
+  // Load TTS settings (voice + rate) – OLD version
   useEffect(() => {
     (async () => {
       try {
@@ -182,7 +234,7 @@ export default function ReaderScreen() {
     }
   };
 
-  // Load Content and Cache Pre-Split Sentences
+  // Load Content and Cache Pre-Split Sentences (uses fallback from OLD)
   useEffect(() => {
     const loadContent = async () => {
       if (novel && chapter) {
@@ -199,9 +251,9 @@ export default function ReaderScreen() {
       }
     };
     loadContent();
-  }, [chapterIndex, novel?.id])
+  }, [chapterIndex, novel?.id]);
 
- // Cleanup on unmount & chapter change
+  // Cleanup on unmount & chapter change
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -211,6 +263,7 @@ export default function ReaderScreen() {
     };
   }, []);
 
+  // ----- TTS functions (OLD implementation) -----
   const stopTTS = useCallback(() => {
     ttsActiveRef.current = false;   // set FIRST so onDone/onError guards fire correctly
     ttsIndexRef.current = -1;
@@ -222,7 +275,6 @@ export default function ReaderScreen() {
 
   useEffect(() => { stopTTS(); }, [chapterIndex]);
 
-
   const speakSentence = useCallback((sentences: string[], index: number) => {
     if (!isMountedRef.current) return;
     if (index >= sentences.length || !ttsActiveRef.current) {
@@ -232,6 +284,7 @@ export default function ReaderScreen() {
     ttsIndexRef.current = index;
     setTtsIndex(index);
     try {
+      try { Speech.stop(); } catch {} // ensure clean engine state before each utterance
       Speech.speak(sentences[index], {
         language: 'en',
         pitch: 1.0,
@@ -240,9 +293,9 @@ export default function ReaderScreen() {
         onDone: () => {
           if (!isMountedRef.current) return;
           if (!ttsActiveRef.current) return;
-          ttsErrorCountRef.current = 0;
+          ttsErrorCountRef.current = 0; // reset on successful utterance
           ttsScrollCounterRef.current += 1;
-          if (ttsScrollCounterRef.current >= 5) {
+          if (ttsScrollCounterRef.current >= 5) { // scroll every 5 sentences
             ttsScrollCounterRef.current = 0;
             const newY = scrollYRef.current + 120;
             scrollRef.current?.scrollTo({ y: newY, animated: true });
@@ -255,7 +308,12 @@ export default function ReaderScreen() {
           if (!isMountedRef.current) return;
           if (!ttsActiveRef.current) return;
           ttsErrorCountRef.current += 1;
-          if (ttsErrorCountRef.current > 3) { stopTTS(); return; }
+          if (ttsErrorCountRef.current > 3) {
+            console.warn('[TTS] Too many consecutive errors, stopping TTS');
+            stopTTS();
+            return;
+          }
+          // skip problematic sentence and continue
           speakSentence(sentences, index + 1);
         }
       });
@@ -271,6 +329,7 @@ export default function ReaderScreen() {
     setTimeout(() => {
       if (!isMountedRef.current) return;
       if (ttsActiveRef.current) return;
+      ttsSentencesRef.current = ttsSentences;
       ttsActiveRef.current = true;
       ttsScrollCounterRef.current = 0;
       setTtsActive(true);
@@ -286,7 +345,7 @@ export default function ReaderScreen() {
     setTimeout(() => {
       if (!isMountedRef.current) return;
       try {
-        Speech.stop();
+        try { Speech.stop(); } catch {}
         Speech.speak("This is a voice preview.", {
           language: 'en',
           pitch: 1.0,
@@ -296,6 +355,18 @@ export default function ReaderScreen() {
       } catch (err) { console.warn('[TTS] Preview error:', err); }
     }, 200);
   }, [stopTTS]);
+
+  const reloadVoices = useCallback(async () => {
+    try {
+      const voices = await Speech.getAvailableVoicesAsync();
+      const english = voices.filter(v => v.language?.toLowerCase().startsWith('en'));
+      setTtsVoices(english.length > 0 ? english : voices);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    } catch (e) {
+      console.warn('[TTS] Could not reload voices:', e);
+    }
+  }, []);
+  // ----- end of TTS functions -----
 
   const updateReadingProgress = useCallback(() => {
     if (contentHeightRef.current > scrollViewHeightRef.current) {
@@ -400,7 +471,6 @@ export default function ReaderScreen() {
   const lineSpacing = LINE_SPACINGS[lineSpacingIdx];
   const currentSpeed = AUTO_SCROLL_SPEEDS[autoScrollSpeedIdx];
   const ttsAvailable = chapterContent.trim().length >= TTS_MIN_CHARS;
-  const currentSentence = ttsIndex >= 0 ? ttsSentences[ttsIndex] : null;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -457,12 +527,18 @@ export default function ReaderScreen() {
               </Pressable>
             </View>
           </View>
+          <View style={styles.controlRow}>
+            <Text style={[styles.controlLabel, { color: colors.textSecondary }]}>Volume Scroll</Text>
+            <Switch
+              value={volumeScrollEnabled}
+              onValueChange={(val) => { setVolumeScrollEnabled(val); saveAllSettings(fontSizeIdx, lineSpacingIdx, autoScrollSpeedIdx, val); }}
+              trackColor={{ false: colors.border, true: colors.accent }}
             />
           </View>
         </View>
       )}
 
-      {/* Scrollable content */}
+      {/* Scrollable content with sentence highlighting (OLD TTS UI) */}
       <ScrollView
         ref={scrollRef}
         style={styles.scrollArea}
@@ -480,7 +556,20 @@ export default function ReaderScreen() {
           </View>
         ) : (
           <Text style={[styles.content, { color: colors.text, fontSize, lineHeight: fontSize * lineSpacing }]}>
-            {chapterContent || "Content not available for this chapter."}
+            {ttsSentences.map((sentence, idx) => {
+              const isCurrent = idx === ttsIndex;
+              return (
+                <Text
+                  key={idx}
+                  style={{
+                    backgroundColor: isCurrent ? `${colors.accent}30` : 'transparent',
+                    color: isCurrent ? colors.accent : colors.text,
+                  }}
+                >
+                  {sentence}{' '}
+                </Text>
+              );
+            })}
           </Text>
         )}
       </ScrollView>
@@ -495,20 +584,6 @@ export default function ReaderScreen() {
         >
           <Ionicons name={ttsActive ? "pause" : "volume-high"} size={22} color="#fff" />
         </Pressable>
-      )}
-    </View>
-
-      {/* Status Reading Block Overlay */}
-      {ttsActive && (
-        <View style={[styles.ttsSentenceBox, { backgroundColor: colors.accent + '12', borderColor: colors.accent + '40' }]}>
-          <Ionicons name="chatbubble-ellipses-outline" size={14} color={colors.accent} style={{ marginTop: 2 }} />
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.ttsSentenceLabel, { color: colors.accent }]}>now reading</Text>
-            <Text style={[styles.ttsSentenceText, { color: colors.text }]} numberOfLines={2} ellipsizeMode="tail">
-              {currentSentence ?? "Starting…"}
-            </Text>
-          </View>
-        </View>
       )}
 
       {/* Bottom Layout Progress Lines */}
@@ -564,7 +639,7 @@ export default function ReaderScreen() {
         </View>
       </Modal>
 
-      {/* TTS Settings Modal - Redesigned with crash protection */}
+      {/* TTS Settings Modal - Redesigned with crash protection (OLD version) */}
       <Modal visible={showTTSSettings} animationType="slide" transparent statusBarTranslucent onRequestClose={() => setShowTTSSettings(false)}>
         <View style={styles.ttsModalOverlay}>
           <Pressable style={styles.ttsModalDismiss} onPress={() => setShowTTSSettings(false)} />
@@ -643,7 +718,6 @@ export default function ReaderScreen() {
   );
 }
 
-
 const styles = StyleSheet.create({
   container: { flex: 1 },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
@@ -665,9 +739,6 @@ const styles = StyleSheet.create({
   content: { fontFamily: "Inter_400Regular" },
   loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 40 },
   ttsFloatingBtn: { position: 'absolute', bottom: 20, right: 18, width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', elevation: 4 },
-  ttsSentenceBox: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginHorizontal: 14, marginBottom: 20, borderRadius: 10, borderWidth: 2, paddingHorizontal: 12, paddingVertical: 8 },
-  ttsSentenceLabel: { fontFamily: "Inter_600SemiBold", fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 },
-  ttsSentenceText: { fontFamily: "Inter_400Regular", fontSize: 13, lineHeight: 19 },
   bottomNav: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, gap: 12 },
   navChBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, borderWidth: 1 },
   navChText: { fontFamily: "Inter_600SemiBold", fontSize: 13 },
@@ -684,6 +755,8 @@ const styles = StyleSheet.create({
   tocItemContent: { flex: 1 },
   tocChapterNum: { fontFamily: "Inter_400Regular", fontSize: 12, marginBottom: 4 },
   tocChapterTitle: { fontFamily: "Inter_500Medium", fontSize: 14 },
+  sortBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1 },
+  sortBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 12 },
   ttsModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   ttsModalDismiss: { flex: 1 },
   ttsModalSheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 20, paddingBottom: 36, paddingTop: 12, marginBottom: 11 },
