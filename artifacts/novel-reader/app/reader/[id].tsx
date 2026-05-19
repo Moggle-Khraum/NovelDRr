@@ -75,29 +75,30 @@ export default function ReaderScreen() {
   const [chapterContent, setChapterContent] = useState<string>("");
   const [contentLoading, setContentLoading] = useState(false);
 
-  // TTS states
+  // TTS States
   const [ttsActive, setTtsActive] = useState(false);
   const [ttsSentences, setTtsSentences] = useState<string[]>([]);
   const [ttsIndex, setTtsIndex] = useState(-1);
   const ttsIndexRef = useRef(-1);
+  const ttsSentencesRef = useRef<string[]>([]);
   const ttsActiveRef = useRef(false);
   const ttsScrollCounterRef = useRef(0);
-  const ttsErrorCountRef = useRef(0);
-  const isMountedRef = useRef(true);
+  const ttsErrorCountRef = useRef(0); // consecutive error counter — stops TTS after 3 errors
+  const isMountedRef = useRef(true); // CRASH PROTECTION
 
   const [showTTSSettings, setShowTTSSettings] = useState(false);
   const [ttsVoices, setTtsVoices] = useState<Speech.Voice[]>([]);
   const [ttsVoiceId, setTtsVoiceId] = useState<string | undefined>(undefined);
   const ttsVoiceIdRef = useRef<string | undefined>(undefined);
+  
+  // TTS rate state
   const [ttsRate, setTtsRate] = useState(1.0);
   const ttsRateRef = useRef(1.0);
 
-  // Lazy volume manager reference
-  const volumeSubscriptionRef = useRef<any>(null);
-  const volumeInitializedRef = useRef(false);
-
   const novel = getNovel(id);
+  const sortedChapters = novel ? getSortedChapters(novel.chapters) : [];
   const chapter = novel?.chapters[chapterIndex];
+
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
@@ -139,7 +140,7 @@ export default function ReaderScreen() {
     } catch (error) { console.error('Failed to save settings:', error); }
   };
 
-  // Load TTS settings (lazy - only when reader opens)
+// Load TTS settings (voice + rate)
   useEffect(() => {
     (async () => {
       try {
@@ -147,15 +148,26 @@ export default function ReaderScreen() {
         if (fileInfo.exists) {
           const raw = await FileSystem.readAsStringAsync(TTS_SETTINGS_FILE);
           const s = JSON.parse(raw);
-          if (s.voiceId !== undefined) { setTtsVoiceId(s.voiceId); ttsVoiceIdRef.current = s.voiceId; }
-          if (s.rate !== undefined) { setTtsRate(s.rate); ttsRateRef.current = s.rate; }
+          if (s.voiceId !== undefined) {
+            setTtsVoiceId(s.voiceId);
+            ttsVoiceIdRef.current = s.voiceId;
+          }
+          if (s.rate !== undefined) {
+            setTtsRate(s.rate);
+            ttsRateRef.current = s.rate;
+          }
         }
-      } catch (e) { console.warn('[TTS] Failed to load TTS settings:', e); }
+      } catch (e) {
+        console.warn('[TTS] Failed to load TTS settings:', e);
+      }
+
       try {
         const voices = await Speech.getAvailableVoicesAsync();
         const english = voices.filter(v => v.language?.toLowerCase().startsWith('en'));
         setTtsVoices(english.length > 0 ? english : voices);
-      } catch (e) { console.warn('[TTS] Could not load voices:', e); }
+      } catch (e) {
+        console.warn('[TTS] Could not load voices:', e);
+      }
     })();
   }, []);
 
@@ -165,122 +177,51 @@ export default function ReaderScreen() {
       const dirInfo = await FileSystem.getInfoAsync(dir);
       if (!dirInfo.exists) await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
       await FileSystem.writeAsStringAsync(TTS_SETTINGS_FILE, JSON.stringify({ voiceId, rate }));
-    } catch (e) { console.warn('[TTS] Failed to save settings:', e); }
-  };
-
-  // Load chapter content
-  const loadContent = async () => {
-    if (novel && chapter) {
-      setContentLoading(true);
-      try {
-        let content = chapter.content || "";
-        if (!content && loadChapterContent) {
-          const fileChapter = await loadChapterContent(novel.id, chapterIndex);
-          content = fileChapter?.content || "";
-        }
-        setChapterContent(content);
-        setTtsSentences(splitIntoSentences(content));
-      } catch (error) {
-        setChapterContent("Error loading chapter content. Please try again.");
-      } finally {
-        setContentLoading(false);
-      }
+    } catch (e) {
+      console.warn('[TTS] Failed to save settings:', e);
     }
   };
 
+  // Load Content and Cache Pre-Split Sentences
   useEffect(() => {
+    const loadContent = async () => {
+      if (novel && chapter) {
+        setContentLoading(true);
+        try {
+          const content = await loadChapterContentWithFallback(novel.id, chapterIndex, chapter, loadChapterContent);
+          setChapterContent(content);
+          setTtsSentences(splitIntoSentences(content));
+        } catch (error) {
+          setChapterContent("Error loading chapter content. Please try again.");
+        } finally {
+          setContentLoading(false);
+        }
+      }
+    };
     loadContent();
-  }, [chapterIndex, novel?.id]);
+  }, [chapterIndex, novel?.id])
 
+ // Cleanup on unmount & chapter change
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
       Speech.stop();
       if (intervalRef.current) clearInterval(intervalRef.current);
-      // Clean up volume subscription if exists
-      if (volumeSubscriptionRef.current) {
-        try {
-          volumeSubscriptionRef.current.remove();
-        } catch (e) {}
-        volumeSubscriptionRef.current = null;
-      }
     };
   }, []);
 
-  // LAZY VOLUME LISTENER — only initializes when volumeScrollEnabled is true
-  useEffect(() => {
-    if (!volumeScrollEnabled) {
-      // Clean up if disabled
-      if (volumeSubscriptionRef.current) {
-        try {
-          volumeSubscriptionRef.current.remove();
-        } catch (e) {}
-        volumeSubscriptionRef.current = null;
-      }
-      volumeInitializedRef.current = false;
-      return;
-    }
-
-    // Already initialized, skip
-    if (volumeInitializedRef.current) return;
-
-    const initVolumeManager = async () => {
-      try {
-        // Dynamic import to prevent crash at app startup
-        const VolumeManager = require('react-native-volume-manager');
-        
-        const initial = await VolumeManager.getVolume();
-        let lastVolume = initial;
-
-        volumeSubscriptionRef.current = VolumeManager.addVolumeListener((result: { volume: number }) => {
-          const diff = result.volume - lastVolume;
-          if (Math.abs(diff) > 0.01) {
-            const SCROLL_STEP = 300;
-            if (diff < 0) {
-              // Volume Down → scroll down
-              scrollRef.current?.scrollTo({ y: scrollYRef.current + SCROLL_STEP, animated: true });
-            } else if (diff > 0) {
-              // Volume Up → scroll up
-              scrollRef.current?.scrollTo({ y: scrollYRef.current - SCROLL_STEP, animated: true });
-            }
-            lastVolume = result.volume;
-          }
-        });
-        
-        volumeInitializedRef.current = true;
-        console.log('[Volume] Initialized successfully');
-      } catch (err) {
-        console.warn('[Volume] Failed to initialize:', err);
-        // Disable the feature so it doesn't keep trying
-        setVolumeScrollEnabled(false);
-        saveAllSettings(fontSizeIdx, lineSpacingIdx, autoScrollSpeedIdx, false);
-      }
-    };
-
-    initVolumeManager();
-
-    return () => {
-      if (volumeSubscriptionRef.current) {
-        try {
-          volumeSubscriptionRef.current.remove();
-        } catch (e) {}
-        volumeSubscriptionRef.current = null;
-      }
-      volumeInitializedRef.current = false;
-    };
-  }, [volumeScrollEnabled]);
-
   const stopTTS = useCallback(() => {
-    ttsActiveRef.current = false;
+    ttsActiveRef.current = false;   // set FIRST so onDone/onError guards fire correctly
     ttsIndexRef.current = -1;
     ttsScrollCounterRef.current = 0;
     setTtsActive(false);
     setTtsIndex(-1);
-    try { Speech.stop(); } catch {}
+    try { Speech.stop(); } catch {}  // wrapped — Speech.stop() can throw on some Android engines
   }, []);
 
   useEffect(() => { stopTTS(); }, [chapterIndex]);
+
 
   const speakSentence = useCallback((sentences: string[], index: number) => {
     if (!isMountedRef.current) return;
@@ -516,17 +457,6 @@ export default function ReaderScreen() {
               </Pressable>
             </View>
           </View>
-          {/* Volume Scroll Toggle */}
-          <View style={styles.controlRow}>
-            <Text style={[styles.controlLabel, { color: colors.textSecondary }]}>Volume Scroll</Text>
-            <Switch
-              value={volumeScrollEnabled}
-              onValueChange={(val) => {
-                setVolumeScrollEnabled(val);
-                saveAllSettings(fontSizeIdx, lineSpacingIdx, autoScrollSpeedIdx, val);
-              }}
-              trackColor={{ false: colors.border, true: colors.accent }}
-              thumbColor="#fff"
             />
           </View>
         </View>
@@ -555,7 +485,7 @@ export default function ReaderScreen() {
         )}
       </ScrollView>
 
-      {/* TTS Floating Button */}
+      {/* Action Button */}
       {ttsAvailable && (
         <Pressable
           style={[styles.ttsFloatingBtn, { backgroundColor: colors.accent }]}
@@ -566,8 +496,9 @@ export default function ReaderScreen() {
           <Ionicons name={ttsActive ? "pause" : "volume-high"} size={22} color="#fff" />
         </Pressable>
       )}
+    </View>
 
-      {/* TTS status overlay */}
+      {/* Status Reading Block Overlay */}
       {ttsActive && (
         <View style={[styles.ttsSentenceBox, { backgroundColor: colors.accent + '12', borderColor: colors.accent + '40' }]}>
           <Ionicons name="chatbubble-ellipses-outline" size={14} color={colors.accent} style={{ marginTop: 2 }} />
@@ -580,12 +511,12 @@ export default function ReaderScreen() {
         </View>
       )}
 
-      {/* Progress bar */}
+      {/* Bottom Layout Progress Lines */}
       <View style={[styles.progressBarContainer, { backgroundColor: colors.border }]}>
         <View style={[styles.progressBar, { backgroundColor: colors.accent, width: `${readingProgress}%` }]} />
       </View>
 
-      {/* Bottom navigation */}
+      {/* Chapter Action Navigation */}
       <View style={[styles.bottomNav, { backgroundColor: colors.surface, borderTopColor: colors.border, paddingBottom: bottomPad + 8 }]}>
         <Pressable style={[styles.navChBtn, { backgroundColor: chapterIndex === 0 ? colors.border : colors.card, borderColor: colors.border }]} onPress={() => goChapter(-1)} disabled={chapterIndex === 0}>
           <Ionicons name="chevron-back" size={18} color={chapterIndex === 0 ? colors.textMuted : colors.text} />
@@ -594,79 +525,84 @@ export default function ReaderScreen() {
         <Pressable style={[styles.tocButton, { borderColor: colors.border }]} onPress={() => setShowTOC(true)}>
           <Text style={[styles.tocButtonText, { color: colors.text }]}>{chapterIndex + 1} / {novel.chapters.length}</Text>
         </Pressable>
-        <Pressable style={[styles.navChBtn, { backgroundColor: chapterIndex === novel.chapters.length - 1 ? colors.border : colors.accent, borderColor: chapterIndex === novel.chapters.length - 1 ? colors.border : colors.accent }]} onPress={() => goChapter(1)} disabled={chapterIndex === novel.chapters.length - 1}>
-          <Text style={[styles.navChText, { color: chapterIndex === novel.chapters.length - 1 ? colors.textMuted : "#fff" }]}>Next</Text>
-          <Ionicons name="chevron-forward" size={18} color={chapterIndex === novel.chapters.length - 1 ? colors.textMuted : "#fff"} />
+        <Pressable style={[styles.navChBtn, { backgroundColor: chapterIndex === (novel.chapters.length - 1) ? colors.border : colors.accent, borderColor: chapterIndex === (novel.chapters.length - 1) ? colors.border : colors.accent }]} onPress={() => goChapter(1)} disabled={chapterIndex === (novel.chapters.length - 1)}>
+          <Text style={[styles.navChText, { color: chapterIndex === (novel.chapters.length - 1) ? colors.textMuted : "#fff" }]}>Next</Text>
+          <Ionicons name="chevron-forward" size={18} color={chapterIndex === (novel.chapters.length - 1) ? colors.textMuted : "#fff"} />
         </Pressable>
       </View>
 
-      {/* TOC Modal */}
+      {/* TOC Panel */}
       <Modal visible={showTOC} animationType="slide" transparent onRequestClose={() => setShowTOC(false)}>
         <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
           <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: colors.text }]}>Table of Contents</Text>
-              <Pressable onPress={() => setShowTOC(false)} style={styles.modalCloseBtn}>
-                <Ionicons name="close" size={24} color={colors.text} />
-              </Pressable>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Pressable onPress={toggleSortOrder} style={[styles.sortBtn, { borderColor: colors.border }]}>
+                  <Ionicons name={sortOrder === "ascending" ? "arrow-up" : "arrow-down"} size={18} color={colors.accent} />
+                  <Text style={[styles.sortBtnText, { color: colors.accent }]}>{sortOrder === "ascending" ? "Asc" : "Desc"}</Text>
+                </Pressable>
+                <Pressable onPress={() => setShowTOC(false)} style={styles.modalCloseBtn}><Ionicons name="close" size={24} color={colors.text} /></Pressable>
+              </View>
             </View>
             <ScrollView style={styles.modalScrollView}>
-              {novel.chapters.map((ch, idx) => (
-                <Pressable
-                  key={idx}
-                  style={[styles.tocItem, idx === chapterIndex && [styles.tocItemActive, { backgroundColor: colors.accent + '20' }]]}
-                  onPress={() => handleChapterSelect(idx)}
-                >
-                  <View style={styles.tocItemContent}>
-                    <Text style={[styles.tocChapterNum, { color: idx === chapterIndex ? colors.accent : colors.textSecondary }]}>
-                      Chapter {idx + 1}
-                    </Text>
-                    <Text style={[styles.tocChapterTitle, { color: idx === chapterIndex ? colors.accent : colors.text }]}>
-                      {ch.title}
-                    </Text>
-                  </View>
-                  {idx === chapterIndex && <Ionicons name="checkmark-circle" size={20} color={colors.accent} />}
-                </Pressable>
-              ))}
+              {sortedChapters.map((ch, idx) => {
+                const originalIndex = novel.chapters.findIndex(c => c.url === ch.url);
+                const isCurrent = chapterIndex === originalIndex;
+                return (
+                  <Pressable key={ch.url || idx} style={[styles.tocItem, isCurrent && [styles.tocItemActive, { backgroundColor: colors.accent + '20' }]]} onPress={() => { const originalIndex = novel?.chapters.findIndex(c => c.url === sortedChapters[idx].url) ?? 0; if (novel && chapter) saveReadingProgress(novel.id, chapterIndex, chapter.title, scrollYRef.current); scrollYRef.current = 0; hasRestoredScrollRef.current = false; forceTopRef.current = true; setChapterIndex(originalIndex); setShowTOC(false); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}>
+                    <View style={styles.tocItemContent}>
+                      <Text style={[styles.tocChapterNum, { color: isCurrent ? colors.accent : colors.textSecondary }]}>Chapter {originalIndex + 1}</Text>
+                      <Text style={[styles.tocChapterTitle, { color: isCurrent ? colors.accent : colors.text }]}>{ch.title}</Text>
+                    </View>
+                    {isCurrent && <Ionicons name="checkmark-circle" size={20} color={colors.accent} />}
+                  </Pressable>
+                );
+              })}
             </ScrollView>
           </View>
         </View>
       </Modal>
 
-      {/* TTS Settings Modal */}
+      {/* TTS Settings Modal - Redesigned with crash protection */}
       <Modal visible={showTTSSettings} animationType="slide" transparent statusBarTranslucent onRequestClose={() => setShowTTSSettings(false)}>
         <View style={styles.ttsModalOverlay}>
           <Pressable style={styles.ttsModalDismiss} onPress={() => setShowTTSSettings(false)} />
           <View style={[styles.ttsModalSheet, { backgroundColor: colors.surface }]}>
             <View style={[styles.ttsModalHandle, { backgroundColor: colors.border }]} />
+
             {ttsVoices.length === 0 ? (
               <>
                 <Text style={[styles.ttsModalTitle, { color: colors.text, textAlign: 'center' }]}>No Engines Found</Text>
-                <Pressable style={[styles.ttsReloadBtn, { backgroundColor: colors.accent }]} onPress={async () => {
-                  try {
-                    const voices = await Speech.getAvailableVoicesAsync();
-                    const english = voices.filter(v => v.language?.toLowerCase().startsWith('en'));
-                    setTtsVoices(english.length > 0 ? english : voices);
-                  } catch (e) { console.warn(e); }
-                }}>
+                <Pressable style={[styles.ttsReloadBtn, { backgroundColor: colors.accent }]} onPress={reloadVoices}>
                   <Ionicons name="refresh" size={20} color="#fff" />
                   <Text style={{ color: '#fff', fontWeight: '600', marginLeft: 8 }}>Reload Engines</Text>
                 </Pressable>
               </>
             ) : (
               <>
+                {/* Voice Speed Row */}
                 <Text style={[styles.ttsModalSubtitle, { color: colors.text }]}>Voice Speed</Text>
                 <View style={styles.speedButtonsRow}>
                   {[0.5, 1.0, 1.5, 2.0, 2.5].map(rate => (
                     <Pressable
                       key={rate}
-                      style={[styles.speedButton, { backgroundColor: Math.abs(ttsRate - rate) < 0.01 ? colors.accent : colors.card, borderColor: colors.border }]}
-                      onPress={() => { setTtsRate(rate); ttsRateRef.current = rate; saveTtsSettings(ttsVoiceId, rate); }}
+                      style={[
+                        styles.speedButton,
+                        { backgroundColor: Math.abs(ttsRate - rate) < 0.01 ? colors.accent : colors.card, borderColor: colors.border }
+                      ]}
+                      onPress={() => {
+                        setTtsRate(rate);
+                        ttsRateRef.current = rate;
+                        saveTtsSettings(ttsVoiceId, rate);
+                      }}
                     >
                       <Text style={[styles.speedButtonText, { color: Math.abs(ttsRate - rate) < 0.01 ? '#fff' : colors.text }]}>{rate}x</Text>
                     </Pressable>
                   ))}
                 </View>
+
+                {/* Voices Row */}
                 <Text style={[styles.ttsModalSubtitle, { color: colors.text, marginTop: 16 }]}>Voices</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 2 }}>
                   {ttsVoices.map((voice) => {
@@ -675,7 +611,11 @@ export default function ReaderScreen() {
                       <Pressable
                         key={voice.identifier}
                         style={[styles.ttsVoiceChip, { backgroundColor: isSelected ? colors.accent : colors.card, borderColor: isSelected ? colors.accent : colors.border }]}
-                        onPress={() => { setTtsVoiceId(voice.identifier); ttsVoiceIdRef.current = voice.identifier; saveTtsSettings(voice.identifier, ttsRate); }}
+                        onPress={() => {
+                          setTtsVoiceId(voice.identifier);
+                          ttsVoiceIdRef.current = voice.identifier;
+                          saveTtsSettings(voice.identifier, ttsRate);
+                        }}
                       >
                         <Text style={[styles.ttsVoiceChipText, { color: isSelected ? '#fff' : colors.text }]}>{voice.name ?? voice.identifier}</Text>
                         <Text style={[styles.ttsVoiceChipLang, { color: isSelected ? 'rgba(255,255,255,0.7)' : colors.textSecondary }]}>{voice.language}</Text>
@@ -683,6 +623,8 @@ export default function ReaderScreen() {
                     );
                   })}
                 </ScrollView>
+
+                {/* Buttons Row */}
                 <View style={styles.ttsButtonsRow}>
                   <Pressable style={[styles.ttsPreviewBtn, { borderColor: colors.accent }]} onPress={previewTts}>
                     <Ionicons name="play-circle-outline" size={20} color={colors.accent} />
@@ -700,6 +642,7 @@ export default function ReaderScreen() {
     </View>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
