@@ -1,6 +1,6 @@
 import * as FileSystem from 'expo-file-system';
 import { Platform } from 'react-native';
-import { appLogger } from '..utils/logger';
+import { appLogger } from '@/utils/logger';
 import React, {
   createContext,
   useCallback,
