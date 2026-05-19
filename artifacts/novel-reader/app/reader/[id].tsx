@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as Speech from "expo-speech";
-import * as Volume from "expo-volume";
+import VolumeManager from 'react-native-volume-manager';
 import { router, useLocalSearchParams } from "expo-router";
 import * as FileSystem from "expo-file-system";
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -198,33 +198,42 @@ export default function ReaderScreen() {
     };
   }, []);
 
-  // Volume scroll listener (Down = scroll Down, Up = scroll Up)
+   // Volume scroll listener (Down = scroll Down, Up = scroll Up)
   useEffect(() => {
-    let lastVolume = 0;
+    if (!volumeScrollEnabled) return;
+  
     let subscription: any = null;
-    const setupVolume = async () => {
+  
+    const setupVolumeListener = async () => {
       try {
-        const initialVolume = await Volume.getVolumeAsync();
-        lastVolume = initialVolume;
-        subscription = Volume.addVolumeListener(({ volume }) => {
-          if (!volumeScrollEnabled) return;
-          const diff = volume - lastVolume;
+        // Get initial volume to detect direction later
+        const initial = await VolumeManager.getVolume();
+        let lastVolume = initial;
+  
+        subscription = VolumeManager.addVolumeListener((result: { volume: number }) => {
+          const diff = result.volume - lastVolume;
           if (Math.abs(diff) > 0.01) {
             const SCROLL_STEP = 300; // pixels per volume press
             if (diff < 0) {
-              // Volume Down -> scroll DOWN (increase Y)
+              // Volume Down → scroll down
               scrollRef.current?.scrollTo({ y: scrollYRef.current + SCROLL_STEP, animated: true });
             } else if (diff > 0) {
-              // Volume Up -> scroll UP (decrease Y)
+              // Volume Up → scroll up
               scrollRef.current?.scrollTo({ y: scrollYRef.current - SCROLL_STEP, animated: true });
             }
-            lastVolume = volume;
+            lastVolume = result.volume;
           }
         });
-      } catch (err) { console.warn("Volume listener error:", err); }
+      } catch (err) {
+        console.warn("Volume listener error:", err);
+      }
     };
-    setupVolume();
-    return () => { if (subscription) subscription.remove(); };
+  
+    setupVolumeListener();
+  
+    return () => {
+      if (subscription) subscription.remove();
+    };
   }, [volumeScrollEnabled]);
 
   const stopTTS = useCallback(() => {
