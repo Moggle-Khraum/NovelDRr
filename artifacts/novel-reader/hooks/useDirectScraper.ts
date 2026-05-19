@@ -359,7 +359,7 @@ export const directFetchChapter = async (url: string, chapterNum: number): Promi
       'error loading comments', 'please try again later', 'total responses', 'load comments',
       'login to comment', 'post a comment', 'report error', 'novelbin.com', 'novelbin.me',
       'we are offering free books', 'read novel updated daily', 'light novel translations',
-      'web novel, chinese novel', 'japanese novel, korean novel', 'other novel online', '𝕗𝚛𝚎𝚎𝐰𝗲𝗯𝗻𝚘𝚟𝚎𝗹.𝕔𝐨𝕞'
+      'web novel, chinese novel', 'japanese novel, korean novel', 'other novel online', '𝕗𝚛𝚎𝚎𝐰𝗲𝗯𝗻𝚘𝚟𝚎𝗹.𝕔𝐨𝕞',
       'novelfull.com', 'readnovelfull.com', 'allnovel.org', 'novgo.net', 'panda', 'nove1', 'coM ......',
       // Navigation
       'next chapter', 'previous chapter', 'table of contents', 'back to', 'chapter list',
