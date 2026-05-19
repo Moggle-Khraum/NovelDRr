@@ -25,7 +25,7 @@ import { AppState } from "react-native";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ThemeProvider, useTheme } from "@/context/ThemeContext";
 import { LibraryProvider, useLibrary } from "@/context/LibraryContext";
-import { appLogger } from './utils/logger';
+import { appLogger } from '@/utils/logger';
 import * as Application from "expo-application";
 
 SplashScreen.preventAutoHideAsync();
