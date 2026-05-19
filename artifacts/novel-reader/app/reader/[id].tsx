@@ -1,20 +1,21 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as Speech from "expo-speech";
+import * as Volume from "expo-volume";
 import { router, useLocalSearchParams } from "expo-router";
 import * as FileSystem from "expo-file-system";
-import * as Speech from 'expo-speech';
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Modal,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   View,
-  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -25,62 +26,10 @@ const FONT_SIZES = [14, 15, 16, 17, 18, 19, 20, 22];
 const LINE_SPACINGS = [1.2, 1.3, 1.5, 1.8, 2.0, 2.5];
 const AUTO_SCROLL_SPEEDS = [0.5, 1, 1.5, 1.8, 2, 2.5];
 
-// Storage keys
 const READER_SETTINGS_FILE = `${FileSystem.documentDirectory}NovelDR/reader_settings.json`;
 const TTS_SETTINGS_FILE = `${FileSystem.documentDirectory}NovelDR/tts_simple_settings.json`;
-
 const TTS_MIN_CHARS = 500;
 
-const loadChapterContentWithFallback = async (
-  novelId: string,
-  chapterIndex: number,
-  chapter: { title: string; url: string; content?: string },
-  loadFromFileSystem: (novelId: string, chapterIndex: number) => Promise<any>
-): Promise<string> => {
-  try {
-    const fileChapter = await loadFromFileSystem(novelId, chapterIndex);
-    if (fileChapter && fileChapter.content) return fileChapter.content;
-  } catch {
-    console.log('[Reader] File system load failed, trying fallbacks...');
-  }
-
-  if (chapter.content && chapter.content.trim().length > 0) return chapter.content;
-
-  try {
-    const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-    const libraryData = await AsyncStorage.getItem('novel_library_v1');
-    if (libraryData) {
-      const novels = JSON.parse(libraryData);
-      const novel = novels.find((n: any) => n.id === novelId);
-      if (novel?.chapters?.[chapterIndex]?.content?.trim().length > 0) {
-        return novel.chapters[chapterIndex].content;
-      }
-    }
-  } catch (asyncError) {
-    console.log('[Reader] AsyncStorage fallback failed:', asyncError);
-  }
-
-  try {
-    const altPaths = [
-      `${FileSystem.documentDirectory}noveldr/chapters/${novelId}/chapter_${chapterIndex}.json`,
-      `${FileSystem.cacheDirectory}../NovelDR/chapters/${novelId}/chapter_${chapterIndex}.json`,
-    ];
-    for (const altPath of altPaths) {
-      const fileInfo = await FileSystem.getInfoAsync(altPath);
-      if (fileInfo.exists) {
-        const content = await FileSystem.readAsStringAsync(altPath);
-        const chapterData = JSON.parse(content);
-        if (chapterData.content) return chapterData.content;
-      }
-    }
-  } catch {
-    console.log('[Reader] Alternative path fallback failed');
-  }
-
-  return "Content not available for this chapter. It may still be downloading or wasn't saved properly. Try re-downloading the novel from the Updates tab.";
-};
-
-// Helper: split into sentences for TTS only (does NOT affect display)
 function splitIntoSentences(text: string): string[] {
   const raw = text.match(/[^.!?…]+[.!?…]+|[^.!?…]+$/g) ?? [];
   const sentences: string[] = [];
@@ -106,6 +55,7 @@ export default function ReaderScreen() {
   const [fontSizeIdx, setFontSizeIdx] = useState(1);
   const [lineSpacingIdx, setLineSpacingIdx] = useState(1);
   const [autoScrollSpeedIdx, setAutoScrollSpeedIdx] = useState(1);
+  const [volumeScrollEnabled, setVolumeScrollEnabled] = useState(false);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [showControls, setShowControls] = useState(false);
   const [showTOC, setShowTOC] = useState(false);
@@ -140,7 +90,6 @@ export default function ReaderScreen() {
   const [ttsVoices, setTtsVoices] = useState<Speech.Voice[]>([]);
   const [ttsVoiceId, setTtsVoiceId] = useState<string | undefined>(undefined);
   const ttsVoiceIdRef = useRef<string | undefined>(undefined);
-  
   const [ttsRate, setTtsRate] = useState(1.0);
   const ttsRateRef = useRef(1.0);
 
@@ -160,6 +109,7 @@ export default function ReaderScreen() {
           if (settings.fontSizeIdx !== undefined) setFontSizeIdx(settings.fontSizeIdx);
           if (settings.lineSpacingIdx !== undefined) setLineSpacingIdx(settings.lineSpacingIdx);
           if (settings.autoScrollSpeedIdx !== undefined) setAutoScrollSpeedIdx(settings.autoScrollSpeedIdx);
+          if (settings.volumeScrollEnabled !== undefined) setVolumeScrollEnabled(settings.volumeScrollEnabled);
         }
       } catch (error) {
         console.error('Failed to load reader settings:', error);
@@ -169,14 +119,19 @@ export default function ReaderScreen() {
     })();
   }, []);
 
-  const saveAllSettings = async (font: number, line: number, scroll: number) => {
+  const saveAllSettings = async (font: number, line: number, scroll: number, volumeScroll: boolean) => {
     try {
       const dir = `${FileSystem.documentDirectory}NovelDR/`;
       const dirInfo = await FileSystem.getInfoAsync(dir);
       if (!dirInfo.exists) await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
       await FileSystem.writeAsStringAsync(
         READER_SETTINGS_FILE,
-        JSON.stringify({ fontSizeIdx: font, lineSpacingIdx: line, autoScrollSpeedIdx: scroll })
+        JSON.stringify({
+          fontSizeIdx: font,
+          lineSpacingIdx: line,
+          autoScrollSpeedIdx: scroll,
+          volumeScrollEnabled: volumeScroll,
+        })
       );
     } catch (error) { console.error('Failed to save settings:', error); }
   };
@@ -210,14 +165,12 @@ export default function ReaderScreen() {
     } catch (e) { console.warn('[TTS] Failed to save settings:', e); }
   };
 
-  // Load chapter content (raw, with line breaks)
+  // Load chapter content
   const loadContent = async () => {
     if (novel && chapter) {
       setContentLoading(true);
       try {
-        // Try to get content from chapter object first (already saved)
         let content = chapter.content || "";
-        // If empty, try via loadChapterContent (file system)
         if (!content && loadChapterContent) {
           const fileChapter = await loadChapterContent(novel.id, chapterIndex);
           content = fileChapter?.content || "";
@@ -245,6 +198,35 @@ export default function ReaderScreen() {
     };
   }, []);
 
+  // Volume scroll listener (Down = scroll Down, Up = scroll Up)
+  useEffect(() => {
+    let lastVolume = 0;
+    let subscription: any = null;
+    const setupVolume = async () => {
+      try {
+        const initialVolume = await Volume.getVolumeAsync();
+        lastVolume = initialVolume;
+        subscription = Volume.addVolumeListener(({ volume }) => {
+          if (!volumeScrollEnabled) return;
+          const diff = volume - lastVolume;
+          if (Math.abs(diff) > 0.01) {
+            const SCROLL_STEP = 300; // pixels per volume press
+            if (diff < 0) {
+              // Volume Down -> scroll DOWN (increase Y)
+              scrollRef.current?.scrollTo({ y: scrollYRef.current + SCROLL_STEP, animated: true });
+            } else if (diff > 0) {
+              // Volume Up -> scroll UP (decrease Y)
+              scrollRef.current?.scrollTo({ y: scrollYRef.current - SCROLL_STEP, animated: true });
+            }
+            lastVolume = volume;
+          }
+        });
+      } catch (err) { console.warn("Volume listener error:", err); }
+    };
+    setupVolume();
+    return () => { if (subscription) subscription.remove(); };
+  }, [volumeScrollEnabled]);
+
   const stopTTS = useCallback(() => {
     ttsActiveRef.current = false;
     ttsIndexRef.current = -1;
@@ -265,7 +247,6 @@ export default function ReaderScreen() {
     ttsIndexRef.current = index;
     setTtsIndex(index);
     try {
-      try { Speech.stop(); } catch {}
       Speech.speak(sentences[index], {
         language: 'en',
         pitch: 1.0,
@@ -320,9 +301,8 @@ export default function ReaderScreen() {
     setTimeout(() => {
       if (!isMountedRef.current) return;
       try {
-        const testPhrase = "This is a voice preview.";
-        try { Speech.stop(); } catch {}
-        Speech.speak(testPhrase, {
+        Speech.stop();
+        Speech.speak("This is a voice preview.", {
           language: 'en',
           pitch: 1.0,
           rate: ttsRateRef.current,
@@ -332,7 +312,6 @@ export default function ReaderScreen() {
     }, 200);
   }, [stopTTS]);
 
-  // Progress and scrolling logic
   const updateReadingProgress = useCallback(() => {
     if (contentHeightRef.current > scrollViewHeightRef.current) {
       const maxScroll = contentHeightRef.current - scrollViewHeightRef.current;
@@ -436,8 +415,6 @@ export default function ReaderScreen() {
   const lineSpacing = LINE_SPACINGS[lineSpacingIdx];
   const currentSpeed = AUTO_SCROLL_SPEEDS[autoScrollSpeedIdx];
   const ttsAvailable = chapterContent.trim().length >= TTS_MIN_CHARS;
-
-  // Get the current sentence being spoken (for overlay)
   const currentSentence = ttsIndex >= 0 ? ttsSentences[ttsIndex] : null;
 
   return (
@@ -457,25 +434,25 @@ export default function ReaderScreen() {
       {showControls && (
         <View style={[styles.controls, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
           <View style={styles.controlRow}>
-            <Text style={[styles.controlLabel, { color: colors.textSecondary }]}>Font</Text>
+            <Text style={[styles.controlLabel, { color: colors.textSecondary }]}>Font Size</Text>
             <View style={styles.controlBtns}>
-              <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => { const newIdx = Math.max(0, fontSizeIdx - 1); setFontSizeIdx(newIdx); saveAllSettings(newIdx, lineSpacingIdx, autoScrollSpeedIdx); }}>
+              <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => { const newIdx = Math.max(0, fontSizeIdx - 1); setFontSizeIdx(newIdx); saveAllSettings(newIdx, lineSpacingIdx, autoScrollSpeedIdx, volumeScrollEnabled); }}>
                 <Text style={[styles.controlBtnText, { color: colors.text, fontSize: 12 }]}>A</Text>
               </Pressable>
               <Text style={[styles.controlValue, { color: colors.text }]}>{fontSize}pt</Text>
-              <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => { const newIdx = Math.min(FONT_SIZES.length - 1, fontSizeIdx + 1); setFontSizeIdx(newIdx); saveAllSettings(newIdx, lineSpacingIdx, autoScrollSpeedIdx); }}>
+              <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => { const newIdx = Math.min(FONT_SIZES.length - 1, fontSizeIdx + 1); setFontSizeIdx(newIdx); saveAllSettings(newIdx, lineSpacingIdx, autoScrollSpeedIdx, volumeScrollEnabled); }}>
                 <Text style={[styles.controlBtnText, { color: colors.text, fontSize: 18 }]}>A</Text>
               </Pressable>
             </View>
           </View>
           <View style={styles.controlRow}>
-            <Text style={[styles.controlLabel, { color: colors.textSecondary }]}>Spacing</Text>
+            <Text style={[styles.controlLabel, { color: colors.textSecondary }]}>Line Spacing</Text>
             <View style={styles.controlBtns}>
-              <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => { const newIdx = Math.max(0, lineSpacingIdx - 1); setLineSpacingIdx(newIdx); saveAllSettings(fontSizeIdx, newIdx, autoScrollSpeedIdx); }}>
+              <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => { const newIdx = Math.max(0, lineSpacingIdx - 1); setLineSpacingIdx(newIdx); saveAllSettings(fontSizeIdx, newIdx, autoScrollSpeedIdx, volumeScrollEnabled); }}>
                 <Ionicons name="remove" size={16} color={colors.text} />
               </Pressable>
               <Text style={[styles.controlValue, { color: colors.text }]}>{lineSpacing.toFixed(1)}x</Text>
-              <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => { const newIdx = Math.min(LINE_SPACINGS.length - 1, lineSpacingIdx + 1); setLineSpacingIdx(newIdx); saveAllSettings(fontSizeIdx, newIdx, autoScrollSpeedIdx); }}>
+              <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => { const newIdx = Math.min(LINE_SPACINGS.length - 1, lineSpacingIdx + 1); setLineSpacingIdx(newIdx); saveAllSettings(fontSizeIdx, newIdx, autoScrollSpeedIdx, volumeScrollEnabled); }}>
                 <Ionicons name="add" size={16} color={colors.text} />
               </Pressable>
             </View>
@@ -486,14 +463,27 @@ export default function ReaderScreen() {
               <Pressable style={[styles.controlBtn, { backgroundColor: autoScrollActive ? colors.accent : colors.surface, borderColor: colors.border }]} onPress={() => autoScrollActive ? stopAutoScroll() : startAutoScroll()}>
                 <Ionicons name={autoScrollActive ? "pause" : "play"} size={16} color={autoScrollActive ? "#fff" : colors.text} />
               </Pressable>
-              <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => { const newIdx = Math.max(0, autoScrollSpeedIdx - 1); setAutoScrollSpeedIdx(newIdx); saveAllSettings(fontSizeIdx, lineSpacingIdx, newIdx); }}>
+              <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => { const newIdx = Math.max(0, autoScrollSpeedIdx - 1); setAutoScrollSpeedIdx(newIdx); saveAllSettings(fontSizeIdx, lineSpacingIdx, newIdx, volumeScrollEnabled); }}>
                 <Ionicons name="remove" size={16} color={colors.text} />
               </Pressable>
               <Text style={[styles.controlValue, { color: colors.text }]}>{currentSpeed.toFixed(1)}x</Text>
-              <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => { const newIdx = Math.min(AUTO_SCROLL_SPEEDS.length - 1, autoScrollSpeedIdx + 1); setAutoScrollSpeedIdx(newIdx); saveAllSettings(fontSizeIdx, lineSpacingIdx, newIdx); }}>
+              <Pressable style={[styles.controlBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => { const newIdx = Math.min(AUTO_SCROLL_SPEEDS.length - 1, autoScrollSpeedIdx + 1); setAutoScrollSpeedIdx(newIdx); saveAllSettings(fontSizeIdx, lineSpacingIdx, newIdx, volumeScrollEnabled); }}>
                 <Ionicons name="add" size={16} color={colors.text} />
               </Pressable>
             </View>
+          </View>
+          {/* Volume Scroll Toggle */}
+          <View style={styles.controlRow}>
+            <Text style={[styles.controlLabel, { color: colors.textSecondary }]}>Volume Scroll</Text>
+            <Switch
+              value={volumeScrollEnabled}
+              onValueChange={(val) => {
+                setVolumeScrollEnabled(val);
+                saveAllSettings(fontSizeIdx, lineSpacingIdx, autoScrollSpeedIdx, val);
+              }}
+              trackColor={{ false: colors.border, true: colors.accent }}
+              thumbColor="#fff"
+            />
           </View>
         </View>
       )}
