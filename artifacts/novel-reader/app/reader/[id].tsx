@@ -446,53 +446,42 @@ export default function ReaderScreen() {
         </View>
       )}
 
-      {/* Scrollable content */}
-      <ScrollView
-        ref={scrollRef}
-        style={styles.scrollArea}
-        contentContainerStyle={[styles.textContainer, { paddingBottom: bottomPad + 100 }]}
-        onScroll={handleScroll}
-        onScrollBeginDrag={handleScrollBeginDrag}
-        onContentSizeChange={handleContentSizeChange}
-        onLayout={handleScrollViewLayout}
-        scrollEventThrottle={16}
-      >
-        <Text style={[styles.chapterHeader, { color: colors.accent }]}>{chapter.title}</Text>
-        {contentLoading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="small" color={colors.accent} />
-          </View>
-        ) : (
-          <Text style={[styles.content, { color: colors.text, fontSize, lineHeight: fontSize * lineSpacing }]}>
-            {ttsSentences.map((sentence, idx) => {
-              const isCurrent = idx === ttsIndex;
-              return (
-                <Text
-                  key={idx}
-                  style={{
-                    backgroundColor: isCurrent ? `${colors.accent}30` : 'transparent',
-                    color: isCurrent ? colors.accent : colors.text,
-                  }}
-                >
-                  {sentence}{' '}
-                </Text>
-              );
-            })}
-          </Text>
-        )}
-      </ScrollView>
-
-      {/* TTS Floating Button */}
-      {ttsAvailable && (
-        <Pressable
-          style={[styles.ttsFloatingBtn, { backgroundColor: colors.accent }]}
-          onPress={toggleTTS}
-          onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {}); setShowTTSSettings(true); }}
-          delayLongPress={400}
+      {/* Scrollable content wrapper */}
+      <View style={{ flex: 1, position: 'relative' }}>
+        <ScrollView
+          ref={scrollRef}
+          style={styles.scrollArea}
+          contentContainerStyle={[styles.textContainer, { paddingBottom: bottomPad + 100 }]}
+          onScroll={handleScroll}
+          onScrollBeginDrag={handleScrollBeginDrag}
+          onContentSizeChange={handleContentSizeChange}
+          onLayout={handleScrollViewLayout}
+          scrollEventThrottle={16}
         >
-          <Ionicons name={ttsActive ? "pause" : "volume-high"} size={22} color="#fff" />
-        </Pressable>
-      )}
+          <Text style={[styles.chapterHeader, { color: colors.accent }]}>{chapter.title}</Text>
+          {contentLoading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color={colors.accent} />
+            </View>
+          ) : (
+            <Text style={[styles.content, { color: colors.text, fontSize, lineHeight: fontSize * lineSpacing }]}>
+              {chapterContent}
+            </Text>
+          )}
+        </ScrollView>
+
+        {/* TTS Floating Button */}
+        {ttsAvailable && (
+          <Pressable
+            style={[styles.ttsFloatingBtn, { backgroundColor: colors.accent }]}
+            onPress={toggleTTS}
+            onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {}); setShowTTSSettings(true); }}
+            delayLongPress={400}
+          >
+            <Ionicons name={ttsActive ? "pause" : "volume-high"} size={22} color="#fff" />
+          </Pressable>
+        )}
+      </View>
 
       {/* TTS status overlay */}
       {ttsActive && (
