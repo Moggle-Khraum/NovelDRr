@@ -1,7 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as Speech from "expo-speech";
-import VolumeManager from 'react-native-volume-manager';
 import { router, useLocalSearchParams } from "expo-router";
 import * as FileSystem from "expo-file-system";
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -93,6 +92,10 @@ export default function ReaderScreen() {
   const [ttsRate, setTtsRate] = useState(1.0);
   const ttsRateRef = useRef(1.0);
 
+  // Lazy volume manager reference
+  const volumeSubscriptionRef = useRef<any>(null);
+  const volumeInitializedRef = useRef(false);
+
   const novel = getNovel(id);
   const chapter = novel?.chapters[chapterIndex];
   const topPad = Platform.OS === "web" ? 67 : insets.top;
@@ -136,7 +139,7 @@ export default function ReaderScreen() {
     } catch (error) { console.error('Failed to save settings:', error); }
   };
 
-  // Load TTS settings
+  // Load TTS settings (lazy - only when reader opens)
   useEffect(() => {
     (async () => {
       try {
@@ -195,25 +198,45 @@ export default function ReaderScreen() {
       isMountedRef.current = false;
       Speech.stop();
       if (intervalRef.current) clearInterval(intervalRef.current);
+      // Clean up volume subscription if exists
+      if (volumeSubscriptionRef.current) {
+        try {
+          volumeSubscriptionRef.current.remove();
+        } catch (e) {}
+        volumeSubscriptionRef.current = null;
+      }
     };
   }, []);
 
-   // Volume scroll listener (Down = scroll Down, Up = scroll Up)
+  // LAZY VOLUME LISTENER — only initializes when volumeScrollEnabled is true
   useEffect(() => {
-    if (!volumeScrollEnabled) return;
-  
-    let subscription: any = null;
-  
-    const setupVolumeListener = async () => {
+    if (!volumeScrollEnabled) {
+      // Clean up if disabled
+      if (volumeSubscriptionRef.current) {
+        try {
+          volumeSubscriptionRef.current.remove();
+        } catch (e) {}
+        volumeSubscriptionRef.current = null;
+      }
+      volumeInitializedRef.current = false;
+      return;
+    }
+
+    // Already initialized, skip
+    if (volumeInitializedRef.current) return;
+
+    const initVolumeManager = async () => {
       try {
-        // Get initial volume to detect direction later
+        // Dynamic import to prevent crash at app startup
+        const VolumeManager = require('react-native-volume-manager');
+        
         const initial = await VolumeManager.getVolume();
         let lastVolume = initial;
-  
-        subscription = VolumeManager.addVolumeListener((result: { volume: number }) => {
+
+        volumeSubscriptionRef.current = VolumeManager.addVolumeListener((result: { volume: number }) => {
           const diff = result.volume - lastVolume;
           if (Math.abs(diff) > 0.01) {
-            const SCROLL_STEP = 300; // pixels per volume press
+            const SCROLL_STEP = 300;
             if (diff < 0) {
               // Volume Down → scroll down
               scrollRef.current?.scrollTo({ y: scrollYRef.current + SCROLL_STEP, animated: true });
@@ -224,15 +247,27 @@ export default function ReaderScreen() {
             lastVolume = result.volume;
           }
         });
+        
+        volumeInitializedRef.current = true;
+        console.log('[Volume] Initialized successfully');
       } catch (err) {
-        console.warn("Volume listener error:", err);
+        console.warn('[Volume] Failed to initialize:', err);
+        // Disable the feature so it doesn't keep trying
+        setVolumeScrollEnabled(false);
+        saveAllSettings(fontSizeIdx, lineSpacingIdx, autoScrollSpeedIdx, false);
       }
     };
-  
-    setupVolumeListener();
-  
+
+    initVolumeManager();
+
     return () => {
-      if (subscription) subscription.remove();
+      if (volumeSubscriptionRef.current) {
+        try {
+          volumeSubscriptionRef.current.remove();
+        } catch (e) {}
+        volumeSubscriptionRef.current = null;
+      }
+      volumeInitializedRef.current = false;
     };
   }, [volumeScrollEnabled]);
 
