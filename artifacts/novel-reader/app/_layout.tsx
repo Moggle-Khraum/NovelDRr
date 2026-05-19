@@ -8,6 +8,7 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
+import { Platform } from 'react-native';
 import React, { useEffect, useRef } from "react";
 import { 
   View, 
