@@ -143,6 +143,11 @@ export default function SettingsScreen() {
   const [operationProgress, setOperationProgress] = useState("");
   const [backupLogs, setBackupLogs] = useState<string[]>([]);
 
+  // Bug report state
+  const [showBugReport, setShowBugReport] = useState(false);
+  const [alias, setAlias] = useState("");
+  const [bugDescription, setBugDescription] = useState("");
+
   const APP_DATA_DIR = `${FileSystem.documentDirectory}NovelDR/`;
   const BACKUP_DIR = `${FileSystem.documentDirectory}noveldrr-backups/`;
   const SETTINGS_FILE = `${APP_DATA_DIR}settings.json`;
@@ -1176,51 +1181,6 @@ export default function SettingsScreen() {
           </View>
         )}
 
-        <Modal visible={showDevProfile} transparent animationType="fade">
-          <View style={styles.modalOverlay}>
-            <View style={[styles.devCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <View style={styles.devHeader}>
-                <Text style={[styles.devTitle, { color: colors.text }]}>About Developer</Text>
-                <Pressable onPress={() => setShowDevProfile(false)}>
-                  <Ionicons name="close" size={24} color={colors.textSecondary} />
-                </Pressable>
-              </View>
-
-              <View style={styles.devProfileRow}>
-                <View style={[styles.profileImage, { backgroundColor: colors.accent + "20" }]}>
-                  <Ionicons name="person" size={40} color={colors.accent} />
-                </View>
-                <View style={styles.devInfo}>
-                  <Text style={[styles.devLabel, { color: colors.textMuted }]}>Name</Text>
-                  <Text style={[styles.devValue, { color: colors.text }]}>Moggs</Text>
-                </View>
-              </View>
-
-              <Pressable
-                style={styles.devLinkRow}
-                onPress={() => Linking.openURL("https://moggle.is-a-good.dev/")}
-              >
-                <Text style={[styles.devLinkLabel, { color: colors.textSecondary }]}>Website:</Text>
-                <Text style={[styles.devLinkText, { color: colors.accent }]}>NovelDR Site</Text>
-                <Ionicons name="open-outline" size={14} color={colors.accent} />
-              </Pressable>
-
-              <Pressable
-                style={styles.devLinkRow}
-                onPress={() => Linking.openURL("https://github.com/Moggle-Khraum/noveldr-site/releases")}
-              >
-                <Text style={[styles.devLinkLabel, { color: colors.textSecondary }]}>Github:</Text>
-                <Text style={[styles.devLinkText, { color: colors.accent }]}>Github/Releases</Text>
-                <Ionicons name="open-outline" size={14} color={colors.accent} />
-              </Pressable>
-
-              <Text style={[styles.devIssueText, { color: colors.textSecondary }]}>
-                For any suggestions / issues / bugs, please write a comment on Github.
-              </Text>
-            </View>
-          </View>
-        </Modal>
-
         <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>ABOUT</Text>
         <View style={[styles.aboutCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.aboutRow}>
@@ -1250,11 +1210,151 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        {/* Report Issue Button */}
+        <Pressable
+          style={[styles.reportBtn, { borderColor: colors.border, backgroundColor: colors.surface }]}
+          onPress={() => setShowBugReport(true)}
+        >
+          <Ionicons name="bug-outline" size={18} color={colors.accent} />
+          <Text style={[styles.reportBtnText, { color: colors.text }]}>Report Issue / Feedback</Text>
+        </Pressable>
+
         <View style={[styles.versionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Text style={[styles.versionText, { color: colors.textMuted }]}>Novel DR — v1.4.6</Text>
+          <Text style={[styles.versionText, { color: colors.textMuted }]}>
+            Novel DR — v{Application.nativeApplicationVersion ?? "1.4.6"}
+            {Application.nativeBuildVersion ? ` (build ${Application.nativeBuildVersion})` : ""}
+          </Text>
           <Text style={[styles.madeByText, { color: colors.textMuted }]}>Made by Moggs ☕</Text>
         </View>
       </ScrollView>
+
+      {/* Bug Report Modal */}
+      <Modal visible={showBugReport} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.bugModalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.bugModalHeader}>
+              <Text style={[styles.bugModalTitle, { color: colors.text }]}>Report an Issue</Text>
+              <Pressable onPress={() => setShowBugReport(false)}>
+                <Ionicons name="close" size={24} color={colors.textSecondary} />
+              </Pressable>
+            </View>
+
+            <Text style={[styles.bugLabel, { color: colors.textSecondary }]}>Alias (optional)</Text>
+            <TextInput
+              style={[styles.bugInput, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
+              placeholder="e.g. NovelReader123"
+              placeholderTextColor={colors.textMuted}
+              value={alias}
+              onChangeText={setAlias}
+            />
+
+            <Text style={[styles.bugLabel, { color: colors.textSecondary }]}>What's the problem?</Text>
+            <TextInput
+              style={[styles.bugTextArea, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
+              placeholder="Describe the issue in detail...\n- What were you doing?\n- What did you expect to happen?\n- Any error messages?"
+              placeholderTextColor={colors.textMuted}
+              multiline
+              numberOfLines={6}
+              textAlignVertical="top"
+              value={bugDescription}
+              onChangeText={setBugDescription}
+            />
+
+            <View style={styles.bugButtonsRow}>
+              <Pressable
+                style={[styles.bugCancelBtn, { borderColor: colors.border, backgroundColor: colors.surface }]}
+                onPress={() => {
+                  setShowBugReport(false);
+                  setAlias("");
+                  setBugDescription("");
+                }}
+              >
+                <Text style={[styles.bugCancelText, { color: colors.textSecondary }]}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.bugSendBtn, { backgroundColor: colors.accent }]}
+                onPress={() => {
+                  if (!bugDescription.trim()) {
+                    Alert.alert("Missing Info", "Please describe the problem before sending.");
+                    return;
+                  }
+                  const appVersion = Application.nativeApplicationVersion ?? "1.4.6";
+                  const emailSubject = encodeURIComponent(`Bug Report from NovelDR (${alias || "Anonymous"})`);
+                  const emailBody = encodeURIComponent(
+                    `Alias: ${alias || "Anonymous"}\n\nDescription:\n${bugDescription}\n\n---\nApp Version: ${appVersion}\nDevice: ${Platform.OS} ${Platform.Version}`
+                  );
+                  const mailtoUrl = `mailto:noveldrapp.concerns@gmail.com?subject=${emailSubject}&body=${emailBody}`;
+                  Linking.openURL(mailtoUrl).catch(() => {
+                    Alert.alert(
+                      "Email Client Required",
+                      "No email app found. Please send your report manually to: noveldrapp.concerns@gmail.com"
+                    );
+                  });
+                  setShowBugReport(false);
+                  setAlias("");
+                  setBugDescription("");
+                }}
+              >
+                <Ionicons name="send-outline" size={16} color="#fff" />
+                <Text style={styles.bugSendText}>Send Report</Text>
+              </Pressable>
+            </View>
+            <Text style={[styles.bugFooter, { color: colors.textMuted }]}>
+              This will open your email app. Internet connection required.
+            </Text>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Developer Profile Modal */}
+      <Modal visible={showDevProfile} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.devCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.devHeader}>
+              <Text style={[styles.devTitle, { color: colors.text }]}>About Developer</Text>
+              <Pressable onPress={() => setShowDevProfile(false)}>
+                <Ionicons name="close" size={24} color={colors.textSecondary} />
+              </Pressable>
+            </View>
+
+            <View style={styles.devProfileRow}>
+              <View style={[styles.profileImage, { backgroundColor: colors.accent + "20" }]}>
+                <Ionicons name="person" size={40} color={colors.accent} />
+              </View>
+              <View style={styles.devInfo}>
+                <Text style={[styles.devLabel, { color: colors.textMuted }]}>Name</Text>
+                <Text style={[styles.devValue, { color: colors.text }]}>Moggs</Text>
+              </View>
+              <View style={styles.devInfo}>
+                <Text style={[styles.devLabel, { color: colors.textMuted }]}>Email</Text>
+                <Text style={[styles.devValue, { color: colors.text }]}>noveldrapp.concerns@gmail.com</Text>
+              </View>
+            </View>
+
+            <Pressable
+              style={styles.devLinkRow}
+              onPress={() => Linking.openURL("https://moggle.is-a-good.dev/")}
+            >
+              <Text style={[styles.devLinkLabel, { color: colors.textSecondary }]}>Website:</Text>
+              <Text style={[styles.devLinkText, { color: colors.accent }]}>NovelDR Site</Text>
+              <Ionicons name="open-outline" size={14} color={colors.accent} />
+            </Pressable>
+
+            <Pressable
+              style={styles.devLinkRow}
+              onPress={() => Linking.openURL("https://github.com/Moggle-Khraum/noveldr-site/releases")}
+            >
+              <Text style={[styles.devLinkLabel, { color: colors.textSecondary }]}>Github:</Text>
+              <Text style={[styles.devLinkText, { color: colors.accent }]}>Github/Releases</Text>
+              <Ionicons name="open-outline" size={14} color={colors.accent} />
+            </Pressable>
+
+            <Text style={[styles.devIssueText, { color: colors.textSecondary }]}>
+              For any suggestions / issues / bugs, please use Github Issues or the Report Issue button.
+            </Text>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1360,8 +1460,8 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
     fontFamily: "Inter_400Regular", fontSize: 14,
   },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 20 },
-  devCard: { borderRadius: 20, borderWidth: 1, padding: 20, gap: 16 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  devCard: { borderRadius: 20, borderWidth: 1, padding: 20, gap: 16, width: '100%', maxWidth: 380 },
   devHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
   devTitle: { fontFamily: "Inter_700Bold", fontSize: 18 },
   devProfileRow: { flexDirection: "row", alignItems: "center", gap: 16, marginBottom: 8 },
@@ -1373,4 +1473,95 @@ const styles = StyleSheet.create({
   devLinkLabel: { fontFamily: "Inter_500Medium", fontSize: 14 },
   devLinkText: { fontFamily: "Inter_500Medium", fontSize: 14, textDecorationLine: "underline" },
   devIssueText: { fontFamily: "Inter_400Regular", fontSize: 13, lineHeight: 18, marginTop: 8, textAlign: "center" },
+  // Bug report styles
+  reportBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 8,
+  },
+  reportBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+  },
+  bugModalCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 20,
+    gap: 12,
+    width: '100%',
+    maxWidth: 400,
+  },
+  bugModalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  bugModalTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 18,
+  },
+  bugLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    marginBottom: 4,
+  },
+  bugInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+  },
+  bugTextArea: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    minHeight: 120,
+  },
+  bugButtonsRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 8,
+  },
+  bugCancelBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: "center",
+  },
+  bugCancelText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+  },
+  bugSendBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  bugSendText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: "#fff",
+  },
+  bugFooter: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    textAlign: "center",
+    marginTop: 8,
+  },
 });
