@@ -7,6 +7,7 @@
     "axios": "^1.6.0",
     "entities": "^4.5.0",
     "expo-print": "~15.0.0",
+    "expo-speech": "~13.0.0",
     "expo-sharing": "~13.0.0",
     "expo-application": "~6.0.2",
     "expo-file-system": "~18.0.0",
