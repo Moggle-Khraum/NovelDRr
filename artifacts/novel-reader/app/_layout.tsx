@@ -7,8 +7,6 @@ import {
 } from "@expo-google-fonts/inter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
-import { useEffect } from 'react';
-import { appLogger } from '@/utils/logger';
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useRef } from "react";
 import { 
@@ -21,10 +19,13 @@ import {
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { AppState } from "react-native";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ThemeProvider, useTheme } from "@/context/ThemeContext";
 import { LibraryProvider, useLibrary } from "@/context/LibraryContext";
+import { appLogger } from "@/utils/logger";
+import * as Application from "expo-application";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -293,6 +294,40 @@ export default function RootLayout() {
     Inter_600SemiBold,
     Inter_700Bold,
   });
+
+  // Initialize logger and app monitoring
+  useEffect(() => {
+    const initApp = async () => {
+      // Initialize logger
+      await appLogger.init();
+      appLogger.log('INFO', '🚀 App starting...');
+      appLogger.log('INFO', `App version: ${Application.nativeApplicationVersion || 'unknown'}`);
+      appLogger.log('INFO', `Platform: ${Platform.OS} ${Platform.Version}`);
+      
+      // Track app state changes
+      const subscription = AppState.addEventListener('change', (nextAppState) => {
+        appLogger.log('INFO', `App state changed to: ${nextAppState}`);
+      });
+      
+      return () => {
+        appLogger.log('INFO', 'App closing');
+        appLogger.close();
+        subscription.remove();
+      };
+    };
+    
+    initApp();
+  }, []);
+
+  // Log when fonts are ready
+  useEffect(() => {
+    if (fontsLoaded) {
+      appLogger.log('INFO', 'Fonts loaded successfully');
+    }
+    if (fontError) {
+      appLogger.log('ERROR', `Font loading error: ${fontError}`);
+    }
+  }, [fontsLoaded, fontError]);
 
   useEffect(() => {
     if (fontsLoaded || fontError) {
