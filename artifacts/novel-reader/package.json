@@ -6,6 +6,7 @@
   "dependencies": {
     "axios": "^1.6.0",
     "entities": "^4.5.0",
+    "expo-volume": "~1.0.0",
     "expo-print": "~15.0.0",
     "expo-speech": "~13.0.0",
     "expo-sharing": "~13.0.0",
