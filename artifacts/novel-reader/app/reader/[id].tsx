@@ -469,17 +469,28 @@ export default function ReaderScreen() {
             </View>
           ) : (
             <Text style={[styles.content, { color: colors.text, fontSize, lineHeight: fontSize * lineSpacing }]}>
-              {ttsActive && ttsSentences.length > 0
-                ? ttsSentences.map((fragment, i) => (
-                    <Text
-                      key={i}
-                      style={ttsIndex >= 0 && fragment.group === ttsSentences[ttsIndex].group
-                        ? { backgroundColor: colors.accent + '40', color: colors.text }
-                        : undefined}
-                    >
-                      {fragment.text}{' '}
-                    </Text>
-                  ))
+              {ttsActive && ttsIndex >= 0 && ttsSentences.length > 0
+                ? (() => {
+                    const activeGroup = ttsSentences[ttsIndex].group;
+                    const groupFragments = ttsSentences.filter(f => f.group === activeGroup);
+                    const highlightStart = groupFragments[0].text;
+                    const highlightEnd = groupFragments[groupFragments.length - 1].text;
+                    const fullHighlight = chapterContent.slice(
+                      chapterContent.indexOf(highlightStart),
+                      chapterContent.indexOf(highlightEnd) + highlightEnd.length
+                    );
+                    const startIdx = chapterContent.indexOf(fullHighlight);
+                    if (startIdx === -1) return chapterContent;
+                    const before = chapterContent.slice(0, startIdx);
+                    const after = chapterContent.slice(startIdx + fullHighlight.length);
+                    return (
+                      <>
+                        <Text>{before}</Text>
+                        <Text style={{ backgroundColor: colors.accent + '40' }}>{fullHighlight}</Text>
+                        <Text>{after}</Text>
+                      </>
+                    );
+                  })()
                 : chapterContent}
             </Text>
           )}
