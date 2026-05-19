@@ -1,6 +1,5 @@
 import * as FileSystem from 'expo-file-system';
 import { Platform } from 'react-native';
-import { appLogger } from '@/utils/logger';
 import React, {
   createContext,
   useCallback,
@@ -417,21 +416,13 @@ function extractChapterNumber(chapter: Chapter): number {
 // =============================================================================
 
 const loadNovelsFromDisk = async (): Promise<{ novels: Novel[]; sortOrder: SortOrder }> => {
-  appLogger.log('DEBUG', 'loadNovelsFromDisk called');
-  
   const sortData = await loadFromFile(getSortPreferenceFilePath());
   const resolvedSortOrder: SortOrder = sortData === "descending" ? "descending" : "ascending";
-  appLogger.log('DEBUG', `Sort order from disk: ${resolvedSortOrder}`);
 
   const libraryData = await loadFromFile(getLibraryFilePath());
-  if (!libraryData) {
-    appLogger.log('INFO', 'No library file found, returning empty');
-    return { novels: [], sortOrder: resolvedSortOrder };
-  }
+  if (!libraryData) return { novels: [], sortOrder: resolvedSortOrder };
 
   const parsed: Novel[] = JSON.parse(libraryData);
-  appLogger.log('INFO', `Loaded ${parsed.length} novels from disk`);
-  
   const novels = parsed.map((n) => ({
     ...n,
     status: n.status ?? (n.lastRead ? "reading" : "unread"),
@@ -450,8 +441,6 @@ const loadNovelsFromDisk = async (): Promise<{ novels: Novel[]; sortOrder: SortO
 // =============================================================================
 
 export function LibraryProvider({ children }: { children: React.ReactNode }) {
-  appLogger.log('INFO', 'LibraryProvider mounted');
-  
   const [novels, setNovels] = useState<Novel[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortOrder, setSortOrder] = useState<SortOrder>("ascending");
@@ -472,46 +461,32 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const initializeStorage = async () => {
-      appLogger.log('INFO', '===== LIBRARY INITIALIZATION START =====');
-      
       const alreadyInit = await isInitialized();
-      appLogger.log('INFO', `Already initialized: ${alreadyInit}`);
-      
       if (alreadyInit) {
         addInitStep({ id: 'start', message: 'Loading library...', status: 'done', detail: 'Already initialized' });
         try {
           const { novels: loaded, sortOrder: order } = await loadNovelsFromDisk();
-          appLogger.log('INFO', `Library loaded: ${loaded.length} novels, sort order: ${order}`);
           setSortOrder(order);
           setNovels(loaded);
-        } catch (err) {
-          appLogger.log('ERROR', `Failed to load library: ${err}`);
-        }
+        } catch {}
         setInitComplete(true);
         setLoading(false);
-        appLogger.log('INFO', '===== LIBRARY INITIALIZATION COMPLETE =====');
         return;
       }
 
       try {
         addInitStep({ id: 'start', message: 'Initializing storage...', status: 'running' });
-        appLogger.log('INFO', 'First-time initialization - no existing data');
 
         const migrated = await migrateFromLegacyStorage(addInitStep);
-        appLogger.log('INFO', `Migration completed: ${migrated}`);
-        
         const recovered = await recoverDataIfNeeded(addInitStep);
-        appLogger.log('INFO', `Recovery completed: ${recovered}`);
 
         await ensureAppDirectoryExists();
         await ensureDirectoryExists(getChaptersPath());
         addInitStep({ id: 'directory', message: 'Storage ready', status: 'done' });
-        appLogger.log('INFO', 'Storage directories ready');
 
         let totalChapters = 0;
         try {
           const { novels: loaded, sortOrder: order } = await loadNovelsFromDisk();
-          appLogger.log('INFO', `Library loaded after init: ${loaded.length} novels, sort order: ${order}`);
           setSortOrder(order);
           setNovels(loaded);
           addInitStep({ id: 'preferences', message: 'Preferences loaded', status: 'done' });
@@ -525,10 +500,7 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
                 totalChapters += files.length;
               }
             }
-            appLogger.log('INFO', `Total chapters found: ${totalChapters}`);
-          } catch (err) {
-            appLogger.log('WARN', `Could not scan chapters: ${err}`);
-          }
+          } catch {}
 
           addInitStep({
             id: 'library',
@@ -536,13 +508,11 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
             status: 'done',
             detail: `${loaded.length} novels, ${totalChapters} chapters`,
           });
-        } catch (err) {
-          appLogger.log('ERROR', `Library repair needed: ${err}`);
+        } catch {
           addInitStep({ id: 'library', message: 'Library repair needed', status: 'error' });
         }
 
         await markInitialized();
-        appLogger.log('INFO', 'Marked initialization flag');
 
         addInitStep({
           id: 'complete',
@@ -551,10 +521,8 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
         });
         setInitComplete(true);
         await new Promise(resolve => setTimeout(resolve, 800));
-        appLogger.log('INFO', '===== LIBRARY INITIALIZATION COMPLETE =====');
 
       } catch (error: any) {
-        appLogger.log('ERROR', `Initialization failed: ${error.message}`);
         addInitStep({ id: 'error', message: 'Initialization failed', status: 'error', detail: error.message });
       } finally {
         setLoading(false);
@@ -579,7 +547,6 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
   };
 
   const addNovel = useCallback(async (novel: Novel) => {
-    appLogger.log('INFO', `Adding novel: ${novel.title}, ${novel.chapters.length} chapters`);
     setNovels(current => {
       const existing = current.find(n => n.id === novel.id);
       if (existing) {
@@ -600,7 +567,6 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const updateNovel = useCallback(async (id: string, updates: Partial<Novel>) => {
-    appLogger.log('DEBUG', `Updating novel ${id}`);
     setNovels(current => {
       const updated = current.map(n => n.id === id ? { ...n, ...updates } : n);
       saveLibraryToFile(updated);
@@ -609,7 +575,6 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const removeNovel = useCallback(async (id: string) => {
-    appLogger.log('INFO', `Removing novel ${id}`);
     setNovels(current => {
       const updated = current.filter(n => n.id !== id);
       saveLibraryToFile(updated);
@@ -619,7 +584,6 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const removeNovels = useCallback(async (ids: string[]) => {
-    appLogger.log('INFO', `Removing ${ids.length} novels`);
     setNovels(current => {
       const updated = current.filter(n => !ids.includes(n.id));
       saveLibraryToFile(updated);
@@ -636,7 +600,6 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     chapterTitle: string,
     scrollOffset: number
   ) => {
-    appLogger.log('DEBUG', `Saving progress for novel ${novelId}, chapter ${chapterIndex}, offset ${scrollOffset}`);
     await updateNovel(novelId, {
       lastRead: { chapterIndex, chapterTitle, scrollOffset },
       status: "reading",
@@ -644,14 +607,12 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
   }, [updateNovel]);
 
   const setNovelStatus = useCallback(async (novelId: string, status: NovelStatus) => {
-    appLogger.log('INFO', `Setting novel ${novelId} status to ${status}`);
     await updateNovel(novelId, { status });
   }, [updateNovel]);
 
   const toggleSortOrder = useCallback(() => {
     setSortOrder(prev => {
       const next = prev === "ascending" ? "descending" : "ascending";
-      appLogger.log('INFO', `Toggling sort order to ${next}`);
       saveToFile(getSortPreferenceFilePath(), next);
       return next;
     });
@@ -681,7 +642,6 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     content: string,
     chapterNumber?: number
   ) => {
-    appLogger.log('DEBUG', `Saving chapter ${chapterIndex} for novel ${novelId}, content length: ${content.length}`);
     await saveChapterToFile(novelId, chapterIndex, { title, url, content, chapterNumber });
     setNovels(current => {
       const idx = current.findIndex(n => n.id === novelId);
@@ -703,21 +663,17 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const loadChapterContent = useCallback(async (novelId: string, chapterIndex: number) => {
-    appLogger.log('DEBUG', `Loading chapter ${chapterIndex} for novel ${novelId}`);
     return await loadChapterFromFile(novelId, chapterIndex);
   }, []);
 
   // ── Refresh library from disk ────────────────────────────────────────────
 
   const refreshLibrary = useCallback(async () => {
-    appLogger.log('INFO', 'Manual library refresh triggered');
     try {
       const { novels: refreshed, sortOrder: order } = await loadNovelsFromDisk();
       setSortOrder(order);
       setNovels(refreshed);
-      appLogger.log('INFO', `Refresh complete: ${refreshed.length} novels`);
     } catch (error) {
-      appLogger.log('ERROR', `Refresh failed: ${error}`);
       console.error('[Library] Refresh failed:', error);
     }
   }, []);
