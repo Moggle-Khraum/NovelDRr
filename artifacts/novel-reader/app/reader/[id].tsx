@@ -28,19 +28,23 @@ const READER_SETTINGS_FILE = `${FileSystem.documentDirectory}NovelDR/reader_sett
 const TTS_SETTINGS_FILE = `${FileSystem.documentDirectory}NovelDR/tts_simple_settings.json`;
 const TTS_MIN_CHARS = 500;
 
-function splitIntoSentences(text: string): string[] {
+type TtsFragment = { text: string; group: number };
+
+function splitIntoSentences(text: string): TtsFragment[] {
   const raw = text.match(/[^.!?…]+[.!?…]+|[^.!?…]+$/g) ?? [];
-  const sentences: string[] = [];
+  const fragments: TtsFragment[] = [];
+  let group = 0;
   for (const chunk of raw) {
     const trimmed = chunk.trim();
-    if (trimmed.length <= 1) continue;
+    if (trimmed.length <= 1) { group++; continue; }
     const sub = trimmed.match(/[^,;]+[,;]?/g) ?? [trimmed];
     for (const s of sub) {
       const st = s.trim();
-      if (st.length >= 8) sentences.push(st);
+      if (st.length >= 8) fragments.push({ text: st, group });
     }
+    group++;
   }
-  return sentences;
+  return fragments;
 }
 
 export default function ReaderScreen() {
@@ -75,7 +79,7 @@ export default function ReaderScreen() {
 
   // TTS states
   const [ttsActive, setTtsActive] = useState(false);
-  const [ttsSentences, setTtsSentences] = useState<string[]>([]);
+  const [ttsSentences, setTtsSentences] = useState<TtsFragment[]>([]);
   const [ttsIndex, setTtsIndex] = useState(-1);
   const ttsIndexRef = useRef(-1);
   const ttsActiveRef = useRef(false);
@@ -214,7 +218,7 @@ export default function ReaderScreen() {
     setTtsIndex(index);
     try {
       try { Speech.stop(); } catch {}
-      Speech.speak(sentences[index], {
+      Speech.speak(sentences[index].text, {
         language: 'en',
         pitch: 1.0,
         rate: ttsRateRef.current,
@@ -386,7 +390,7 @@ export default function ReaderScreen() {
   const lineSpacing = LINE_SPACINGS[lineSpacingIdx];
   const currentSpeed = AUTO_SCROLL_SPEEDS[autoScrollSpeedIdx];
   const ttsAvailable = chapterContent.trim().length >= TTS_MIN_CHARS;
-  const currentSentence = ttsIndex >= 0 ? ttsSentences[ttsIndex] : null;
+  const currentSentence = ttsIndex >= 0 ? ttsSentences[ttsIndex].text : null;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -465,7 +469,18 @@ export default function ReaderScreen() {
             </View>
           ) : (
             <Text style={[styles.content, { color: colors.text, fontSize, lineHeight: fontSize * lineSpacing }]}>
-              {chapterContent}
+              {ttsActive && ttsSentences.length > 0
+                ? ttsSentences.map((fragment, i) => (
+                    <Text
+                      key={i}
+                      style={ttsIndex >= 0 && fragment.group === ttsSentences[ttsIndex].group
+                        ? { backgroundColor: colors.accent + '40', color: colors.text }
+                        : undefined}
+                    >
+                      {fragment.text}{' '}
+                    </Text>
+                  ))
+                : chapterContent}
             </Text>
           )}
         </ScrollView>
