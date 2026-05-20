@@ -856,7 +856,7 @@ const styles = StyleSheet.create({
     minHeight: 0,
   },
   novelScrollView: {
-    maxHeight: 320,
+    maxHeight: 240,
   },
   novelListInner: {
     gap: 8,
