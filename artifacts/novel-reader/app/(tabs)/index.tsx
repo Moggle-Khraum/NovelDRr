@@ -182,12 +182,6 @@ function NovelCard({
                 />
               </View>
             </View>
-            <Pressable 
-              style={[styles.continueButton, { backgroundColor: colors.accent }]}
-              onPress={onPress}
-            >
-              <Text style={styles.continueButtonText}>Continue</Text>
-            </Pressable>
           </View>
         </View>
       </Animated.View>
