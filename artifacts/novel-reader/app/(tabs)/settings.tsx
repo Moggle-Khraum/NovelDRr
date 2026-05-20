@@ -26,6 +26,34 @@ import { useLibrary } from "@/context/LibraryContext";
 import { useTheme } from "@/context/ThemeContext";
 import { Theme } from "@/constants/colors";
 
+// Helper to convert image to base64
+const imageToBase64 = async (imagePath: string): Promise<string | null> => {
+  try {
+    const info = await FileSystem.getInfoAsync(imagePath);
+    if (!info.exists) return null;
+    const base64 = await FileSystem.readAsStringAsync(imagePath, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    return base64;
+  } catch (error) {
+    console.error('Failed to convert image to base64:', error);
+    return null;
+  }
+};
+
+// Helper to save base64 as image file
+const saveBase64AsImage = async (base64: string, targetPath: string): Promise<boolean> => {
+  try {
+    await FileSystem.writeAsStringAsync(targetPath, base64, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    return true;
+  } catch (error) {
+    console.error('Failed to save image from base64:', error);
+    return false;
+  }
+};
+
 function ThemeButton({
   label,
   icon,
@@ -77,6 +105,14 @@ interface BackupMetadata {
   novelCount: number;
   totalChapters: number;
   includesChapters: boolean;
+  includesCovers: boolean;
+  totalCoverSize: number;
+}
+
+interface NovelCoverBackup {
+  novelId: string;
+  coverBase64: string | null;
+  fileName: string;
 }
 
 interface FullBackup {
@@ -87,6 +123,7 @@ interface FullBackup {
   appSettings: any;
   chapters: Record<string, Record<string, any>>;
   asyncStorageData?: Record<string, string>;
+  covers: NovelCoverBackup[];
 }
 
 export default function SettingsScreen() {
@@ -106,9 +143,15 @@ export default function SettingsScreen() {
   const [operationProgress, setOperationProgress] = useState("");
   const [backupLogs, setBackupLogs] = useState<string[]>([]);
 
+  // Bug report state
+  const [showBugReport, setShowBugReport] = useState(false);
+  const [alias, setAlias] = useState("");
+  const [bugDescription, setBugDescription] = useState("");
+
   const APP_DATA_DIR = `${FileSystem.documentDirectory}NovelDR/`;
   const BACKUP_DIR = `${FileSystem.documentDirectory}noveldrr-backups/`;
   const SETTINGS_FILE = `${APP_DATA_DIR}settings.json`;
+  const COVERS_DIR = `${APP_DATA_DIR}covers/`;
 
   const getAsyncStorage = async () => {
     try {
@@ -190,7 +233,6 @@ export default function SettingsScreen() {
     setOperationProgress(msg);
   };
 
-  // ── Collect all app data with activity logging ──────────────────────
   const collectAppData = async (): Promise<FullBackup> => {
     setBackupLogs([]);
     addBackupLog("📂 Reading library data...");
@@ -233,7 +275,6 @@ export default function SettingsScreen() {
 
     addBackupLog(`📚 Found ${novelCount} novels in library`);
 
-    // Collect ALL chapters
     const chapters: Record<string, Record<string, any>> = {};
     const chaptersDir = `${APP_DATA_DIR}chapters/`;
     
@@ -274,7 +315,6 @@ export default function SettingsScreen() {
                 }
               }
               
-              // Find novel title for better logging
               const novelData = Array.isArray(libraryData) ? libraryData.find((n: any) => n.id === novelId) : null;
               const novelTitle = novelData?.title || novelId.slice(0, 12);
               addBackupLog(`   📄 ${novelTitle}: ${jsonFiles.length} chapters`);
@@ -286,7 +326,6 @@ export default function SettingsScreen() {
       } else {
         addBackupLog("⚠️ No chapters folder found");
         
-        // Try AsyncStorage for chapters
         if (AsyncStorage && Array.isArray(libraryData)) {
           addBackupLog("🔍 Checking AsyncStorage for chapter content...");
           let asyncChapterCount = 0;
@@ -322,7 +361,58 @@ export default function SettingsScreen() {
       (sum, novelChapters) => sum + Object.keys(novelChapters).length, 0
     );
 
-    // Collect AsyncStorage data
+    // ── COLLECT COVERS ──
+    addBackupLog("🖼️ Scanning novel covers...");
+    const covers: NovelCoverBackup[] = [];
+    let totalCoverSize = 0;
+    
+    try {
+      const coversDirInfo = await FileSystem.getInfoAsync(COVERS_DIR);
+      
+      if (coversDirInfo.exists && coversDirInfo.isDirectory) {
+        const coverFiles = await FileSystem.readDirectoryAsync(COVERS_DIR);
+        const imageFiles = coverFiles.filter(f => 
+          f.endsWith('.jpg') || f.endsWith('.jpeg') || f.endsWith('.png') || f.endsWith('.webp')
+        );
+        
+        addBackupLog(`📁 Found ${imageFiles.length} cover images in covers/ directory`);
+        
+        for (const coverFile of imageFiles) {
+          const coverPath = `${COVERS_DIR}${coverFile}`;
+          const novelId = coverFile.replace(/\.(jpg|jpeg|png|webp)$/i, '');
+          
+          const novelExists = Array.isArray(libraryData) && libraryData.some((n: any) => n.id === novelId);
+          
+          if (novelExists) {
+            const coverInfo = await FileSystem.getInfoAsync(coverPath);
+            if (coverInfo.exists) {
+              addBackupLog(`   🖼️ Converting cover: ${coverFile} (${((coverInfo.size || 0) / 1024).toFixed(1)} KB)`);
+              
+              const coverBase64 = await imageToBase64(coverPath);
+              if (coverBase64) {
+                covers.push({
+                  novelId,
+                  coverBase64,
+                  fileName: coverFile,
+                });
+                totalCoverSize += coverInfo.size || 0;
+              } else {
+                addBackupLog(`   ⚠️ Failed to convert cover: ${coverFile}`);
+              }
+            }
+          } else {
+            addBackupLog(`   ⏭️ Skipping orphan cover: ${coverFile} (no matching novel found)`);
+          }
+        }
+        
+        addBackupLog(`📊 Covers collected: ${covers.length} (${(totalCoverSize / (1024 * 1024)).toFixed(2)} MB total)`);
+      } else {
+        addBackupLog("⚠️ No covers directory found - no covers to backup");
+      }
+    } catch (coversError) {
+      addBackupLog(`❌ Error scanning covers: ${String(coversError)}`);
+    }
+
     let asyncStorageData: Record<string, string> = {};
     if (AsyncStorage) {
       addBackupLog("📦 Saving legacy preferences...");
@@ -346,16 +436,18 @@ export default function SettingsScreen() {
       }
     }
 
-    addBackupLog(`✅ Backup ready: ${novelCount} novels, ${totalChapters} chapters`);
+    addBackupLog(`✅ Backup ready: ${novelCount} novels, ${totalChapters} chapters, ${covers.length} covers`);
     
     return {
       metadata: {
-        version: 3,
+        version: 4,
         exportedAt: new Date().toISOString(),
         comment: pendingComment.trim() || null,
         novelCount,
         totalChapters,
         includesChapters: totalChapters > 0,
+        includesCovers: covers.length > 0,
+        totalCoverSize,
       },
       libraryData,
       sortPreference,
@@ -363,10 +455,10 @@ export default function SettingsScreen() {
       appSettings: settingsData,
       chapters,
       asyncStorageData,
+      covers,
     };
   };
 
-  // ── Restore app data with activity logging ─────────────────────────
   const restoreAppData = async (backup: FullBackup) => {
     setBackupLogs([]);
     addBackupLog("🔄 Starting restore...");
@@ -438,6 +530,56 @@ export default function SettingsScreen() {
       addBackupLog("⚠️ No chapters to restore");
     }
 
+    // ── RESTORE COVERS ──
+    if (backup.covers && backup.covers.length > 0) {
+      addBackupLog(`🖼️ Restoring ${backup.covers.length} novel covers...`);
+      await ensureDir(COVERS_DIR);
+      
+      let coversRestored = 0;
+      let coversFailed = 0;
+      
+      for (const cover of backup.covers) {
+        if (cover.coverBase64) {
+          const coverPath = `${COVERS_DIR}${cover.fileName}`;
+          const success = await saveBase64AsImage(cover.coverBase64, coverPath);
+          if (success) {
+            coversRestored++;
+            addBackupLog(`   ✅ ${cover.fileName}`);
+          } else {
+            coversFailed++;
+            addBackupLog(`   ❌ Failed: ${cover.fileName}`);
+          }
+        } else {
+          coversFailed++;
+          addBackupLog(`   ⚠️ No image data for ${cover.fileName}`);
+        }
+      }
+      
+      addBackupLog(`📊 Covers restored: ${coversRestored} ✅, ${coversFailed} ❌`);
+      
+      // Update novel objects with correct local cover paths
+      addBackupLog(`🔄 Updating novel cover references...`);
+      if (backup.libraryData && Array.isArray(backup.libraryData)) {
+        for (const novel of backup.libraryData) {
+          const matchingCover = backup.covers.find(c => c.novelId === novel.id);
+          if (matchingCover) {
+            novel.coverUrl = `${COVERS_DIR}${matchingCover.fileName}`;
+          }
+        }
+        await FileSystem.writeAsStringAsync(
+          `${APP_DATA_DIR}novel_library_v1.json`,
+          JSON.stringify(backup.libraryData)
+        );
+        addBackupLog(`✅ Novel cover references updated`);
+      }
+      
+      if (backup.metadata.totalCoverSize) {
+        addBackupLog(`💾 Total cover size: ${(backup.metadata.totalCoverSize / (1024 * 1024)).toFixed(2)} MB`);
+      }
+    } else {
+      addBackupLog("⚠️ No covers to restore");
+    }
+
     if (backup.asyncStorageData) {
       addBackupLog("📦 Restoring legacy data...");
       const AsyncStorage = await getAsyncStorage();
@@ -487,13 +629,19 @@ export default function SettingsScreen() {
       addBackupLog(`✅ Backup saved: ${filename} (${sizeMB} MB)`);
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
+      let coverInfo = "";
+      if (backup.metadata.includesCovers) {
+        coverInfo = `\n🖼️ ${backup.covers.length} covers (${(backup.metadata.totalCoverSize / (1024 * 1024)).toFixed(2)} MB)`;
+      }
+      
       Alert.alert(
         "Backup Complete ✓",
         `Saved to: ${filename}\n\n` +
         `📚 ${backup.metadata.novelCount} novels\n` +
-        `📄 ${backup.metadata.totalChapters} chapters\n` +
+        `📄 ${backup.metadata.totalChapters} chapters${coverInfo}\n` +
         `💾 ${sizeMB} MB\n\n` +
-        `All data backed up including legacy AsyncStorage content.`,
+        `All data backed up including covers and legacy AsyncStorage content.`,
         [
           { text: "OK" },
           {
@@ -503,7 +651,7 @@ export default function SettingsScreen() {
               if (canShare) {
                 await Sharing.shareAsync(backupPath, {
                   mimeType: "application/json",
-                  dialogTitle: "Share NovelDRr Backup"
+                  dialogTitle: "Share NovelDR Backup"
                 });
               }
             },
@@ -553,10 +701,21 @@ export default function SettingsScreen() {
   const handleImportBackup = async (filename: string) => {
     const backupPath = `${BACKUP_DIR}${filename}`;
     
+    let coverInfo = "";
+    try {
+      const rawPreview = await FileSystem.readAsStringAsync(backupPath);
+      const preview = JSON.parse(rawPreview);
+      if (preview.metadata?.includesCovers) {
+        coverInfo = `\n🖼️ Includes ${preview.covers?.length || 0} novel covers (${(preview.metadata.totalCoverSize / (1024 * 1024)).toFixed(2)} MB)`;
+      }
+    } catch (e) {
+      // Ignore preview errors
+    }
+    
     Alert.alert(
       "Restore Backup",
       `This will replace ALL current data with the backup.\n\n` +
-      `"${filename}"\n\n` +
+      `"${filename}"${coverInfo}\n\n` +
       `⚠️ Current data will be overwritten. Continue?`,
       [
         { text: "Cancel", style: "cancel" },
@@ -572,7 +731,7 @@ export default function SettingsScreen() {
               const backup: FullBackup = JSON.parse(raw);
 
               if (!backup.metadata || !backup.libraryData) {
-                Alert.alert("Invalid Backup", "This file is not a valid NovelDRr backup.");
+                Alert.alert("Invalid Backup", "This file is not a valid NovelDR backup.");
                 return;
               }
 
@@ -584,6 +743,7 @@ export default function SettingsScreen() {
                 `Successfully restored:\n\n` +
                 `📚 ${backup.metadata.novelCount} novels\n` +
                 `📄 ${backup.metadata.totalChapters} chapters\n` +
+                (backup.metadata.includesCovers ? `🖼️ ${backup.covers?.length || 0} covers\n` : "") +
                 (backup.asyncStorageData ? `🔄 Legacy data also restored\n\n` : "\n") +
                 `Please refresh the Library by pulling or pressing the refresh button.`,
                 [
@@ -635,7 +795,7 @@ export default function SettingsScreen() {
                 const backup: FullBackup = JSON.parse(raw);
 
                 if (!backup.metadata || !backup.libraryData) {
-                  Alert.alert("Invalid Backup", "This file is not a valid NovelDRr backup.");
+                  Alert.alert("Invalid Backup", "This file is not a valid NovelDR backup.");
                   return;
                 }
 
@@ -812,11 +972,16 @@ export default function SettingsScreen() {
           <ThemeButton label="Light" icon="sunny" themeKey="light" active={theme === "light"} onPress={() => handleThemeChange("light")} />
           <ThemeButton label="Sepia" icon="book" themeKey="sepia" active={theme === "sepia"} onPress={() => handleThemeChange("sepia")} />
         </View>
+        <View style={styles.themeRowSecond}>
+          <ThemeButton label="AMOLED" icon="phone-portrait" themeKey="amoled" active={theme === "amoled"} onPress={() => handleThemeChange("amoled")} />
+          <ThemeButton label="Warm" icon="cafe-outline" themeKey="warm" active={theme === "warm"} onPress={() => handleThemeChange("warm")} />
+          <ThemeButton label="Slate" icon="cloudy-night-outline" themeKey="slate" active={theme === "slate"} onPress={() => handleThemeChange("slate")} />
+        </View>
 
         <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>BACKUP & RESTORE</Text>
         <View style={[styles.backupCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.backupDesc, { color: colors.textSecondary }]}>
-            Creates a complete backup of all app data including novels, chapters, reading progress, settings, and legacy
+            Creates a complete backup of all app data including novels, chapters, covers, reading progress, settings, and legacy
             AsyncStorage data. Everything is stored in a single file for easy sharing and restoration.
           </Text>
 
@@ -829,7 +994,6 @@ export default function SettingsScreen() {
             </View>
           )}
 
-          {/* Backup Activity Log */}
           {backupLogs.length > 0 && (
             <View style={[styles.backupActivityLog, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <View style={styles.backupActivityLogHeader}>
@@ -943,9 +1107,16 @@ export default function SettingsScreen() {
                         {tag || "No label"}
                       </Text>
                       {backup.metadata && (
-                        <Text style={[styles.backupItemStats, { color: colors.textMuted }]}>
-                          {backup.metadata.novelCount} novels • {backup.metadata.totalChapters} chapters
-                        </Text>
+                        <View style={{ gap: 2 }}>
+                          <Text style={[styles.backupItemStats, { color: colors.textMuted }]}>
+                            {backup.metadata.novelCount} novels • {backup.metadata.totalChapters} chapters
+                          </Text>
+                          {backup.metadata.includesCovers && (
+                            <Text style={[styles.backupItemStats, { color: colors.textMuted }]}>
+                              🖼️ Covers included • {(backup.metadata.totalCoverSize / (1024 * 1024)).toFixed(2)} MB
+                            </Text>
+                          )}
+                        </View>
                       )}
                     </View>
                     <View style={styles.backupItemActions}>
@@ -1010,65 +1181,14 @@ export default function SettingsScreen() {
           </View>
         )}
 
-        <Modal visible={showDevProfile} transparent animationType="fade">
-          <View style={styles.modalOverlay}>
-            <View style={[styles.devCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-              <View style={styles.devHeader}>
-                <Text style={[styles.devTitle, { color: colors.text }]}>About Developer</Text>
-                <Pressable onPress={() => setShowDevProfile(false)}>
-                  <Ionicons name="close" size={24} color={colors.textSecondary} />
-                </Pressable>
-              </View>
-
-              <View style={styles.devProfileRow}>
-                <View style={[styles.profileImage, { backgroundColor: colors.accent + "20" }]}>
-                  <Ionicons name="person" size={40} color={colors.accent} />
-                </View>
-                <View style={styles.devInfo}>
-                  <Text style={[styles.devLabel, { color: colors.textMuted }]}>Name</Text>
-                  <Text style={[styles.devValue, { color: colors.text }]}>Moggs</Text>
-                </View>
-              </View>
-
-              <Pressable
-                style={styles.devLinkRow}
-                onPress={() => Linking.openURL("https://moggle.is-a-good.dev/")}
-              >
-                <Text style={[styles.devLinkLabel, { color: colors.textSecondary }]}>Website:</Text>
-                <Text style={[styles.devLinkText, { color: colors.accent }]}>NovelDR Site</Text>
-                <Ionicons name="open-outline" size={14} color={colors.accent} />
-              </Pressable>
-
-              <Pressable
-                style={styles.devLinkRow}
-                onPress={() => Linking.openURL("https://github.com/Moggle-Khraum/noveldr-site/releases")}
-              >
-                <Text style={[styles.devLinkLabel, { color: colors.textSecondary }]}>Github:</Text>
-                <Text style={[styles.devLinkText, { color: colors.accent }]}>Github/Releases</Text>
-                <Ionicons name="open-outline" size={14} color={colors.accent} />
-              </Pressable>
-
-              <Text style={[styles.devIssueText, { color: colors.textSecondary }]}>
-                For any suggestions / issues / bugs, please write a comment on Github.
-              </Text>
-            </View>
-          </View>
-        </Modal>
-
         <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>ABOUT</Text>
         <View style={[styles.aboutCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.aboutRow}>
             <Ionicons name="globe" size={16} color={colors.accent} />
             <Text style={[styles.aboutText, { color: colors.text }]}>
-              Download novels from popular supported sites & more to come.
+              Download novels from popular supported sites. More sites coming soon.
             </Text>
           </View>
-          {["ReadNovelFull.com", "NovelFull.net", "FreeWebNovel.com", "Novelbin.com", "LightNovelWorld.org", "NovelFull.com", "AllNovel.org", "Novgo.net"].map((site) => (
-            <View key={site} style={styles.aboutRow}>
-              <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
-              <Text style={[styles.aboutSite, { color: colors.textSecondary }]}>{site}</Text>
-            </View>
-          ))}
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
           <View style={styles.aboutRow}>
             <Ionicons name="eye" size={16} color={colors.accent} />
@@ -1090,11 +1210,151 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        {/* Report Issue Button */}
+        <Pressable
+          style={[styles.reportBtn, { borderColor: colors.border, backgroundColor: colors.surface }]}
+          onPress={() => setShowBugReport(true)}
+        >
+          <Ionicons name="bug-outline" size={18} color={colors.accent} />
+          <Text style={[styles.reportBtnText, { color: colors.text }]}>Report Issue / Feedback</Text>
+        </Pressable>
+
         <View style={[styles.versionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Text style={[styles.versionText, { color: colors.textMuted }]}>Novel DR — v1.4.4-rev175</Text>
+          <Text style={[styles.versionText, { color: colors.textMuted }]}>
+            Novel DR — v{Application.nativeApplicationVersion ?? "1.4.6"}
+            {Application.nativeBuildVersion ? ` (build ${Application.nativeBuildVersion})` : ""}
+          </Text>
           <Text style={[styles.madeByText, { color: colors.textMuted }]}>Made by Moggs ☕</Text>
         </View>
       </ScrollView>
+
+      {/* Bug Report Modal */}
+      <Modal visible={showBugReport} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.bugModalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.bugModalHeader}>
+              <Text style={[styles.bugModalTitle, { color: colors.text }]}>Report an Issue</Text>
+              <Pressable onPress={() => setShowBugReport(false)}>
+                <Ionicons name="close" size={24} color={colors.textSecondary} />
+              </Pressable>
+            </View>
+
+            <Text style={[styles.bugLabel, { color: colors.textSecondary }]}>Alias (optional)</Text>
+            <TextInput
+              style={[styles.bugInput, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
+              placeholder="e.g. NovelReader123"
+              placeholderTextColor={colors.textMuted}
+              value={alias}
+              onChangeText={setAlias}
+            />
+
+            <Text style={[styles.bugLabel, { color: colors.textSecondary }]}>What's the problem?</Text>
+            <TextInput
+              style={[styles.bugTextArea, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
+              placeholder="Describe the issue in detail...\n- What were you doing?\n- What did you expect to happen?\n- Any error messages?"
+              placeholderTextColor={colors.textMuted}
+              multiline
+              numberOfLines={6}
+              textAlignVertical="top"
+              value={bugDescription}
+              onChangeText={setBugDescription}
+            />
+
+            <View style={styles.bugButtonsRow}>
+              <Pressable
+                style={[styles.bugCancelBtn, { borderColor: colors.border, backgroundColor: colors.surface }]}
+                onPress={() => {
+                  setShowBugReport(false);
+                  setAlias("");
+                  setBugDescription("");
+                }}
+              >
+                <Text style={[styles.bugCancelText, { color: colors.textSecondary }]}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.bugSendBtn, { backgroundColor: colors.accent }]}
+                onPress={() => {
+                  if (!bugDescription.trim()) {
+                    Alert.alert("Missing Info", "Please describe the problem before sending.");
+                    return;
+                  }
+                  const appVersion = Application.nativeApplicationVersion ?? "1.4.6";
+                  const emailSubject = encodeURIComponent(`Bug Report from NovelDR (${alias || "Anonymous"})`);
+                  const emailBody = encodeURIComponent(
+                    `Alias: ${alias || "Anonymous"}\n\nDescription:\n${bugDescription}\n\n---\nApp Version: ${appVersion}\nDevice: ${Platform.OS} ${Platform.Version}`
+                  );
+                  const mailtoUrl = `mailto:noveldrapp.concerns@gmail.com?subject=${emailSubject}&body=${emailBody}`;
+                  Linking.openURL(mailtoUrl).catch(() => {
+                    Alert.alert(
+                      "Email Client Required",
+                      "No email app found. Please send your report manually to: noveldrapp.concerns@gmail.com"
+                    );
+                  });
+                  setShowBugReport(false);
+                  setAlias("");
+                  setBugDescription("");
+                }}
+              >
+                <Ionicons name="send-outline" size={16} color="#fff" />
+                <Text style={styles.bugSendText}>Send Report</Text>
+              </Pressable>
+            </View>
+            <Text style={[styles.bugFooter, { color: colors.textMuted }]}>
+              This will open your email app. Internet connection required.
+            </Text>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Developer Profile Modal */}
+      <Modal visible={showDevProfile} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.devCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.devHeader}>
+              <Text style={[styles.devTitle, { color: colors.text }]}>About Developer</Text>
+              <Pressable onPress={() => setShowDevProfile(false)}>
+                <Ionicons name="close" size={24} color={colors.textSecondary} />
+              </Pressable>
+            </View>
+
+            <View style={styles.devProfileRow}>
+              <View style={[styles.profileImage, { backgroundColor: colors.accent + "20" }]}>
+                <Ionicons name="person" size={40} color={colors.accent} />
+              </View>
+              <View style={styles.devInfo}>
+                <Text style={[styles.devLabel, { color: colors.textMuted }]}>Name</Text>
+                <Text style={[styles.devValue, { color: colors.text }]}>Moggs</Text>
+              </View>
+              <View style={styles.devInfo}>
+                <Text style={[styles.devLabel, { color: colors.textMuted }]}>Email</Text>
+                <Text style={[styles.devValue, { color: colors.text }]}>noveldrapp.concerns@gmail.com</Text>
+              </View>
+            </View>
+
+            <Pressable
+              style={styles.devLinkRow}
+              onPress={() => Linking.openURL("https://moggle.is-a-good.dev/")}
+            >
+              <Text style={[styles.devLinkLabel, { color: colors.textSecondary }]}>Website:</Text>
+              <Text style={[styles.devLinkText, { color: colors.accent }]}>NovelDR Site</Text>
+              <Ionicons name="open-outline" size={14} color={colors.accent} />
+            </Pressable>
+
+            <Pressable
+              style={styles.devLinkRow}
+              onPress={() => Linking.openURL("https://github.com/Moggle-Khraum/noveldr-site/releases")}
+            >
+              <Text style={[styles.devLinkLabel, { color: colors.textSecondary }]}>Github:</Text>
+              <Text style={[styles.devLinkText, { color: colors.accent }]}>Github/Releases</Text>
+              <Ionicons name="open-outline" size={14} color={colors.accent} />
+            </Pressable>
+
+            <Text style={[styles.devIssueText, { color: colors.textSecondary }]}>
+              For any suggestions / issues / bugs, please use Github Issues or the Report Issue button.
+            </Text>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1139,7 +1399,8 @@ const styles = StyleSheet.create({
   statDivider: { width: StyleSheet.hairlineWidth, marginVertical: 4 },
   statValue: { fontFamily: "Inter_700Bold", fontSize: 24 },
   statLabel: { fontFamily: "Inter_400Regular", fontSize: 12, marginTop: 2 },
-  themeRow: { flexDirection: "row", gap: 10 },
+  themeRow: { flexDirection: "row", gap: 10, marginBottom: 10 },
+  themeRowSecond: { flexDirection: "row", gap: 10 },
   themeBtn: {
     flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
     gap: 6, paddingVertical: 12, borderRadius: 12, borderWidth: 1,
@@ -1168,7 +1429,6 @@ const styles = StyleSheet.create({
   },
   backupBtnText: { fontFamily: "Inter_600SemiBold", fontSize: 13, color: "#fff" },
   backupHint: { fontFamily: "Inter_400Regular", fontSize: 12, textAlign: "center" },
-  // Backup Activity Log
   backupActivityLog: {
     borderRadius: 10, borderWidth: StyleSheet.hairlineWidth,
     padding: 10, maxHeight: 200, minHeight: 100,
@@ -1200,8 +1460,8 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
     fontFamily: "Inter_400Regular", fontSize: 14,
   },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 20 },
-  devCard: { borderRadius: 20, borderWidth: 1, padding: 20, gap: 16 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  devCard: { borderRadius: 20, borderWidth: 1, padding: 20, gap: 16, width: '100%', maxWidth: 380 },
   devHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
   devTitle: { fontFamily: "Inter_700Bold", fontSize: 18 },
   devProfileRow: { flexDirection: "row", alignItems: "center", gap: 16, marginBottom: 8 },
@@ -1213,4 +1473,95 @@ const styles = StyleSheet.create({
   devLinkLabel: { fontFamily: "Inter_500Medium", fontSize: 14 },
   devLinkText: { fontFamily: "Inter_500Medium", fontSize: 14, textDecorationLine: "underline" },
   devIssueText: { fontFamily: "Inter_400Regular", fontSize: 13, lineHeight: 18, marginTop: 8, textAlign: "center" },
+  // Bug report styles
+  reportBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 8,
+  },
+  reportBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+  },
+  bugModalCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 20,
+    gap: 12,
+    width: '100%',
+    maxWidth: 400,
+  },
+  bugModalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  bugModalTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 18,
+  },
+  bugLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    marginBottom: 4,
+  },
+  bugInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+  },
+  bugTextArea: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    minHeight: 120,
+  },
+  bugButtonsRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 8,
+  },
+  bugCancelBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: "center",
+  },
+  bugCancelText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+  },
+  bugSendBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  bugSendText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: "#fff",
+  },
+  bugFooter: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    textAlign: "center",
+    marginTop: 8,
+  },
 });
