@@ -167,26 +167,32 @@ function NovelCard({
             </Text>
           </View>
 
-          {/* Progress row with button (like your image) */}
+          
+          {/* Progress row with button */}
           <View style={styles.progressRow}>
             <View style={styles.progressLeft}>
               <Text style={[styles.progressText, { color: colors.textSecondary }]}>
                 Ch. {currentChapter}/{totalChapters}
               </Text>
               <View style={styles.progressBarContainer}>
-                <View 
+                <View
                   style={[
-                    styles.progressBar, 
-                    { width: `${progressPercent}%`, backgroundColor: colors.accent }
-                  ]} 
+                    styles.progressBar,
+                    { width: `${progressPercent}%`, backgroundColor: colors.accent },
+                  ]}
                 />
               </View>
             </View>
-            <Pressable 
+
+            <Pressable
               style={[styles.continueButton, { backgroundColor: colors.accent }]}
-              onPress={onPress}
+              onPress={() => {
+                router.push({ pathname: "/novel/[id]", params: { id: novel.id } });
+              }}
             >
-              <Text style={styles.continueButtonText}>Continue</Text>
+              <Text style={styles.continueButtonText}>
+                {currentChapter === 0 ? "Read" : "Continue"}
+              </Text>
             </Pressable>
           </View>
         </View>
