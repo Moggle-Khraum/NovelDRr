@@ -29,7 +29,10 @@ const TTS_SETTINGS_FILE = `${FileSystem.documentDirectory}NovelDR/tts_simple_set
 const TTS_MIN_CHARS = 500;
 
 function splitIntoSentences(text: string): string[] {
-  const raw = text.match(/[^.!?…]+[.!?…]+|[^.!?…]+$/g) ?? [];
+  // Remove quotes from text for TTS
+  const cleanText = text.replace(/[""'']/g, '');
+  
+  const raw = cleanText.match(/[^.!?…]+[.!?…]+|[^.!?…]+$/g) ?? [];
   const sentences: string[] = [];
   for (const chunk of raw) {
     const trimmed = chunk.trim();
@@ -470,13 +473,17 @@ export default function ReaderScreen() {
                 let lastIndex = 0;
                 
                 ttsSentences.forEach((sentence, sentIdx) => {
-                  const index = line.indexOf(sentence);
+                  // Clean line and sentence for matching (remove quotes)
+                  const cleanLine = line.replace(/[""'']/g, '');
+                  const cleanSentence = sentence.replace(/[""'']/g, '');
+                  
+                  const index = cleanLine.indexOf(cleanSentence);
                   if (index !== -1) {
                     if (index > lastIndex) {
                       parts.push({ text: line.substring(lastIndex, index), isCurrent: false });
                     }
-                    parts.push({ text: sentence, isCurrent: sentIdx === ttsIndex });
-                    lastIndex = index + sentence.length;
+                    parts.push({ text: line.substring(index, index + cleanSentence.length), isCurrent: sentIdx === ttsIndex });
+                    lastIndex = index + cleanSentence.length;
                   }
                 });
                 
