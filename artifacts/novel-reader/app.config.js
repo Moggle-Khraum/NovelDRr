@@ -1,4 +1,4 @@
-// app.config.js
+// artifacts/novel-reader/app.config.js
 export default () => {
   const buildNumber = process.env.APP_BUILD_NUMBER || '1';
 
@@ -6,7 +6,7 @@ export default () => {
     expo: {
       name: "Novel DR",
       slug: "novel-reader",
-      version: "2.5.18",
+      version: "1.4.4",
       orientation: "portrait",
       icon: "./assets/images/icon.png",
       scheme: "novel-reader",
@@ -19,11 +19,11 @@ export default () => {
       },
       ios: {
         supportsTablet: false,
-        buildNumber: buildNumber                       // ← adds build number for iOS
+        buildNumber: buildNumber
       },
       android: {
         package: "com.noveldr.app",
-        versionCode: parseInt(buildNumber, 10)        // ← adds version code for Android
+        versionCode: parseInt(buildNumber, 10)
       },
       web: {
         favicon: "./assets/images/icon.png"
@@ -41,6 +41,11 @@ export default () => {
       experiments: {
         typedRoutes: true,
         reactCompiler: true
+      },
+      extra: {
+        eas: {
+          projectId: "37b1e412-ff1c-47a2-993c-3b9e644f1770"
+        }
       }
     }
   };
