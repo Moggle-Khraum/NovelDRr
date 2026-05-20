@@ -1325,10 +1325,6 @@ export default function SettingsScreen() {
                 <Text style={[styles.devLabel, { color: colors.textMuted }]}>Name</Text>
                 <Text style={[styles.devValue, { color: colors.text }]}>Moggs</Text>
               </View>
-              <View style={styles.devInfo}>
-                <Text style={[styles.devLabel, { color: colors.textMuted }]}>Email</Text>
-                <Text style={[styles.devValue, { color: colors.text }]}>noveldrapp.concerns@gmail.com</Text>
-              </View>
             </View>
 
             <Pressable
@@ -1348,6 +1344,7 @@ export default function SettingsScreen() {
               <Text style={[styles.devLinkText, { color: colors.accent }]}>Github/Releases</Text>
               <Ionicons name="open-outline" size={14} color={colors.accent} />
             </Pressable>
+            
 
             <Text style={[styles.devIssueText, { color: colors.textSecondary }]}>
               For any suggestions / issues / bugs, please use Github Issues or the Report Issue button.
