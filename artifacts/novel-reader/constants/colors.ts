@@ -26,22 +26,22 @@ const palette = {
   downloading: "#0A84FF",
 };
 
-export type Theme = "dark" | "light" | "sepia";
+export type Theme = "dark" | "light" | "sepia" | "amoled" | "warm" | "slate";
 
 export const ThemeColors = {
   dark: {
-    background: palette.charcoal,
-    surface: palette.darkSurface,
-    card: palette.darkCard,
-    border: palette.darkBorder,
-    text: palette.white,
-    textSecondary: "#AAAAAA",
-    textMuted: "#666666",
-    accent: palette.orange,
-    accentLight: palette.orangeLight,
-    tabBar: palette.darkSurface,
-    icon: "#AAAAAA",
-    iconActive: palette.orange,
+    background: "#0A0E1A",
+    surface: "#111624",
+    card: "#151C2A",
+    border: "#1F2636",
+    text: "#E8EDFF",
+    textSecondary: "#9AA4C4",
+    textMuted: "#5C6680",
+    accent: "#FF6B35",
+    accentLight: "#FF8C5A",
+    tabBar: "#111624",
+    icon: "#9AA4C4",
+    iconActive: "#FF6B35",  
   },
   light: {
     background: palette.offWhite,
@@ -70,6 +70,49 @@ export const ThemeColors = {
     tabBar: palette.sepiaCard,
     icon: "#8B7355",
     iconActive: palette.sepiaAccent,
+  },
+  // NEW THEMES START HERE
+  amoled: {
+    background: "#000000", // Pure black for AMOLED
+    surface: "#0A0A0A",
+    card: "#0F0F0F",
+    border: "#1A1A1A",
+    text: "#FFFFFF",
+    textSecondary: "#B0B0B0",
+    textMuted: "#707070",
+    accent: "#00E5FF", // Cyan accent for AMOLED
+    accentLight: "#33EBFF",
+    tabBar: "#000000",
+    icon: "#B0B0B0",
+    iconActive: "#00E5FF",
+  },
+  warm: {
+    background: "#1A1008",
+    surface: "#221508",
+    card: "#2A1C0F",
+    border: "#3D2A15",
+    text: "#FFE8CC",
+    textSecondary: "#C4956A",
+    textMuted: "#7A5535",
+    accent: "#FF8C42",
+    accentLight: "#FFA96A",
+    tabBar: "#221508",
+    icon: "#C4956A",
+    iconActive: "#FF8C42",
+  },
+  slate: {
+    background: "#1E2430",
+    surface: "#252D3D",
+    card: "#2C3548",
+    border: "#3A4560",
+    text: "#D4DAEA",
+    textSecondary: "#8A97B0",
+    textMuted: "#556070",
+    accent: "#7EB8D4",
+    accentLight: "#A2CCE0",
+    tabBar: "#252D3D",
+    icon: "#8A97B0",
+    iconActive: "#7EB8D4",
   },
 };
 
