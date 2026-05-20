@@ -1251,7 +1251,7 @@ export default function SettingsScreen() {
             <Text style={[styles.bugLabel, { color: colors.textSecondary }]}>What's the problem?</Text>
             <TextInput
               style={[styles.bugTextArea, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
-              placeholder="Describe the issue in detail...\n- What were you doing?\n- What did you expect to happen?\n- Any error messages?"
+              placeholder="Please the describe the issue in detail... what sorts of problem have you encountered?"
               placeholderTextColor={colors.textMuted}
               multiline
               numberOfLines={6}
