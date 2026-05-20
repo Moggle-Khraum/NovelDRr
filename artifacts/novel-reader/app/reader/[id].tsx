@@ -29,20 +29,41 @@ const TTS_SETTINGS_FILE = `${FileSystem.documentDirectory}NovelDR/tts_simple_set
 const TTS_MIN_CHARS = 500;
 
 function splitIntoSentences(text: string): string[] {
-  // Remove quotes from text for TTS
-  const cleanText = text.replace(/[""'']/g, '');
+  // Replace smart quotes with regular quotes
+  let cleanText = text.replace(/[""'']/g, '"');
   
-  const raw = cleanText.match(/[^.!?…]+[.!?…]+|[^.!?…]+$/g) ?? [];
+  // Replace common symbols with words for TTS
+  cleanText = cleanText.replace(/→|->|=>|→/g, ' to ');
+  cleanText = cleanText.replace(/←|<-|<=/g, ' from ');
+  cleanText = cleanText.replace(/↔|<->/g, ' between ');
+  
+  // Split by sentence-ending punctuation
+  const raw = cleanText.match(/[^.!?…\n]+[.!?…]*|[^\n]+/g) ?? [];
   const sentences: string[] = [];
+  
   for (const chunk of raw) {
     const trimmed = chunk.trim();
     if (trimmed.length <= 1) continue;
-    const sub = trimmed.match(/[^,;]+[,;]?/g) ?? [trimmed];
-    for (const s of sub) {
-      const st = s.trim();
-      if (st.length >= 8) sentences.push(st);
+    
+    // Check if this line has multiple segments separated by newlines or double spaces
+    // (like stat blocks: "Name: Value\nEssence: Value")
+    if (trimmed.includes('\n') || trimmed.match(/\s{2,}/)) {
+      // Split by newlines and multiple spaces
+      const segments = trimmed.split(/\n+|\s{2,}/).filter(s => s.trim().length > 0);
+      segments.forEach(segment => {
+        const seg = segment.trim();
+        if (seg.length >= 2) sentences.push(seg);
+      });
+    } else {
+      // Normal sentence splitting by commas and semicolons
+      const sub = trimmed.match(/[^,;]+[,;]?/g) ?? [trimmed];
+      for (const s of sub) {
+        const st = s.trim();
+        if (st.length >= 2) sentences.push(st);
+      }
     }
   }
+  
   return sentences;
 }
 
@@ -472,12 +493,17 @@ export default function ReaderScreen() {
                 const parts: any[] = [];
                 let lastIndex = 0;
                 
+                // Normalize the line for matching (replace symbols with words)
+                const normalizedLine = line
+                  .replace(/→|->|=>|→/g, ' to ')
+                  .replace(/←|<-|<=/g, ' from ')
+                  .replace(/↔|<->/g, ' between ');
+                
                 ttsSentences.forEach((sentence, sentIdx) => {
-                  // Clean line and sentence for matching (remove quotes)
-                  const cleanLine = line.replace(/[""'']/g, '');
-                  const cleanSentence = sentence.replace(/[""'']/g, '');
+                  // Clean sentence for matching
+                  const cleanSentence = sentence.replace(/[""'']/g, '"');
                   
-                  const index = cleanLine.indexOf(cleanSentence);
+                  const index = normalizedLine.indexOf(cleanSentence);
                   if (index !== -1) {
                     if (index > lastIndex) {
                       parts.push({ text: line.substring(lastIndex, index), isCurrent: false });
