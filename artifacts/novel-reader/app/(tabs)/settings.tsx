@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as FileSystem from "expo-file-system";
 import * as Sharing from "expo-sharing";
+import Constants from 'expo-constants';
 import * as DocumentPicker from "expo-document-picker";
 import * as Application from "expo-application";
 import * as IntentLauncher from "expo-intent-launcher";
@@ -1221,7 +1222,8 @@ export default function SettingsScreen() {
 
         <View style={[styles.versionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <Text style={[styles.versionText, { color: colors.textMuted }]}>
-            Novel DR — v{Application.nativeApplicationVersion ?? "1.4.6"}
+            Novel DR — v{Constants.expoConfig?.version ?? "2.5.18"}
+            const appVersion = Constants.expoConfig?.version ?? "2.5.18";
             {Application.nativeBuildVersion ? ` (build ${Application.nativeBuildVersion})` : ""}
           </Text>
           <Text style={[styles.madeByText, { color: colors.textMuted }]}>Made by Moggs ☕</Text>
@@ -1278,7 +1280,8 @@ export default function SettingsScreen() {
                     Alert.alert("Missing Info", "Please describe the problem before sending.");
                     return;
                   }
-                  const appVersion = Application.nativeApplicationVersion ?? "1.4.6";
+                  
+                  const appVersion = Constants.expoConfig?.version ?? "2.5.18";
                   const emailSubject = encodeURIComponent(`Bug Report from NovelDR (${alias || "Anonymous"})`);
                   const emailBody = encodeURIComponent(
                     `Alias: ${alias || "Anonymous"}\n\nDescription:\n${bugDescription}\n\n---\nApp Version: ${appVersion}\nDevice: ${Platform.OS} ${Platform.Version}`
